@@ -1,0 +1,831 @@
+@import "tailwindcss";
+@reference "tailwindcss/utilities";
+
+@theme {
+  /* Custom grays used by AI Studio */
+  --color-gray-750: #2d3748;
+  --color-gray-850: #1a1e27;
+}
+
+/* 🔒 ФИКСЫ ДЛЯ AI STUDIO CHAT КОНТЕЙНЕРА */
+.chat-scrollbar {
+  scrollbar-width: thin;
+  scrollbar-color: rgba(59, 130, 246, 0.5) rgba(31, 41, 55, 0.3);
+}
+
+.chat-scrollbar::-webkit-scrollbar {
+  width: 6px;
+}
+
+.chat-scrollbar::-webkit-scrollbar-track {
+  background: rgba(31, 41, 55, 0.3);
+  border-radius: 3px;
+}
+
+.chat-scrollbar::-webkit-scrollbar-thumb {
+  background: rgba(59, 130, 246, 0.5);
+  border-radius: 3px;
+}
+
+.chat-scrollbar::-webkit-scrollbar-thumb:hover {
+  background: rgba(59, 130, 246, 0.8);
+}
+
+/* 🔒 СТРОГИЙ КОНТРОЛЬ OVERFLOW ДЛЯ СООБЩЕНИЙ */
+.chat-message-enter {
+  overflow-wrap: break-word;
+  word-wrap: break-word;
+  word-break: break-word;
+  hyphens: auto;
+}
+
+/* 🔒 КОНТРОЛЬ MARKDOWN ЭЛЕМЕНТОВ */
+.chat-message-enter pre {
+  max-width: 100% !important;
+  overflow-x: auto !important;
+}
+
+.chat-message-enter table {
+  max-width: 100% !important;
+  table-layout: fixed !important;
+}
+
+.chat-message-enter td, 
+.chat-message-enter th {
+  word-break: break-word !important;
+}
+
+/* 🔒 ПРЕДОТВРАЩЕНИЕ РАСШИРЕНИЯ КОНТЕЙНЕРА */
+.chat-container-fixed {
+  contain: layout style paint;
+}
+
+/* 🔒 РАЗДЕЛЕНИЕ ПРОЦЕССИНГА И RESIZE */
+.chat-processing .chat-container-fixed {
+  transition: none !important;
+}
+
+.message-reasoning {
+  font-style: italic;
+  opacity: 0.8;
+}
+
+/* 🔧 ДОПОЛНИТЕЛЬНЫЕ ФИКСЫ СТАБИЛЬНОСТИ */
+.chat-container-fixed * {
+  box-sizing: border-box;
+}
+
+.chat-container-fixed .prose {
+  contain: layout style;
+  overflow-wrap: anywhere;
+}
+
+/* 🔒 БЛОКИРОВКА РАСШИРЕНИЯ FLEX ЭЛЕМЕНТОВ */
+.chat-container-fixed .flex-1 {
+  min-width: 0;
+  min-height: 0;
+}
+
+/* 🔒 ПРИНУДИТЕЛЬНОЕ ОГРАНИЧЕНИЕ КОНТЕНТА */
+.chat-container-fixed pre,
+.chat-container-fixed code,
+.chat-container-fixed table {
+  max-width: 100% !important;
+  overflow: auto !important;
+}
+
+/* 🔒 СТАБИЛИЗАЦИЯ АНИМАЦИЙ */
+.chat-processing * {
+  animation-play-state: paused !important;
+  transition: none !important;
+}
+
+/* 🚨 ЭКСТРЕМАЛЬНЫЕ ФИКСЫ ДЛЯ СТАБИЛИЗАЦИИ КОНТЕЙНЕРА */
+.chat-container-fixed {
+  contain: layout style size paint !important;
+  will-change: auto !important;
+  isolation: isolate !important;
+}
+
+.chat-container-fixed * {
+  contain: layout style !important;
+  box-sizing: border-box !important;
+}
+
+/* 🔒 ЖЕСТКОЕ ОГРАНИЧЕНИЕ ВСЕХ FLEX ЭЛЕМЕНТОВ */
+.chat-container-fixed .flex-1 {
+  flex: 1 1 0 !important;
+  min-width: 0 !important;
+  min-height: 0 !important;
+  max-width: 100% !important;
+  overflow: hidden !important;
+}
+
+/* 🔒 ПРИНУДИТЕЛЬНОЕ ОГРАНИЧЕНИЕ MARKDOWN */
+.chat-container-fixed .prose {
+  max-width: 100% !important;
+  overflow-wrap: anywhere !important;
+  word-break: break-word !important;
+  contain: layout style !important;
+}
+
+/* 🔧 НОРМАЛИЗАЦИЯ ВЕРСТКИ ТЕКСТА В ЧАТЕ */
+.chat-container-fixed .prose {
+  text-align: left;
+  line-height: 1.55;
+}
+
+.chat-container-fixed .prose :where(p, li) {
+  line-height: 1.6;
+}
+
+.chat-container-fixed .prose :where(h1, h2, h3, h4, h5, h6) {
+  text-align: left;
+}
+
+.chat-container-fixed .prose center {
+  text-align: left;
+}
+
+.chat-container-fixed .prose hr {
+  border: 0;
+  border-top: 1px solid rgba(148, 163, 184, 0.25);
+  margin: 0.9em 0;
+}
+
+.chat-container-fixed .prose a {
+  text-decoration: none;
+}
+
+.chat-container-fixed .prose a:hover {
+  text-decoration: underline;
+}
+
+/* Verified Fact pill */
+.verified-fact {
+  display: inline-block;
+  vertical-align: baseline;
+  line-height: 1;
+  transform: translateY(0.06em);
+}
+
+.verified-fact__pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.2em;
+  padding: 0.08em 0.35em;
+  border-radius: 0.4em;
+  border: 1px solid rgba(52, 211, 153, 0.35);
+  background: linear-gradient(135deg, rgba(6, 78, 59, 0.35), rgba(16, 185, 129, 0.15));
+  color: #bbf7d0;
+  box-shadow: 0 0 0 1px rgba(16, 185, 129, 0.08) inset;
+}
+
+.verified-fact__text {
+  line-height: 1.1;
+}
+
+.verified-fact__icon {
+  width: 0.9em;
+  height: 0.9em;
+  color: #34d399;
+  vertical-align: middle;
+}
+
+/* Голосовой ввод */
+.voice-button--active {
+  color: #f87171;
+  background: rgba(127, 29, 29, 0.35);
+  box-shadow: 0 0 0 1px rgba(248, 113, 113, 0.35) inset;
+}
+
+.chat-container-fixed .prose * {
+  max-width: 100% !important;
+  overflow: auto !important;
+  contain: layout !important;
+}
+
+/* 🔒 БЛОКИРОВКА РАСШИРЕНИЯ СООБЩЕНИЙ */
+.chat-container-fixed .chat-message-enter {
+  contain: layout style size !important;
+  max-width: 75% !important;
+  min-width: 0 !important;
+  width: fit-content !important;
+  overflow: hidden !important;
+}
+
+/* 🔒 ПРИНУДИТЕЛЬНАЯ СТАБИЛИЗАЦИЯ РАЗМЕРОВ */
+.chat-container-fixed > * {
+  flex-shrink: 0 !important;
+  flex-grow: 0 !important;
+}
+
+.chat-container-fixed > *:nth-child(2) {
+  flex: 1 1 0 !important;
+  min-width: 0 !important;
+  max-width: 100% !important;
+}
+
+/* Стили для ChatAgent */
+.chat-scrollbar::-webkit-scrollbar {
+  width: 6px;
+}
+
+.chat-scrollbar::-webkit-scrollbar-track {
+  background: #374151;
+  border-radius: 3px;
+}
+
+.chat-scrollbar::-webkit-scrollbar-thumb {
+  background: #6b7280;
+  border-radius: 3px;
+}
+
+.chat-scrollbar::-webkit-scrollbar-thumb:hover {
+  background: #9ca3af;
+}
+
+/* Анимации для чата */
+.chat-message-enter {
+  animation: chatMessageSlide 0.3s ease-out;
+}
+
+@keyframes chatMessageSlide {
+  from {
+    opacity: 0;
+    transform: translateY(10px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+/* Градиентные границы для активных элементов */
+.gradient-border {
+  position: relative;
+  background: linear-gradient(135deg, #3b82f6, #8b5cf6);
+  border-radius: 8px;
+  padding: 1px;
+}
+
+.gradient-border-content {
+  background: #1f2937;
+  border-radius: 7px;
+  padding: 12px;
+}
+
+::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+
+::-webkit-scrollbar-track {
+  background: #1f2937;
+}
+
+::-webkit-scrollbar-thumb {
+  background: #4b5563;
+  border-radius: 4px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: #6b7280;
+}
+
+.gradient-text {
+  background: linear-gradient(135deg, #3b82f6 0%, #8b5cf6 100%);
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  background-clip: text;
+}
+
+/* Стили для ExecutionView чата */
+.chat-header {
+  @apply p-4 border-b border-gray-700 bg-gray-850;
+}
+
+.chat-input-container {
+  @apply bg-gray-800 rounded-lg p-3 flex gap-3 items-end;
+}
+
+.user-message {
+  @apply bg-blue-900/30 border border-blue-700 rounded-lg p-4 mb-3;
+}
+
+.ai-message {
+  @apply bg-gray-800 border border-gray-700 rounded-lg p-4 mb-3;
+}
+
+.bg-gray-850 {
+  background-color: #1a1e27;
+}
+
+.bg-gray-750 {
+  background-color: #2d3748;
+}
+
+/* Стили для TableViewerModal и работы с таблицами */
+.modal-overlay {
+  @apply fixed inset-0 bg-black/50 flex items-center justify-center z-50;
+}
+
+.modal-content {
+  @apply bg-gray-800 rounded-lg max-w-6xl flex flex-col;
+  width: 90vw;
+  max-height: 83vh;
+}
+
+.table-viewer-modal {
+  @apply border border-gray-600;
+}
+
+.modal-header {
+  @apply flex items-center justify-between p-4 border-b border-gray-700;
+}
+
+.modal-header h3 {
+  @apply text-lg font-semibold text-white;
+}
+
+.modal-header-info {
+  @apply text-sm text-gray-400 ml-4;
+}
+
+.modal-close-btn {
+  @apply text-gray-400 hover:text-gray-200 text-2xl font-bold w-8 h-8 flex items-center justify-center rounded;
+}
+
+.table-controls {
+  @apply flex items-center justify-between p-4 border-b border-gray-700;
+}
+
+.search-input {
+  @apply flex-1 px-3 py-2 bg-gray-700 border border-gray-600 rounded-lg text-white placeholder-gray-400 focus:outline-none focus:border-blue-500;
+}
+
+.data-info {
+  @apply text-sm text-gray-400 ml-4;
+}
+
+.table-container {
+  @apply flex-1 overflow-auto p-4;
+}
+
+.data-table {
+  @apply w-full border-collapse;
+}
+
+.data-table th {
+  @apply bg-gray-700 text-left px-3 py-2 border border-gray-600 font-medium text-sm text-gray-200;
+  position: sticky;
+  top: 0;
+}
+
+.data-table td {
+  @apply px-3 py-2 border border-gray-600 text-sm text-gray-300;
+  max-width: 200px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.data-table tbody tr:hover {
+  @apply bg-gray-750;
+}
+
+.loading, .error, .no-data {
+  @apply text-center py-12;
+}
+
+.loading-spinner {
+  @apply w-8 h-8 border-4 border-blue-500 border-t-transparent rounded-full animate-spin mx-auto mb-4;
+}
+
+.pagination {
+  @apply flex items-center justify-between p-4 border-t border-gray-700;
+}
+
+.pagination button {
+  @apply px-4 py-2 bg-gray-700 hover:bg-gray-600 rounded transition-colors disabled:opacity-50 disabled:cursor-not-allowed;
+}
+
+.page-info {
+  @apply text-sm text-gray-400;
+}
+
+/* Стили для HistoricalWork */
+.historical-work {
+  @apply space-y-4;
+}
+
+.historical-header {
+  @apply bg-gray-800 rounded-lg p-4;
+}
+
+.stats-overview {
+  @apply flex gap-6 text-sm;
+}
+
+.stat-item {
+  @apply text-gray-300;
+}
+
+.historical-controls {
+  @apply flex gap-3 mb-4;
+}
+
+.filter-select, .sort-select {
+  @apply px-3 py-2 bg-gray-700 border border-gray-600 rounded text-white text-sm focus:outline-none focus:border-blue-500;
+}
+
+.file-transformation {
+  @apply bg-gray-800 rounded-lg border border-gray-700 overflow-hidden;
+}
+
+.file-header {
+  @apply p-4 cursor-pointer hover:bg-gray-750 transition-colors flex items-center justify-between;
+}
+
+.file-main-info {
+  @apply flex items-center gap-3;
+}
+
+.expand-icon {
+  @apply transition-transform text-gray-400;
+}
+
+.expand-icon.expanded {
+  @apply rotate-90;
+}
+
+.file-name-historical {
+  @apply font-medium text-white;
+}
+
+.has-rules-badge {
+  @apply text-yellow-400;
+}
+
+.complexity-badge {
+  @apply px-2 py-1 rounded text-xs font-medium;
+}
+
+.complexity-badge.green {
+  @apply bg-green-900 text-green-300;
+}
+
+.complexity-badge.yellow {
+  @apply bg-yellow-900 text-yellow-300;
+}
+
+.complexity-badge.red {
+  @apply bg-red-900 text-red-300;
+}
+
+.file-details {
+  @apply p-4 border-t border-gray-700 space-y-4;
+}
+
+.info-section {
+  @apply bg-gray-750 rounded-lg p-4;
+}
+
+.info-section h4 {
+  @apply font-semibold text-white mb-2;
+}
+
+.columns-details summary {
+  @apply cursor-pointer text-blue-400 hover:text-blue-300 text-sm;
+}
+
+.columns-list {
+  @apply flex flex-wrap gap-1 mt-2;
+}
+
+.columns-list.compact {
+  @apply gap-1;
+}
+
+.column-tag {
+  @apply bg-gray-600 text-gray-200 px-2 py-1 rounded text-xs;
+}
+
+.column-tag.small {
+  @apply px-1 py-0.5 text-xs;
+}
+
+.column-tag.added {
+  @apply bg-green-900 text-green-300;
+}
+
+.transformation-steps {
+  @apply space-y-2;
+}
+
+.transformation-step {
+  @apply border border-gray-600 rounded-lg overflow-hidden;
+}
+
+.step-header {
+  @apply p-3 bg-gray-750 cursor-pointer hover:bg-gray-700 transition-colors flex items-center justify-between;
+}
+
+.step-number {
+  @apply bg-blue-900 text-blue-300 px-2 py-1 rounded text-xs font-medium;
+}
+
+.step-action {
+  @apply font-medium text-white flex-1 ml-3;
+}
+
+.step-toggle {
+  @apply text-gray-400 transition-transform;
+}
+
+.step-toggle.expanded {
+  @apply rotate-90;
+}
+
+.step-details {
+  @apply p-4 space-y-3;
+}
+
+.formulas-section, .logic-section, .validation-section {
+  @apply bg-gray-800 rounded p-3;
+}
+
+.formula-item, .logic-item {
+  @apply flex items-center gap-2 mb-2;
+}
+
+.formula-column, .logic-column {
+  @apply text-blue-400 font-medium min-w-0 flex-shrink-0;
+}
+
+.formula-code, .logic-code {
+  @apply bg-gray-900 px-2 py-1 rounded text-xs text-green-300 font-mono flex-1;
+}
+
+.copy-formula-btn {
+  @apply text-gray-400 hover:text-gray-200 text-xs p-1 rounded hover:bg-gray-600;
+}
+
+.load-rules-btn {
+  @apply mt-3 px-4 py-2 bg-gradient-to-r from-blue-600 to-purple-600 hover:from-blue-700 hover:to-purple-700 rounded transition-all;
+}
+
+/* Общие стили для кнопок и компонентов билдера */
+.btn {
+  @apply px-3 py-2 rounded transition-colors font-medium;
+}
+
+.btn-primary {
+  @apply bg-blue-600 hover:bg-blue-700 text-white;
+}
+
+.btn-secondary {
+  @apply bg-gray-600 hover:bg-gray-700 text-white;
+}
+
+.btn-danger {
+  @apply bg-red-600 hover:bg-red-700 text-white;
+}
+
+.btn-mini {
+  @apply px-2 py-1 text-xs rounded;
+}
+
+/* Стили для файл-апloadera */
+.file-upload-area {
+  @apply border-2 border-dashed border-gray-600 rounded-lg p-8 text-center cursor-pointer hover:border-blue-500 transition-colors;
+}
+
+.file-upload-area.drag-over {
+  @apply border-blue-500 bg-blue-900/20;
+}
+
+.files-list {
+  @apply mt-6;
+}
+
+.file-item {
+  @apply bg-gray-750 border border-gray-600 rounded-lg p-4 mb-4;
+}
+
+.file-item-info {
+  @apply flex items-center justify-between mb-3;
+}
+
+.file-collapse-btn {
+  @apply text-gray-400 hover:text-gray-200 transition-transform;
+}
+
+.file-collapse-btn.collapsed {
+  @apply -rotate-90;
+}
+
+.file-icon {
+  @apply text-2xl mr-3;
+}
+
+.file-name {
+  @apply font-medium text-white;
+}
+
+.fields-count {
+  @apply text-sm text-gray-400;
+}
+
+.file-alias {
+  @apply flex items-center gap-2;
+}
+
+.file-alias input {
+  @apply px-2 py-1 bg-gray-700 border border-gray-600 rounded text-sm text-white focus:outline-none focus:border-blue-500;
+}
+
+.sheet-item {
+  @apply border border-gray-600 rounded p-2 mb-2;
+}
+
+.sheet-item.selected {
+  @apply border-blue-500 bg-blue-900/20;
+}
+
+.sheet-main-row {
+  @apply flex items-center justify-between;
+}
+
+.sheet-toggle-fields {
+  @apply text-gray-400 hover:text-gray-200 w-6 h-6 flex items-center justify-center;
+}
+
+.sheet-name {
+  @apply font-medium text-white flex-1 mx-3 truncate;
+}
+
+.sheet-fields-count {
+  @apply text-sm text-gray-400;
+}
+
+.table-view-btn {
+  @apply text-gray-400 hover:text-gray-200 text-lg mx-2;
+}
+
+.sheet-checkbox {
+  @apply w-4 h-4 text-blue-600 bg-gray-700 border-gray-600 rounded focus:ring-blue-500;
+}
+
+.sheet-fields-preview {
+  @apply overflow-hidden transition-all duration-300 max-h-0;
+}
+
+.sheet-fields-preview.show {
+  @apply max-h-40 mt-2;
+}
+
+.sheet-field-item {
+  @apply bg-gray-700 text-gray-200 px-2 py-1 rounded text-xs mr-2 mb-1 inline-block;
+}
+
+.sheet-alias-row {
+  @apply flex items-center gap-2 mt-2;
+}
+
+.sheet-alias-row label {
+  @apply text-sm text-gray-400;
+}
+
+.sheet-alias-row input {
+  @apply flex-1 px-2 py-1 bg-gray-700 border border-gray-600 rounded text-sm text-white focus:outline-none focus:border-blue-500;
+}
+
+/* AI Reasoning/Thinking Styles */
+.message-reasoning {
+  opacity: 0.85;
+  font-style: italic;
+  border-left: 3px solid #fbbf24;
+  padding-left: 12px;
+  margin: 8px 0;
+  background: linear-gradient(135deg, rgba(251, 191, 36, 0.1), rgba(251, 191, 36, 0.05));
+  animation: thinkingPulse 2s ease-in-out infinite;
+}
+
+.message-reasoning h1, 
+.message-reasoning h2, 
+.message-reasoning h3 {
+  color: #fbbf24;
+  font-size: 1em;
+  margin: 0.5em 0;
+}
+
+.message-reasoning strong {
+  color: #fde047;
+  font-weight: 600;
+}
+
+/* Thinking Accordion Styles */
+.thinking-accordion {
+  transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1);
+}
+
+.thinking-accordion:hover {
+  box-shadow: 0 2px 6px rgba(0, 0, 0, 0.15);
+}
+
+.thinking-header {
+  transition: all 0.15s ease;
+}
+
+.thinking-header:active {
+  transform: scale(0.98);
+}
+
+.thinking-content {
+  font-family: 'SF Mono', 'Monaco', 'Consolas', monospace;
+  font-size: 13px;
+  line-height: 1.6;
+  color: #2d2d2d;
+  white-space: pre-wrap;
+  word-wrap: break-word;
+}
+
+/* Blinking Cursor Animation */
+@keyframes blink {
+  0%, 50% { 
+    opacity: 1; 
+  }
+  51%, 100% { 
+    opacity: 0; 
+  }
+}
+
+.thinking-cursor {
+  animation: blink 1s infinite;
+  color: #6b6b6b;
+  display: inline-block;
+  width: 2px;
+  height: 1em;
+  background-color: currentColor;
+  margin-left: 2px;
+  vertical-align: middle;
+}
+
+/* Smooth transitions for thinking blocks */
+.thinking-block-enter {
+  animation: thinkingBlockFadeIn 0.2s ease-out;
+}
+
+@keyframes thinkingBlockFadeIn {
+  from {
+    opacity: 0;
+    transform: translateY(-10px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+/* Tool call status indicators */
+.tool-call-running {
+  position: relative;
+}
+
+.tool-call-running::before {
+  content: '';
+  position: absolute;
+  left: -2px;
+  top: 0;
+  bottom: 0;
+  width: 2px;
+  background: linear-gradient(
+    to bottom,
+    transparent,
+    #3b82f6,
+    transparent
+  );
+  animation: toolCallPulse 1.5s ease-in-out infinite;
+}
+
+@keyframes toolCallPulse {
+  0%, 100% {
+    opacity: 0.5;
+  }
+  50% {
+    opacity: 1;
+  }
+}
+
+@keyframes thinkingPulse {
+  0%, 100% { 
+    border-left-color: #fbbf24; 
+    box-shadow: 0 0 5px rgba(251, 191, 36, 0.3);
+  }
+  50% { 
+    border-left-color: #f59e0b; 
+    box-shadow: 0 0 15px rgba(251, 191, 36, 0.5);
+  }
+} 
