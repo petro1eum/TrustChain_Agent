@@ -17,9 +17,10 @@ import type { ResourceManager } from '../resources';
 import { CodeAnalysisService } from './codeAnalysisService';
 
 // Поддержка как Vite окружения, так и Node.js окружения
+const _proc = typeof process !== 'undefined' ? process.env : {} as Record<string, string | undefined>;
 const BACKEND_URL = (typeof import.meta !== 'undefined' && (import.meta.env?.VITE_BACKEND_URL || import.meta.env?.VITE_API_BASE))
-  || process.env.VITE_BACKEND_URL
-  || process.env.VITE_API_BASE
+  || _proc.VITE_BACKEND_URL
+  || _proc.VITE_API_BASE
   || 'http://localhost:8000';
 
 console.log(`[ToolExecutionService] Backend URL: ${BACKEND_URL}`);
@@ -709,7 +710,7 @@ export class ToolExecutionService {
           for (const f of DATA_FILES.categories || []) out.push({ path: `categories/${f}`, section: 'categories' });
           for (const f of DATA_FILES.mixins || []) out.push({ path: `mixins/${f}`, section: 'mixins' });
           for (const f of DATA_FILES.atomic || []) out.push({ path: `atomic/${f}`, section: 'atomic' });
-          const desc = DATA_FILES.descriptors as Record<'diameter' | 'pressure' | 'thread' | 'valve', string[]> | undefined;
+          const desc = (DATA_FILES as any).descriptors as Record<string, string[]> | undefined;
           const groups: Array<keyof NonNullable<typeof desc>> = ['diameter', 'pressure', 'thread', 'valve'];
           for (const grp of groups) { const arr = desc?.[grp] || []; for (const f of arr) out.push({ path: `descriptors/${grp}/${f}`, section: `descriptors/${grp}` }); }
           return out;
@@ -806,7 +807,7 @@ export class ToolExecutionService {
       case 'get_selected_items':
         return frontendNavigationService.getSelectedItems();
       case 'click_element':
-        return frontendNavigationService.clickElement(args.elementId, args.params);
+        return frontendNavigationService.clickElement(args.elementId);
       default: throw new Error(`Unknown frontend tool: ${toolName}`);
     }
   }

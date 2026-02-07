@@ -1,10 +1,15 @@
 /**
- * Компонент для просмотра artifacts
- * Показывает список artifacts и позволяет просматривать их содержимое
+ * ArtifactsViewer — Right-side slide-out panel for browsing artifacts.
+ * Split view: artifact list (top) + preview (bottom).
+ * Matches the agentTheme.css dark theme.
  */
 
-import React, { useState, useEffect } from 'react';
-import { X, FileText, Code, FileCode, Image, File, Trash2, RefreshCw, Loader2 } from 'lucide-react';
+import React, { useState, useEffect, useRef } from 'react';
+import {
+  X, FileText, Code, FileCode, Image, File,
+  Trash2, RefreshCw, Loader2, ChevronDown, ChevronRight,
+  Download, Eye, PanelRightClose
+} from 'lucide-react';
 import { ArtifactsService, artifactsPollingService } from '../services/artifacts';
 import { ArtifactRenderer } from './artifacts';
 import type { ArtifactInfo, ArtifactContent } from '../services/artifacts/types';
@@ -14,14 +19,20 @@ interface ArtifactsViewerProps {
   onClose: () => void;
 }
 
+const PANEL_WIDTH = 420;
+
 const ArtifactsViewer: React.FC<ArtifactsViewerProps> = ({ isOpen, onClose }) => {
   const [artifacts, setArtifacts] = useState<ArtifactInfo[]>([]);
   const [selectedArtifact, setSelectedArtifact] = useState<ArtifactContent | null>(null);
   const [loading, setLoading] = useState(false);
   const [loadingContent, setLoadingContent] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [isVisible, setIsVisible] = useState(false);
+  const [previewExpanded, setPreviewExpanded] = useState(true);
+  const panelRef = useRef<HTMLDivElement>(null);
 
-  // Загрузка списка artifacts
+  // ── Data Loading ──
+
   const loadArtifacts = async () => {
     setLoading(true);
     setError(null);
@@ -35,7 +46,6 @@ const ArtifactsViewer: React.FC<ArtifactsViewerProps> = ({ isOpen, onClose }) =>
     }
   };
 
-  // Загрузка содержимого artifact
   const loadArtifactContent = async (filename: string) => {
     setLoadingContent(true);
     setError(null);
@@ -43,231 +53,311 @@ const ArtifactsViewer: React.FC<ArtifactsViewerProps> = ({ isOpen, onClose }) =>
       const content = await ArtifactsService.getArtifact(filename);
       if (content) {
         setSelectedArtifact(content);
+        setPreviewExpanded(true);
       } else {
-        setError(`Не удалось загрузить artifact: ${filename}`);
+        setError(`Не удалось загрузить: ${filename}`);
       }
     } catch (err: any) {
-      setError(err.message || 'Ошибка загрузки содержимого');
+      setError(err.message || 'Ошибка загрузки');
     } finally {
       setLoadingContent(false);
     }
   };
 
-  // Удаление artifact
   const handleDelete = async (filename: string) => {
-    if (!confirm(`Удалить artifact "${filename}"?`)) {
-      return;
-    }
-
+    if (!confirm(`Удалить artifact "${filename}"?`)) return;
     try {
       const success = await ArtifactsService.deleteArtifact(filename);
       if (success) {
-        // Обновляем список
         await loadArtifacts();
-        // Если удаленный artifact был выбран - очищаем
         if (selectedArtifact?.filename === filename) {
           setSelectedArtifact(null);
         }
       } else {
-        setError('Не удалось удалить artifact');
+        setError('Не удалось удалить');
       }
     } catch (err: any) {
       setError(err.message || 'Ошибка удаления');
     }
   };
 
-  // Иконка для типа artifact
-  const getArtifactIcon = (type: string) => {
-    switch (type) {
-      case 'markdown':
-        return <FileText className="w-4 h-4" />;
-      case 'code':
-        return <Code className="w-4 h-4" />;
-      case 'react':
-        return <FileCode className="w-4 h-4" />;
-      case 'html':
-        return <FileCode className="w-4 h-4" />;
-      case 'svg':
-        return <Image className="w-4 h-4" />;
-      case 'image':
-        return <Image className="w-4 h-4" />;
-      case 'excel':
-        return <File className="w-4 h-4 text-green-600" />;
-      case 'pdf':
-        return <File className="w-4 h-4 text-red-600" />;
-      case 'word':
-        return <File className="w-4 h-4 text-blue-600" />;
-      default:
-        return <File className="w-4 h-4" />;
+  // ── Slide animation ──
+
+  useEffect(() => {
+    if (isOpen) {
+      // Mount first, then animate in
+      requestAnimationFrame(() => {
+        requestAnimationFrame(() => setIsVisible(true));
+      });
+      loadArtifacts();
+      artifactsPollingService.start((updated) => {
+        if (Array.isArray(updated)) setArtifacts(updated);
+      });
+    } else {
+      setIsVisible(false);
+      artifactsPollingService.stop();
     }
+    return () => { artifactsPollingService.stop(); };
+  }, [isOpen]);
+
+  // ── Helpers ──
+
+  const getIcon = (type: string) => {
+    const iconMap: Record<string, React.ReactNode> = {
+      markdown: <FileText className="w-3.5 h-3.5" />,
+      code: <Code className="w-3.5 h-3.5" />,
+      react: <FileCode className="w-3.5 h-3.5 text-cyan-400" />,
+      html: <FileCode className="w-3.5 h-3.5 text-orange-400" />,
+      svg: <Image className="w-3.5 h-3.5 text-purple-400" />,
+      image: <Image className="w-3.5 h-3.5 text-blue-400" />,
+      excel: <File className="w-3.5 h-3.5 text-emerald-400" />,
+      pdf: <File className="w-3.5 h-3.5 text-red-400" />,
+      word: <File className="w-3.5 h-3.5 text-blue-400" />,
+    };
+    return iconMap[type] || <File className="w-3.5 h-3.5 text-gray-400" />;
   };
 
-  // Форматирование размера
   const formatSize = (bytes: number): string => {
     if (bytes < 1024) return `${bytes} B`;
     if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
     return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
   };
 
-  // Загрузка при открытии
-  useEffect(() => {
-    if (isOpen) {
-      loadArtifacts();
-
-      // Запускаем polling
-      artifactsPollingService.start((updatedArtifacts) => {
-        // Проверяем что это массив
-        if (Array.isArray(updatedArtifacts)) {
-          setArtifacts(updatedArtifacts);
-        }
-      });
-    } else {
-      // Останавливаем polling при закрытии
-      artifactsPollingService.stop();
-    }
-
-    return () => {
-      artifactsPollingService.stop();
-    };
-  }, [isOpen]);
-
   if (!isOpen) return null;
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black bg-opacity-50">
-      <div className="bg-white rounded-lg shadow-xl w-full h-full max-w-7xl max-h-[90vh] flex flex-col">
-        {/* Header */}
-        <div className="flex items-center justify-between p-4 border-b border-gray-200">
-          <div className="flex items-center gap-3">
-            <h2 className="text-xl font-semibold text-gray-900">Artifacts</h2>
+    <>
+      {/* Backdrop — subtle, allows click-to-close */}
+      <div
+        className="fixed inset-0 z-40"
+        style={{
+          backgroundColor: isVisible ? 'rgba(0,0,0,0.15)' : 'transparent',
+          transition: 'background-color 0.3s ease',
+          pointerEvents: isVisible ? 'auto' : 'none',
+        }}
+        onClick={onClose}
+      />
+
+      {/* Panel */}
+      <div
+        ref={panelRef}
+        className="fixed top-0 right-0 bottom-0 z-50 flex flex-col"
+        style={{
+          width: `${PANEL_WIDTH}px`,
+          transform: isVisible ? 'translateX(0)' : `translateX(${PANEL_WIDTH}px)`,
+          transition: 'transform 0.3s cubic-bezier(0.4, 0, 0.2, 1)',
+          background: 'var(--tc-bg, #0c0c14)',
+          borderLeft: '1px solid var(--tc-border, rgba(55,55,80,0.6))',
+          boxShadow: isVisible ? '-8px 0 30px rgba(0,0,0,0.3)' : 'none',
+        }}
+      >
+        {/* ═══ Header ═══ */}
+        <div
+          className="flex items-center justify-between px-4 py-3 shrink-0"
+          style={{
+            borderBottom: '1px solid var(--tc-border, rgba(55,55,80,0.6))',
+            background: 'var(--tc-sidebar-bg, #0e0e18)',
+          }}
+        >
+          <div className="flex items-center gap-2 min-w-0">
+            <FileText className="w-4 h-4 shrink-0" style={{ color: 'var(--tc-accent-text, #c4b5fd)' }} />
+            <h2 className="text-sm font-semibold" style={{ color: 'var(--tc-text-heading, #fff)' }}>
+              Artifacts
+            </h2>
+            <span className="text-xs px-1.5 py-0.5 rounded" style={{
+              color: 'var(--tc-text-muted, #4b5563)',
+              background: 'var(--tc-surface, rgba(31,31,50,0.5))',
+            }}>
+              {artifacts.length}
+            </span>
+          </div>
+          <div className="flex items-center gap-1">
             <button
               onClick={loadArtifacts}
               disabled={loading}
-              className="p-1 hover:bg-gray-100 rounded text-gray-600 disabled:opacity-50"
-              title="Обновить список"
+              className="p-1.5 rounded transition-colors"
+              style={{ color: 'var(--tc-text-secondary, #9ca3af)' }}
+              title="Обновить"
             >
-              <RefreshCw className={`w-4 h-4 ${loading ? 'animate-spin' : ''}`} />
+              <RefreshCw className={`w-3.5 h-3.5 ${loading ? 'animate-spin' : ''}`} />
             </button>
-            <span className="text-sm text-gray-500">
-              {artifacts.length} artifacts
-            </span>
+            <button
+              onClick={onClose}
+              className="p-1.5 rounded transition-colors hover:opacity-80"
+              style={{ color: 'var(--tc-text-secondary, #9ca3af)' }}
+              title="Закрыть"
+            >
+              <PanelRightClose className="w-4 h-4" />
+            </button>
           </div>
-          <button
-            onClick={onClose}
-            className="p-1 hover:bg-gray-100 rounded text-gray-600"
-          >
-            <X className="w-5 h-5" />
-          </button>
         </div>
 
-        {/* Content */}
-        <div className="flex flex-1 min-h-0 overflow-hidden">
-          {/* Список artifacts */}
-          <div className="w-80 border-r border-gray-200 flex flex-col">
-            <div className="flex-1 overflow-y-auto p-2">
-              {loading ? (
-                <div className="flex items-center justify-center py-8">
-                  <Loader2 className="w-6 h-6 animate-spin text-gray-400" />
-                </div>
-              ) : error ? (
-                <div className="p-4 bg-red-50 border border-red-200 rounded text-red-800 text-sm">
-                  {error}
-                </div>
-              ) : !Array.isArray(artifacts) || artifacts.length === 0 ? (
-                <div className="text-center text-gray-500 py-12">
-                  <FileText className="w-12 h-12 mx-auto mb-4 opacity-50" />
-                  <p>Нет artifacts</p>
-                  <p className="text-xs mt-2">Artifacts создаются агентом в /mnt/user-data/outputs</p>
-                </div>
-              ) : (
-                <div className="space-y-1">
-                  {artifacts.map((artifact) => (
-                    <div
-                      key={artifact.filename}
-                      onClick={() => loadArtifactContent(artifact.filename)}
-                      className={`p-3 rounded-lg border cursor-pointer transition-colors group ${selectedArtifact?.filename === artifact.filename
-                        ? 'bg-blue-50 border-blue-300'
-                        : 'bg-white border-gray-200 hover:bg-gray-50'
-                        }`}
-                    >
-                      <div className="flex items-start gap-2">
-                        <div className="text-gray-600 mt-0.5">
-                          {getArtifactIcon(artifact.type)}
+        {/* ═══ Error Banner ═══ */}
+        {error && (
+          <div className="px-3 py-2 text-xs shrink-0" style={{
+            background: 'var(--tc-unverified-bg, rgba(239,68,68,0.08))',
+            borderBottom: '1px solid var(--tc-unverified-border, rgba(239,68,68,0.2))',
+            color: 'var(--tc-unverified-text, #f87171)',
+          }}>
+            {error}
+            <button onClick={() => setError(null)} className="ml-2 opacity-60 hover:opacity-100">✕</button>
+          </div>
+        )}
+
+        {/* ═══ Artifact List (top section) ═══ */}
+        <div
+          className="overflow-y-auto shrink-0"
+          style={{
+            maxHeight: selectedArtifact && previewExpanded ? '40%' : '100%',
+            minHeight: '120px',
+            transition: 'max-height 0.3s ease',
+          }}
+        >
+          {loading ? (
+            <div className="flex items-center justify-center py-12">
+              <Loader2 className="w-5 h-5 animate-spin" style={{ color: 'var(--tc-text-muted, #4b5563)' }} />
+            </div>
+          ) : !Array.isArray(artifacts) || artifacts.length === 0 ? (
+            <div className="flex flex-col items-center justify-center py-12 px-4">
+              <FileText className="w-10 h-10 mb-3 opacity-20" style={{ color: 'var(--tc-text-muted)' }} />
+              <p className="text-sm" style={{ color: 'var(--tc-text-muted, #4b5563)' }}>
+                Нет artifacts
+              </p>
+              <p className="text-xs mt-1 text-center" style={{ color: 'var(--tc-text-muted)' }}>
+                Artifacts создаются агентом автоматически
+              </p>
+            </div>
+          ) : (
+            <div className="p-2 space-y-0.5">
+              {artifacts.map((artifact) => {
+                const isSelected = selectedArtifact?.filename === artifact.filename;
+                return (
+                  <div
+                    key={artifact.filename}
+                    onClick={() => loadArtifactContent(artifact.filename)}
+                    className="group px-3 py-2.5 rounded-lg cursor-pointer transition-all duration-150"
+                    style={{
+                      background: isSelected
+                        ? 'var(--tc-artifact-active-bg, rgba(124,58,237,0.1))'
+                        : 'transparent',
+                      border: `1px solid ${isSelected
+                        ? 'var(--tc-artifact-active-border, rgba(124,58,237,0.3))'
+                        : 'transparent'}`,
+                    }}
+                    onMouseEnter={(e) => {
+                      if (!isSelected) {
+                        e.currentTarget.style.background = 'var(--tc-surface-hover, rgba(40,40,65,0.6))';
+                      }
+                    }}
+                    onMouseLeave={(e) => {
+                      if (!isSelected) {
+                        e.currentTarget.style.background = 'transparent';
+                      }
+                    }}
+                  >
+                    <div className="flex items-start gap-2.5">
+                      <div className="mt-0.5 shrink-0">{getIcon(artifact.type)}</div>
+                      <div className="flex-1 min-w-0">
+                        <div className="text-sm font-medium truncate" style={{
+                          color: isSelected
+                            ? 'var(--tc-accent-text, #c4b5fd)'
+                            : 'var(--tc-text-primary, #e5e7eb)',
+                        }}>
+                          {artifact.filename}
                         </div>
-                        <div className="flex-1 min-w-0">
-                          <div className="text-sm font-medium text-gray-900 truncate">
-                            {artifact.filename}
-                          </div>
-                          <div className="flex items-center gap-2 mt-1 text-xs text-gray-500">
-                            <span className="px-1.5 py-0.5 bg-gray-100 rounded text-gray-600">
-                              {artifact.type}
-                            </span>
-                            <span>{formatSize(artifact.size)}</span>
-                          </div>
-                          {artifact.created_at && (
-                            <div className="text-xs text-gray-400 mt-1">
-                              {new Date(artifact.created_at).toLocaleString('ru-RU')}
-                            </div>
-                          )}
+                        <div className="flex items-center gap-1.5 mt-0.5">
+                          <span className="text-[10px] px-1.5 py-0.5 rounded" style={{
+                            background: 'var(--tc-surface, rgba(31,31,50,0.5))',
+                            color: 'var(--tc-text-muted, #4b5563)',
+                          }}>
+                            {artifact.type}
+                          </span>
+                          <span className="text-[10px]" style={{ color: 'var(--tc-text-muted)' }}>
+                            {formatSize(artifact.size)}
+                          </span>
                         </div>
+                        {artifact.created_at && (
+                          <div className="text-[10px] mt-0.5" style={{ color: 'var(--tc-text-muted)' }}>
+                            {new Date(artifact.created_at).toLocaleString('ru-RU', {
+                              day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit'
+                            })}
+                          </div>
+                        )}
+                      </div>
+                      {/* Action buttons — visible on hover */}
+                      <div className="flex items-center gap-0.5 opacity-0 group-hover:opacity-100 transition-opacity shrink-0">
                         <button
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            handleDelete(artifact.filename);
-                          }}
-                          className="p-1 hover:bg-red-100 rounded text-red-600 transition-opacity"
+                          onClick={(e) => { e.stopPropagation(); handleDelete(artifact.filename); }}
+                          className="p-1 rounded hover:bg-red-500/10 transition-colors"
+                          style={{ color: 'var(--tc-unverified-text, #f87171)' }}
                           title="Удалить"
                         >
                           <Trash2 className="w-3 h-3" />
                         </button>
                       </div>
                     </div>
-                  ))}
-                </div>
-              )}
-            </div>
-          </div>
-
-          {/* Просмотр artifact */}
-          <div className="flex-1 flex flex-col min-w-0 overflow-hidden">
-            {loadingContent ? (
-              <div className="flex items-center justify-center flex-1">
-                <Loader2 className="w-8 h-8 animate-spin text-gray-400" />
-              </div>
-            ) : selectedArtifact ? (
-              <div className="flex-1 overflow-y-auto p-4">
-                <div className="mb-4 flex items-center justify-between">
-                  <div>
-                    <h3 className="text-lg font-semibold text-gray-900">
-                      {selectedArtifact.filename}
-                    </h3>
-                    <div className="text-sm text-gray-500 mt-1">
-                      {formatSize(selectedArtifact.size)} • {selectedArtifact.type}
-                    </div>
                   </div>
-                  <button
-                    onClick={() => setSelectedArtifact(null)}
-                    className="p-2 hover:bg-gray-100 rounded text-gray-600"
-                  >
-                    <X className="w-4 h-4" />
-                  </button>
+                );
+              })}
+            </div>
+          )}
+        </div>
+
+        {/* ═══ Preview Section (bottom) ═══ */}
+        {selectedArtifact && (
+          <div className="flex-1 flex flex-col min-h-0 overflow-hidden" style={{
+            borderTop: '1px solid var(--tc-border, rgba(55,55,80,0.6))',
+          }}>
+            {/* Preview Header */}
+            <div
+              className="flex items-center justify-between px-3 py-2 shrink-0 cursor-pointer select-none"
+              style={{ background: 'var(--tc-surface-alt, rgba(20,20,35,0.8))' }}
+              onClick={() => setPreviewExpanded(!previewExpanded)}
+            >
+              <div className="flex items-center gap-2 min-w-0">
+                {previewExpanded
+                  ? <ChevronDown className="w-3.5 h-3.5 shrink-0" style={{ color: 'var(--tc-text-muted)' }} />
+                  : <ChevronRight className="w-3.5 h-3.5 shrink-0" style={{ color: 'var(--tc-text-muted)' }} />
+                }
+                <Eye className="w-3.5 h-3.5 shrink-0" style={{ color: 'var(--tc-accent-text, #c4b5fd)' }} />
+                <div className="min-w-0">
+                  <div className="text-xs font-medium truncate" style={{ color: 'var(--tc-text-primary, #e5e7eb)' }}>
+                    {selectedArtifact.filename}
+                  </div>
+                  <div className="text-[10px]" style={{ color: 'var(--tc-text-muted)' }}>
+                    {formatSize(selectedArtifact.size)} • {selectedArtifact.type}
+                  </div>
                 </div>
-                <ArtifactRenderer artifact={selectedArtifact} />
               </div>
-            ) : (
-              <div className="flex items-center justify-center flex-1 text-gray-500">
-                <div className="text-center">
-                  <FileText className="w-16 h-16 mx-auto mb-4 opacity-50" />
-                  <p>Выберите artifact для просмотра</p>
-                </div>
+              <button
+                onClick={(e) => { e.stopPropagation(); setSelectedArtifact(null); }}
+                className="p-1 rounded transition-colors hover:opacity-80"
+                style={{ color: 'var(--tc-text-secondary, #9ca3af)' }}
+                title="Закрыть превью"
+              >
+                <X className="w-3.5 h-3.5" />
+              </button>
+            </div>
+
+            {/* Preview Content */}
+            {previewExpanded && (
+              <div className="flex-1 overflow-y-auto">
+                {loadingContent ? (
+                  <div className="flex items-center justify-center py-12">
+                    <Loader2 className="w-5 h-5 animate-spin" style={{ color: 'var(--tc-text-muted)' }} />
+                  </div>
+                ) : (
+                  <div className="p-3">
+                    <ArtifactRenderer artifact={selectedArtifact} />
+                  </div>
+                )}
               </div>
             )}
           </div>
-        </div>
+        )}
       </div>
-    </div>
+    </>
   );
 };
 
 export default ArtifactsViewer;
-

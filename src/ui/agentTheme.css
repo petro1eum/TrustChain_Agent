@@ -1,0 +1,716 @@
+/* ═══════════════════════════════════════════
+   TrustChain Agent — Premium Theme System
+   CSS custom properties + data-theme attribute
+   ═══════════════════════════════════════════ */
+
+/* ── Dark Theme (default) ── */
+[data-theme="dark"] {
+    --tc-bg: #0c0c14;
+    --tc-sidebar-bg: #0e0e18;
+    --tc-surface: rgba(31, 31, 50, 0.5);
+    --tc-surface-hover: rgba(40, 40, 65, 0.6);
+    --tc-surface-alt: rgba(20, 20, 35, 0.8);
+    --tc-border: rgba(55, 55, 80, 0.6);
+    --tc-border-light: rgba(55, 55, 80, 0.3);
+    --tc-text-primary: #e5e7eb;
+    --tc-text-secondary: #9ca3af;
+    --tc-text-muted: #4b5563;
+    --tc-text-heading: #ffffff;
+    --tc-input-bg: rgba(31, 31, 50, 0.5);
+    --tc-user-bubble: #2563eb;
+    --tc-user-bubble-text: #ffffff;
+    --tc-assistant-bubble: rgba(31, 41, 55, 0.5);
+    --tc-assistant-bubble-border: rgba(55, 65, 81, 0.3);
+    --tc-code-bg: rgba(15, 15, 30, 0.8);
+    --tc-code-border: rgba(40, 40, 60, 1);
+    --tc-code-text: #d1d5db;
+    --tc-tool-bg: rgba(31, 41, 55, 0.6);
+    --tc-tool-border: rgba(55, 65, 81, 0.4);
+    --tc-tool-bg-hover: rgba(40, 50, 65, 0.6);
+    --tc-expanded-bg: rgba(17, 17, 30, 0.6);
+    --tc-btn-hover-bg: rgba(31, 41, 55, 0.6);
+    --tc-accent-bg: linear-gradient(to right, rgba(124, 58, 237, 0.2), rgba(37, 99, 235, 0.2));
+    --tc-accent-border: rgba(124, 58, 237, 0.2);
+    --tc-accent-text: #c4b5fd;
+    --tc-artifact-active-bg: rgba(124, 58, 237, 0.1);
+    --tc-artifact-active-border: rgba(124, 58, 237, 0.3);
+    --tc-artifact-bg: rgba(31, 41, 55, 0.4);
+    --tc-artifact-border: rgba(55, 65, 81, 0.3);
+    --tc-artifact-hover-bg: rgba(31, 41, 55, 0.6);
+    --tc-prose-heading: #ffffff;
+    --tc-prose-text: #d1d5db;
+    --tc-prose-strong: #ffffff;
+    --tc-prose-code: #fcd34d;
+    --tc-prose-code-bg: rgba(17, 17, 30, 0.6);
+    --tc-prose-table-border: rgba(55, 65, 81, 1);
+    --tc-prose-th-text: #9ca3af;
+    --tc-prose-td-border: rgba(31, 41, 55, 0.5);
+    --tc-prose-hr: rgba(40, 40, 60, 1);
+    --tc-trust-bg: linear-gradient(to right, rgba(16, 185, 129, 0.05), rgba(124, 58, 237, 0.05));
+    --tc-trust-border: rgba(16, 185, 129, 0.15);
+    --tc-trust-icon-bg: rgba(16, 185, 129, 0.15);
+    --tc-verified-bg: rgba(16, 185, 129, 0.08);
+    --tc-verified-border: rgba(16, 185, 129, 0.2);
+    --tc-verified-text: #34d399;
+    --tc-unverified-bg: rgba(239, 68, 68, 0.08);
+    --tc-unverified-border: rgba(239, 68, 68, 0.2);
+    --tc-unverified-text: #f87171;
+    --tc-tab-active-bg: rgba(31, 41, 55, 0.8);
+    --tc-tab-active-text: #ffffff;
+    --tc-scrollbar: rgba(55, 65, 81, 0.4);
+    --tc-logo-from: #8b5cf6;
+    --tc-logo-to: #2563eb;
+    --tc-send-active: #7c3aed;
+    --tc-send-hover: #6d28d9;
+    /* Dark-specific surface shadows */
+    --tc-shadow-sm: 0 1px 3px rgba(0, 0, 0, 0.4);
+    --tc-shadow-md: 0 4px 12px rgba(0, 0, 0, 0.5);
+    --tc-shadow-lg: 0 8px 30px rgba(0, 0, 0, 0.5);
+    --tc-shadow-card: 0 1px 3px rgba(0, 0, 0, 0.3);
+    --tc-shadow-glow: none;
+}
+
+/* ── Light Theme (Premium macOS) ── */
+[data-theme="light"] {
+    /* Rich gradient backgrounds */
+    --tc-bg: linear-gradient(160deg,
+            #dbeafe 0%,
+            #eff6ff 18%,
+            #f8fafc 35%,
+            #ffffff 50%,
+            #f0fdfa 68%,
+            #ecfeff 82%,
+            #e0f2fe 100%);
+    --tc-sidebar-bg: rgba(255, 255, 255, 0.55);
+    --tc-surface: rgba(255, 255, 255, 0.65);
+    --tc-surface-hover: rgba(255, 255, 255, 0.85);
+    --tc-surface-alt: rgba(241, 245, 249, 0.7);
+    --tc-border: rgba(148, 163, 184, 0.25);
+    --tc-border-light: rgba(203, 213, 225, 0.3);
+    --tc-text-primary: #1e293b;
+    --tc-text-secondary: #475569;
+    --tc-text-muted: #94a3b8;
+    --tc-text-heading: #0f172a;
+    --tc-input-bg: rgba(255, 255, 255, 0.7);
+    --tc-user-bubble: linear-gradient(135deg, #3b82f6, #06b6d4);
+    --tc-user-bubble-text: #ffffff;
+    --tc-assistant-bubble: rgba(255, 255, 255, 0.7);
+    --tc-assistant-bubble-border: rgba(148, 163, 184, 0.2);
+    --tc-code-bg: rgba(248, 250, 252, 0.9);
+    --tc-code-border: rgba(203, 213, 225, 0.4);
+    --tc-code-text: #334155;
+    --tc-tool-bg: rgba(241, 245, 249, 0.6);
+    --tc-tool-border: rgba(203, 213, 225, 0.3);
+    --tc-tool-bg-hover: rgba(226, 232, 240, 0.8);
+    --tc-expanded-bg: rgba(248, 250, 252, 0.8);
+    --tc-btn-hover-bg: rgba(241, 245, 249, 0.7);
+    --tc-accent-bg: linear-gradient(135deg, rgba(59, 130, 246, 0.12), rgba(6, 182, 212, 0.12));
+    --tc-accent-border: rgba(59, 130, 246, 0.25);
+    --tc-accent-text: #1d4ed8;
+    --tc-artifact-active-bg: rgba(59, 130, 246, 0.08);
+    --tc-artifact-active-border: rgba(59, 130, 246, 0.35);
+    --tc-artifact-bg: rgba(255, 255, 255, 0.6);
+    --tc-artifact-border: rgba(148, 163, 184, 0.2);
+    --tc-artifact-hover-bg: rgba(255, 255, 255, 0.85);
+    --tc-prose-heading: #0f172a;
+    --tc-prose-text: #334155;
+    --tc-prose-strong: #0f172a;
+    --tc-prose-code: #6d28d9;
+    --tc-prose-code-bg: rgba(241, 245, 249, 0.8);
+    --tc-prose-table-border: rgba(203, 213, 225, 0.5);
+    --tc-prose-th-text: #64748b;
+    --tc-prose-td-border: rgba(226, 232, 240, 0.4);
+    --tc-prose-hr: rgba(203, 213, 225, 0.5);
+    --tc-trust-bg: linear-gradient(135deg, rgba(16, 185, 129, 0.08), rgba(59, 130, 246, 0.06));
+    --tc-trust-border: rgba(16, 185, 129, 0.2);
+    --tc-trust-icon-bg: rgba(16, 185, 129, 0.1);
+    --tc-verified-bg: rgba(16, 185, 129, 0.07);
+    --tc-verified-border: rgba(16, 185, 129, 0.2);
+    --tc-verified-text: #059669;
+    --tc-unverified-bg: rgba(239, 68, 68, 0.07);
+    --tc-unverified-border: rgba(239, 68, 68, 0.2);
+    --tc-unverified-text: #dc2626;
+    --tc-tab-active-bg: rgba(59, 130, 246, 0.1);
+    --tc-tab-active-text: #1d4ed8;
+    --tc-scrollbar: rgba(148, 163, 184, 0.25);
+    --tc-logo-from: #3b82f6;
+    --tc-logo-to: #06b6d4;
+    --tc-send-active: #3b82f6;
+    --tc-send-hover: #2563eb;
+    /* Premium light shadows — colored, layered */
+    --tc-shadow-sm: 0 1px 2px rgba(59, 130, 246, 0.04), 0 1px 3px rgba(0, 0, 0, 0.04);
+    --tc-shadow-md: 0 2px 8px rgba(59, 130, 246, 0.06), 0 4px 16px rgba(0, 0, 0, 0.04);
+    --tc-shadow-lg: 0 4px 16px rgba(59, 130, 246, 0.08), 0 8px 32px rgba(0, 0, 0, 0.06);
+    --tc-shadow-card: 0 1px 3px rgba(59, 130, 246, 0.05), 0 2px 8px rgba(0, 0, 0, 0.03);
+    --tc-shadow-glow: 0 0 20px rgba(59, 130, 246, 0.06);
+}
+
+/* ═══════════════════════════════════════════
+   Utility Classes
+   ═══════════════════════════════════════════ */
+
+.tc-app {
+    background: var(--tc-bg);
+    color: var(--tc-text-primary);
+}
+
+/* ── Sidebar: frosted glass on light ── */
+.tc-sidebar {
+    background: var(--tc-sidebar-bg);
+    border-color: var(--tc-border);
+}
+
+[data-theme="light"] .tc-sidebar {
+    backdrop-filter: blur(24px) saturate(1.4);
+    -webkit-backdrop-filter: blur(24px) saturate(1.4);
+    box-shadow: var(--tc-shadow-lg), inset 0 1px 0 rgba(255, 255, 255, 0.6);
+    border-right: 1px solid rgba(255, 255, 255, 0.5);
+}
+
+/* ── Surfaces ── */
+.tc-surface {
+    background: var(--tc-surface);
+}
+
+.tc-surface-hover:hover {
+    background: var(--tc-surface-hover);
+}
+
+.tc-border {
+    border-color: var(--tc-border);
+}
+
+.tc-border-light {
+    border-color: var(--tc-border-light);
+}
+
+/* ── Text hierarchy ── */
+.tc-text {
+    color: var(--tc-text-primary);
+}
+
+.tc-text-secondary {
+    color: var(--tc-text-secondary);
+}
+
+.tc-text-muted {
+    color: var(--tc-text-muted);
+}
+
+.tc-text-heading {
+    color: var(--tc-text-heading);
+}
+
+/* ── Chat bubbles ── */
+.tc-user-bubble {
+    background: var(--tc-user-bubble);
+    color: var(--tc-user-bubble-text);
+}
+
+[data-theme="light"] .tc-user-bubble {
+    box-shadow: 0 2px 12px rgba(59, 130, 246, 0.25), 0 1px 3px rgba(0, 0, 0, 0.08);
+}
+
+.tc-assistant-bubble {
+    background: var(--tc-assistant-bubble);
+    border-color: var(--tc-assistant-bubble-border);
+    color: var(--tc-text-primary);
+}
+
+[data-theme="light"] .tc-assistant-bubble {
+    backdrop-filter: blur(12px);
+    -webkit-backdrop-filter: blur(12px);
+    box-shadow: var(--tc-shadow-card), var(--tc-shadow-glow);
+    border: 1px solid rgba(255, 255, 255, 0.5);
+}
+
+/* ── Tool chips ── */
+.tc-tool-chip {
+    background: var(--tc-tool-bg);
+    border-color: var(--tc-tool-border);
+}
+
+.tc-tool-chip:hover {
+    background: var(--tc-tool-bg-hover);
+}
+
+[data-theme="light"] .tc-tool-chip {
+    backdrop-filter: blur(8px);
+    -webkit-backdrop-filter: blur(8px);
+}
+
+.tc-expanded {
+    background: var(--tc-expanded-bg);
+    border-color: var(--tc-code-border);
+}
+
+/* ── Code blocks ── */
+.tc-code {
+    background: var(--tc-code-bg);
+    border-color: var(--tc-code-border);
+    color: var(--tc-code-text);
+}
+
+[data-theme="light"] .tc-code {
+    box-shadow: inset 0 1px 3px rgba(0, 0, 0, 0.04);
+}
+
+/* ── Input area ── */
+.tc-input {
+    background: var(--tc-input-bg);
+    border-color: var(--tc-border);
+    color: var(--tc-text-primary);
+}
+
+.tc-input:focus-within {
+    border-color: var(--tc-send-active) !important;
+}
+
+[data-theme="light"] .tc-input {
+    backdrop-filter: blur(16px);
+    -webkit-backdrop-filter: blur(16px);
+    box-shadow: var(--tc-shadow-md), inset 0 1px 0 rgba(255, 255, 255, 0.5);
+    border: 1px solid rgba(255, 255, 255, 0.5);
+}
+
+[data-theme="light"] .tc-input:focus-within {
+    box-shadow: var(--tc-shadow-md), 0 0 0 3px rgba(59, 130, 246, 0.12);
+    border-color: rgba(59, 130, 246, 0.4) !important;
+}
+
+/* ── Buttons ── */
+.tc-btn-hover:hover {
+    background: var(--tc-btn-hover-bg);
+}
+
+.tc-new-chat {
+    background: var(--tc-accent-bg);
+    border-color: var(--tc-accent-border);
+    color: var(--tc-accent-text);
+}
+
+.tc-new-chat:hover {
+    filter: brightness(1.1);
+}
+
+[data-theme="light"] .tc-new-chat {
+    box-shadow: var(--tc-shadow-sm);
+    backdrop-filter: blur(8px);
+    -webkit-backdrop-filter: blur(8px);
+}
+
+/* ── Artifact cards: glassmorphism ── */
+.tc-artifact-card {
+    background: var(--tc-artifact-bg);
+    border-color: var(--tc-artifact-border);
+    transition: all 0.2s ease;
+}
+
+.tc-artifact-card:hover {
+    background: var(--tc-artifact-hover-bg);
+    box-shadow: var(--tc-shadow-card);
+}
+
+.tc-artifact-card.active {
+    background: var(--tc-artifact-active-bg);
+    border-color: var(--tc-artifact-active-border);
+    box-shadow: var(--tc-shadow-md);
+}
+
+[data-theme="light"] .tc-artifact-card {
+    backdrop-filter: blur(12px);
+    -webkit-backdrop-filter: blur(12px);
+    border: 1px solid rgba(255, 255, 255, 0.4);
+    box-shadow: var(--tc-shadow-sm);
+}
+
+[data-theme="light"] .tc-artifact-card:hover {
+    border-color: rgba(59, 130, 246, 0.2);
+    box-shadow: var(--tc-shadow-md);
+    transform: translateY(-1px);
+}
+
+[data-theme="light"] .tc-artifact-card.active {
+    border-color: rgba(59, 130, 246, 0.35);
+    box-shadow: var(--tc-shadow-md), 0 0 0 3px rgba(59, 130, 246, 0.08);
+}
+
+/* ── Artifact panel: frosted glass ── */
+.tc-artifact-panel {
+    background: var(--tc-sidebar-bg);
+    border-color: var(--tc-border);
+}
+
+[data-theme="light"] .tc-artifact-panel {
+    backdrop-filter: blur(24px) saturate(1.3);
+    -webkit-backdrop-filter: blur(24px) saturate(1.3);
+    box-shadow: var(--tc-shadow-lg);
+    border-left: 1px solid rgba(255, 255, 255, 0.5);
+}
+
+/* ── Verified / Unverified badges ── */
+.tc-verified {
+    background: var(--tc-verified-bg);
+    border-color: var(--tc-verified-border);
+    color: var(--tc-verified-text);
+}
+
+[data-theme="light"] .tc-verified {
+    backdrop-filter: blur(6px);
+    -webkit-backdrop-filter: blur(6px);
+}
+
+.tc-unverified {
+    background: var(--tc-unverified-bg);
+    border-color: var(--tc-unverified-border);
+    color: var(--tc-unverified-text);
+}
+
+/* ── Tab active state ── */
+.tc-tab-active {
+    background: var(--tc-tab-active-bg);
+    color: var(--tc-tab-active-text);
+}
+
+[data-theme="light"] .tc-tab-active {
+    box-shadow: var(--tc-shadow-sm);
+    backdrop-filter: blur(8px);
+    -webkit-backdrop-filter: blur(8px);
+}
+
+/* ── Trust card ── */
+.tc-trust-card {
+    background: var(--tc-trust-bg);
+    border-color: var(--tc-trust-border);
+}
+
+[data-theme="light"] .tc-trust-card {
+    backdrop-filter: blur(8px);
+    -webkit-backdrop-filter: blur(8px);
+    box-shadow: var(--tc-shadow-sm);
+}
+
+.tc-trust-icon {
+    background: var(--tc-trust-icon-bg);
+}
+
+/* ── Logo gradient ── */
+.tc-logo {
+    background: linear-gradient(135deg, var(--tc-logo-from), var(--tc-logo-to));
+}
+
+[data-theme="light"] .tc-logo {
+    box-shadow: 0 2px 10px rgba(59, 130, 246, 0.3);
+}
+
+/* ── Send button ── */
+.tc-send-active {
+    background: var(--tc-send-active);
+}
+
+.tc-send-active:hover {
+    background: var(--tc-send-hover);
+}
+
+[data-theme="light"] .tc-send-active {
+    box-shadow: 0 2px 8px rgba(59, 130, 246, 0.3);
+}
+
+/* ── Scrollbars ── */
+.tc-scrollbar::-webkit-scrollbar {
+    width: 4px;
+}
+
+.tc-scrollbar::-webkit-scrollbar-track {
+    background: transparent;
+}
+
+.tc-scrollbar::-webkit-scrollbar-thumb {
+    background: var(--tc-scrollbar);
+    border-radius: 9999px;
+}
+
+.tc-scrollbar-h::-webkit-scrollbar {
+    height: 3px;
+}
+
+.tc-scrollbar-h::-webkit-scrollbar-track {
+    background: transparent;
+}
+
+.tc-scrollbar-h::-webkit-scrollbar-thumb {
+    background: var(--tc-scrollbar);
+    border-radius: 9999px;
+}
+
+/* ── Prose (artifact panel markdown) ── */
+.tc-prose h1,
+.tc-prose h2,
+.tc-prose h3 {
+    color: var(--tc-prose-heading);
+}
+
+.tc-prose p,
+.tc-prose li {
+    color: var(--tc-prose-text);
+}
+
+.tc-prose strong {
+    color: var(--tc-prose-strong);
+}
+
+.tc-prose code {
+    color: var(--tc-prose-code);
+    background: var(--tc-prose-code-bg);
+}
+
+.tc-prose pre {
+    background: var(--tc-code-bg);
+    border-color: var(--tc-code-border);
+}
+
+.tc-prose pre code {
+    color: var(--tc-code-text);
+    background: transparent;
+}
+
+.tc-prose th {
+    color: var(--tc-prose-th-text);
+    border-color: var(--tc-prose-table-border);
+}
+
+.tc-prose td {
+    border-color: var(--tc-prose-td-border);
+}
+
+.tc-prose hr {
+    border-color: var(--tc-prose-hr);
+}
+
+.tc-prose table {
+    border-collapse: collapse;
+    width: 100%;
+}
+
+.tc-prose th {
+    text-align: left;
+    padding: 8px 12px;
+    font-size: 11px;
+    font-weight: 500;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+}
+
+.tc-prose td {
+    padding: 8px 12px;
+    font-size: 14px;
+}
+
+/* ═══════════════════════════════════════════
+   Markdown in Message Bubbles (tc-markdown)
+   ═══════════════════════════════════════════ */
+
+.tc-markdown table {
+    border-collapse: collapse;
+    width: 100%;
+    margin: 8px 0;
+    font-size: 13px;
+}
+
+.tc-markdown th {
+    text-align: left;
+    padding: 6px 10px;
+    font-size: 11px;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+    color: var(--tc-prose-th-text);
+    border-bottom: 2px solid var(--tc-prose-table-border);
+}
+
+.tc-markdown td {
+    padding: 5px 10px;
+    border-bottom: 1px solid var(--tc-prose-td-border, rgba(128, 128, 128, 0.15));
+    font-size: 13px;
+}
+
+.tc-markdown tr:last-child td {
+    border-bottom: none;
+}
+
+.tc-markdown pre {
+    background: var(--tc-code-bg, rgba(0, 0, 0, 0.05));
+    border-radius: 8px;
+    padding: 12px 14px;
+    margin: 8px 0;
+    overflow-x: auto;
+    font-size: 12px;
+    line-height: 1.5;
+}
+
+.tc-markdown pre code {
+    color: var(--tc-code-text);
+    background: transparent;
+    font-family: 'SF Mono', 'Fira Code', 'JetBrains Mono', monospace;
+}
+
+.tc-markdown code {
+    background: var(--tc-code-bg, rgba(0, 0, 0, 0.06));
+    padding: 1px 5px;
+    border-radius: 4px;
+    font-size: 12px;
+    font-family: 'SF Mono', 'Fira Code', monospace;
+}
+
+.tc-markdown h1 {
+    font-size: 18px;
+    font-weight: 700;
+    margin: 12px 0 6px;
+}
+
+.tc-markdown h2 {
+    font-size: 16px;
+    font-weight: 600;
+    margin: 10px 0 5px;
+}
+
+.tc-markdown h3 {
+    font-size: 14px;
+    font-weight: 600;
+    margin: 8px 0 4px;
+}
+
+.tc-markdown p {
+    margin: 4px 0;
+    line-height: 1.6;
+}
+
+.tc-markdown li {
+    list-style: disc;
+    margin-left: 18px;
+    margin-bottom: 2px;
+}
+
+.tc-markdown hr {
+    border: none;
+    border-top: 1px solid var(--tc-prose-hr, rgba(128, 128, 128, 0.2));
+    margin: 10px 0;
+}
+
+.tc-markdown strong {
+    font-weight: 600;
+}
+
+/* ═══════════════════════════════════════════
+   Theme Toggle (pill switch)
+   ═══════════════════════════════════════════ */
+
+.tc-theme-toggle {
+    position: relative;
+    width: 52px;
+    height: 28px;
+    border-radius: 14px;
+    border: 1px solid var(--tc-border);
+    background: var(--tc-surface);
+    cursor: pointer;
+    transition: all 0.35s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+.tc-theme-toggle:hover {
+    border-color: var(--tc-send-active);
+    box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.1);
+}
+
+.tc-theme-toggle .toggle-dot {
+    position: absolute;
+    top: 3px;
+    width: 20px;
+    height: 20px;
+    border-radius: 50%;
+    transition: all 0.35s cubic-bezier(0.4, 0, 0.2, 1);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 12px;
+}
+
+[data-theme="dark"] .tc-theme-toggle .toggle-dot {
+    left: 27px;
+    background: #6366f1;
+    box-shadow: 0 0 8px rgba(99, 102, 241, 0.4);
+}
+
+[data-theme="light"] .tc-theme-toggle .toggle-dot {
+    left: 3px;
+    background: linear-gradient(135deg, #3b82f6, #06b6d4);
+    box-shadow: 0 0 8px rgba(59, 130, 246, 0.35);
+}
+
+/* ═══════════════════════════════════════════
+   Light-specific premium enhancements
+   ═══════════════════════════════════════════ */
+
+/* Subtle inner glow on header */
+[data-theme="light"] header {
+    background: rgba(255, 255, 255, 0.5);
+    backdrop-filter: blur(16px);
+    -webkit-backdrop-filter: blur(16px);
+    border-bottom: 1px solid rgba(255, 255, 255, 0.5) !important;
+    box-shadow: 0 1px 3px rgba(0, 0, 0, 0.03);
+}
+
+/* Conversation items — hover lift */
+[data-theme="light"] .tc-surface-hover:hover {
+    box-shadow: var(--tc-shadow-sm);
+    border-radius: 12px;
+}
+
+/* Welcome action buttons — glassmorphism */
+[data-theme="light"] .tc-surface.tc-surface-hover {
+    backdrop-filter: blur(12px);
+    -webkit-backdrop-filter: blur(12px);
+    box-shadow: var(--tc-shadow-sm);
+    border: 1px solid rgba(255, 255, 255, 0.5) !important;
+    transition: all 0.2s ease;
+}
+
+[data-theme="light"] .tc-surface.tc-surface-hover:hover {
+    box-shadow: var(--tc-shadow-md);
+    transform: translateY(-1px);
+    border-color: rgba(59, 130, 246, 0.15) !important;
+}
+
+/* Typing indicator dots — use blue in light mode */
+[data-theme="light"] .animate-bounce {
+    background-color: #3b82f6 !important;
+}
+
+/* ── Tool Manager animations ── */
+@keyframes fadeIn {
+    from {
+        opacity: 0;
+        transform: translateY(-4px);
+    }
+
+    to {
+        opacity: 1;
+        transform: translateY(0);
+    }
+}
+
+.animate-fadeIn {
+    animation: fadeIn 0.2s ease-out;
+}
+
+.custom-scrollbar::-webkit-scrollbar {
+    width: 4px;
+}
+
+.custom-scrollbar::-webkit-scrollbar-track {
+    background: transparent;
+}
+
+.custom-scrollbar::-webkit-scrollbar-thumb {
+    background: var(--tc-scrollbar);
+    border-radius: 9999px;
+}

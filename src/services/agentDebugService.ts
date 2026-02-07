@@ -7,11 +7,11 @@ export interface AgentDebugEntry {
   timestamp: string;
   sessionId: string;
   type: 'user_query' | 'thinking' | 'planning' | 'tool_call' | 'tool_response' | 'final_response' | 'error';
-  
+
   // Основные данные
   content: string;
   userQuery?: string;
-  
+
   // Метаданные мышления
   thoughts?: {
     observation: string;
@@ -19,14 +19,14 @@ export interface AgentDebugEntry {
     action: string;
     confidence: number;
   };
-  
+
   // Метаданные планирования
   plan?: {
     goal: string;
     steps: any[];
     totalSteps: number;
   };
-  
+
   // Метаданные инструментов
   tool?: {
     name: string;
@@ -34,7 +34,7 @@ export interface AgentDebugEntry {
     result?: any;
     executionTime?: number;
   };
-  
+
   // Метрики выполнения
   metrics?: {
     toolCalls: number;
@@ -45,7 +45,7 @@ export interface AgentDebugEntry {
     averageConfidence: number;
     totalExecutionTime: number;
   };
-  
+
   // Дополнительная информация
   agentModel?: string;
   agentType?: string;
@@ -80,20 +80,20 @@ class AgentDebugService {
   startSession(userQuery: string, silent: boolean = false): string {
     const sessionId = `session_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
     this.currentSessionId = sessionId;
-    
+
     const session: AgentDebugSession = {
       sessionId,
       startTime: new Date().toISOString(),
       userQuery,
       entries: []
     };
-    
+
     this.saveSession(session);
-    
+
     if (!silent) {
       console.log(`🐛 Debug: Начата новая сессия ${sessionId} для запроса: "${userQuery}"`);
     }
-    
+
     return sessionId;
   }
 
@@ -102,16 +102,16 @@ class AgentDebugService {
    */
   endSession(metrics?: any): void {
     if (!this.currentSessionId) return;
-    
+
     const sessions = this.getAllSessions();
     const session = sessions.find(s => s.sessionId === this.currentSessionId);
-    
+
     if (session) {
       session.endTime = new Date().toISOString();
       session.summary = this.calculateSessionSummary(session, metrics);
       this.saveSession(session);
     }
-    
+
     this.currentSessionId = null;
   }
 
@@ -123,7 +123,7 @@ class AgentDebugService {
       console.warn('🐛 Debug: Нет активной сессии для записи');
       return;
     }
-    
+
     const fullEntry: AgentDebugEntry = {
       id: `entry_${Date.now()}_${Math.random().toString(36).substr(2, 6)}`,
       timestamp: new Date().toISOString(),
@@ -132,10 +132,10 @@ class AgentDebugService {
       content: entry.content || '',
       ...entry
     };
-    
+
     const sessions = this.getAllSessions();
     const session = sessions.find(s => s.sessionId === this.currentSessionId);
-    
+
     if (session) {
       session.entries.push(fullEntry);
       this.saveSession(session);
@@ -268,7 +268,7 @@ class AgentDebugService {
       totalSessions: sessions.length,
       sessions: sessions
     };
-    
+
     return JSON.stringify(exportData, null, 2);
   }
 
@@ -278,12 +278,12 @@ class AgentDebugService {
   exportSession(sessionId: string): string | null {
     const session = this.getSession(sessionId);
     if (!session) return null;
-    
+
     const exportData = {
       exportedAt: new Date().toISOString(),
       session: session
     };
-    
+
     return JSON.stringify(exportData, null, 2);
   }
 
@@ -294,12 +294,12 @@ class AgentDebugService {
     const data = this.exportAllData();
     const blob = new Blob([data], { type: 'application/json' });
     const url = URL.createObjectURL(blob);
-    
+
     const link = document.createElement('a');
     link.href = url;
     link.download = filename;
     link.click();
-    
+
     URL.revokeObjectURL(url);
     console.log(`🐛 Debug: Данные экспортированы в ${filename}`);
   }
@@ -310,11 +310,11 @@ class AgentDebugService {
   cleanupOldSessions(): void {
     const sessions = this.getAllSessions();
     if (sessions.length <= this.MAX_SESSIONS) return;
-    
+
     const sortedSessions = sessions
       .sort((a, b) => new Date(b.startTime).getTime() - new Date(a.startTime).getTime())
       .slice(0, this.MAX_SESSIONS);
-    
+
     this.saveAllSessions(sortedSessions);
     console.log(`🐛 Debug: Очищены старые сессии, оставлено ${this.MAX_SESSIONS}`);
   }
@@ -334,18 +334,18 @@ class AgentDebugService {
   getStatistics(): any {
     const sessions = this.getAllSessions();
     const totalEntries = sessions.reduce((sum, s) => sum + s.entries.length, 0);
-    const totalThoughts = sessions.reduce((sum, s) => 
+    const totalThoughts = sessions.reduce((sum, s) =>
       sum + s.entries.filter(e => e.type === 'thinking').length, 0);
-    const totalToolCalls = sessions.reduce((sum, s) => 
+    const totalToolCalls = sessions.reduce((sum, s) =>
       sum + s.entries.filter(e => e.type === 'tool_call').length, 0);
-    
+
     const avgConfidence = sessions.reduce((sum, s) => {
       const thoughtEntries = s.entries.filter(e => e.type === 'thinking' && e.thoughts);
-      const sessionAvg = thoughtEntries.reduce((tSum, e) => 
+      const sessionAvg = thoughtEntries.reduce((tSum, e) =>
         tSum + (e.thoughts?.confidence || 0), 0) / Math.max(thoughtEntries.length, 1);
       return sum + sessionAvg;
     }, 0) / Math.max(sessions.length, 1);
-    
+
     return {
       totalSessions: sessions.length,
       totalEntries,
@@ -359,23 +359,23 @@ class AgentDebugService {
   private saveSession(session: AgentDebugSession): void {
     const sessions = this.getAllSessions();
     const index = sessions.findIndex(s => s.sessionId === session.sessionId);
-    
+
     if (index >= 0) {
       sessions[index] = session;
     } else {
       sessions.push(session);
     }
-    
+
     this.saveAllSessions(sessions);
   }
 
   private saveAllSessions(sessions: AgentDebugSession[]): void {
     try {
       localStorage.setItem(this.STORAGE_KEY, JSON.stringify(sessions));
-    } catch (error) {
+    } catch (error: any) {
       console.error('Ошибка сохранения сессий отладки:', error);
       // Если переполнение - очищаем старые данные
-      if (error.name === 'QuotaExceededError') {
+      if (error?.name === 'QuotaExceededError') {
         this.cleanupOldSessions();
       }
     }
@@ -386,14 +386,14 @@ class AgentDebugService {
     const thoughts = entries.filter(e => e.type === 'thinking');
     const toolCalls = entries.filter(e => e.type === 'tool_call');
     const errors = entries.filter(e => e.type === 'error');
-    
-    const avgConfidence = thoughts.reduce((sum, e) => 
+
+    const avgConfidence = thoughts.reduce((sum, e) =>
       sum + (e.thoughts?.confidence || 0), 0) / Math.max(thoughts.length, 1);
-    
+
     const startTime = new Date(session.startTime).getTime();
     const endTime = session.endTime ? new Date(session.endTime).getTime() : Date.now();
     const executionTime = (endTime - startTime) / 1000;
-    
+
     return {
       totalEntries: entries.length,
       totalThoughts: thoughts.length,
@@ -410,7 +410,7 @@ class AgentDebugService {
     try {
       const data = localStorage.getItem(this.STORAGE_KEY);
       const sizeInBytes = new Blob([data || '']).size;
-      
+
       if (sizeInBytes < 1024) return `${sizeInBytes} B`;
       if (sizeInBytes < 1024 * 1024) return `${(sizeInBytes / 1024).toFixed(1)} KB`;
       return `${(sizeInBytes / (1024 * 1024)).toFixed(1)} MB`;

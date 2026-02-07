@@ -7,13 +7,13 @@ import type { AgentEvent, LogLevel, AgentEventType } from './types';
 export interface EventLoggerConfig {
   /** Максимальное количество событий в памяти */
   maxEvents?: number;
-  
+
   /** Уровень логирования */
   logLevel?: LogLevel;
-  
+
   /** Включить structured logging в консоль */
   consoleLogging?: boolean;
-  
+
   /** Callback для экспорта событий */
   exportCallback?: (event: AgentEvent) => void;
 }
@@ -21,7 +21,7 @@ export interface EventLoggerConfig {
 export class EventLogger {
   private events: AgentEvent[] = [];
   private config: EventLoggerConfig;
-  
+
   constructor(config: EventLoggerConfig = {}) {
     this.config = {
       maxEvents: 10000,
@@ -30,7 +30,7 @@ export class EventLogger {
       ...config
     };
   }
-  
+
   /**
    * Логирование события
    */
@@ -40,25 +40,25 @@ export class EventLogger {
       timestamp: new Date(),
       level: event.level || this.getDefaultLevel(event.type)
     };
-    
+
     // Фильтруем по уровню логирования
-    if (!this.shouldLog(fullEvent.level)) {
+    if (!this.shouldLog(fullEvent.level || 'info')) {
       return;
     }
-    
+
     // Добавляем в массив событий
     this.events.push(fullEvent);
-    
+
     // Ограничиваем размер массива
     if (this.config.maxEvents && this.events.length > this.config.maxEvents) {
       this.events = this.events.slice(-Math.floor(this.config.maxEvents * 0.5));
     }
-    
+
     // Structured logging в консоль
     if (this.config.consoleLogging) {
       this.logToConsole(fullEvent);
     }
-    
+
     // Экспорт события
     if (this.config.exportCallback) {
       try {
@@ -68,7 +68,7 @@ export class EventLogger {
       }
     }
   }
-  
+
   /**
    * Логирование в консоль с structured форматированием
    */
@@ -81,11 +81,11 @@ export class EventLogger {
       data: event.data,
       ...(event.metadata && { metadata: event.metadata })
     };
-    
-    const logMethod = this.getConsoleMethod(event.level);
+
+    const logMethod = this.getConsoleMethod(event.level || 'info');
     logMethod(`[Observability] ${event.type}`, logEntry);
   }
-  
+
   /**
    * Определяет метод консоли по уровню
    */
@@ -103,7 +103,7 @@ export class EventLogger {
         return console.log;
     }
   }
-  
+
   /**
    * Определяет уровень логирования по типу события
    */
@@ -125,7 +125,7 @@ export class EventLogger {
         return 'info';
     }
   }
-  
+
   /**
    * Проверяет, нужно ли логировать событие по уровню
    */
@@ -133,10 +133,10 @@ export class EventLogger {
     const levels: LogLevel[] = ['debug', 'info', 'warn', 'error'];
     const configLevelIndex = levels.indexOf(this.config.logLevel || 'info');
     const eventLevelIndex = levels.indexOf(level);
-    
+
     return eventLevelIndex >= configLevelIndex;
   }
-  
+
   /**
    * Получить все события
    */
@@ -146,18 +146,18 @@ export class EventLogger {
     }
     return [...this.events];
   }
-  
+
   /**
    * Получить события по типу
    */
   getEventsByType(type: AgentEventType, sessionId?: string): AgentEvent[] {
-    const events = sessionId 
+    const events = sessionId
       ? this.events.filter(e => e.sessionId === sessionId)
       : this.events;
-    
+
     return events.filter(e => e.type === type);
   }
-  
+
   /**
    * Очистить события
    */
@@ -168,18 +168,18 @@ export class EventLogger {
       this.events = [];
     }
   }
-  
+
   /**
    * Экспорт событий в JSON
    */
   exportToJSON(sessionId?: string): string {
-    const events = sessionId 
+    const events = sessionId
       ? this.events.filter(e => e.sessionId === sessionId)
       : this.events;
-    
+
     return JSON.stringify(events, null, 2);
   }
-  
+
   /**
    * Обновить конфигурацию
    */

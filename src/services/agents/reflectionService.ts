@@ -106,7 +106,7 @@ ${JSON.stringify(allResults, null, 2).substring(0, 4000)}...
 
       const reflection = await this.deps.openai.chat.completions.create(
         this.deps.getApiParams({
-          model: "google/gemini-flash-1.5",
+          model: "google/gemini-2.5-flash-lite",
           messages: [{ role: "user", content: reflectionPrompt }],
           maxTokens: 1500,
           temperature: 0.2,
@@ -194,7 +194,7 @@ ${JSON.stringify(compactStepsData, null, 2)}
 
       const analysisResult = await this.deps.openai.chat.completions.create(
         this.deps.getApiParams({
-          model: "google/gemini-flash-1.5",
+          model: "google/gemini-2.5-flash-lite",
           messages: [{ role: "user", content: prompt }],
           maxTokens: 2000,
           temperature: 0.3

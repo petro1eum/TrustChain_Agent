@@ -107,9 +107,10 @@ export class ToolHandlersService {
 
     try {
       // Call backend Docker endpoint
+      const _env = typeof process !== 'undefined' ? process.env : {} as Record<string, string | undefined>;
       const BACKEND_URL = (typeof import.meta !== 'undefined' && (import.meta.env?.VITE_BACKEND_URL || import.meta.env?.VITE_API_BASE))
-        || process.env.VITE_BACKEND_URL
-        || process.env.VITE_API_BASE
+        || _env.VITE_BACKEND_URL
+        || _env.VITE_API_BASE
         || 'http://localhost:8000';
 
       const response = await fetch(`${BACKEND_URL}/api/docker-agent/extract_table`, {
@@ -682,7 +683,8 @@ export class ToolHandlersService {
     const useSemantic = norm.useSemantic !== false; // По умолчанию true
 
     try {
-      const BACKEND_URL = (typeof import.meta !== 'undefined' && (import.meta.env?.VITE_BACKEND_URL || import.meta.env?.VITE_API_BASE)) || process.env.VITE_BACKEND_URL || process.env.VITE_API_BASE || 'http://localhost:8000';
+      const _env1 = typeof process !== 'undefined' ? process.env : {} as Record<string, string | undefined>;
+      const BACKEND_URL = (typeof import.meta !== 'undefined' && (import.meta.env?.VITE_BACKEND_URL || import.meta.env?.VITE_API_BASE)) || _env1.VITE_BACKEND_URL || _env1.VITE_API_BASE || 'http://localhost:8000';
       const response = await fetch(`${BACKEND_URL}/api/conversations/search`, {
         method: 'POST',
         headers: {
@@ -731,7 +733,8 @@ export class ToolHandlersService {
     const limit = Math.max(1, Math.min(Number(norm.limit || 20), 100));
 
     try {
-      const BACKEND_URL = (typeof import.meta !== 'undefined' && (import.meta.env?.VITE_BACKEND_URL || import.meta.env?.VITE_API_BASE)) || process.env.VITE_BACKEND_URL || process.env.VITE_API_BASE || 'http://localhost:8000';
+      const _env2 = typeof process !== 'undefined' ? process.env : {} as Record<string, string | undefined>;
+      const BACKEND_URL = (typeof import.meta !== 'undefined' && (import.meta.env?.VITE_BACKEND_URL || import.meta.env?.VITE_API_BASE)) || _env2.VITE_BACKEND_URL || _env2.VITE_API_BASE || 'http://localhost:8000';
       const response = await fetch(`${BACKEND_URL}/api/conversations/recent?limit=${limit}`, {
         method: 'GET',
         headers: {
@@ -789,9 +792,10 @@ export class ToolHandlersService {
     // Single backend call that does: PDF → Extract → Search Catalog → Create Excel
     console.log('[handleMatchSpecificationToCatalog] Calling backend for full pipeline');
 
+    const _env3 = typeof process !== 'undefined' ? process.env : {} as Record<string, string | undefined>;
     const BACKEND_URL = (typeof import.meta !== 'undefined' && (import.meta.env?.VITE_BACKEND_URL || import.meta.env?.VITE_API_BASE))
-      || process.env.VITE_BACKEND_URL
-      || process.env.VITE_API_BASE
+      || _env3.VITE_BACKEND_URL
+      || _env3.VITE_API_BASE
       || 'http://localhost:8000';
 
     try {

@@ -41,20 +41,13 @@ export class ConversationMemoryService {
           reasoning_text: `Триггеры обнаружены, ключевые слова: ${keywords.join(', ')}`
         });
 
-        const relevantMessages = await chatHistoryService.searchMessages(
-          keywords.join(' '),
-          undefined
+        const relevantMessages = chatHistoryService.searchMessages(
+          keywords.join(' ')
         );
 
         if (relevantMessages && relevantMessages.length > 0) {
-          const currentSessionMessages = currentSession?.messages || [];
-          const currentSessionMessageIds = new Set(currentSessionMessages.map(m => m.id));
-
-          const filteredMessages = relevantMessages.filter(msg =>
-            !currentSessionMessageIds.has(msg.id)
-          );
-
-          const relevantFiltered = filteredMessages.filter(msg => {
+          // searchMessages already excludes current session, so just filter by keywords
+          const relevantFiltered = relevantMessages.filter(msg => {
             const msgLower = (msg.content || '').toLowerCase();
             return keywords.some(kw => msgLower.includes(kw.toLowerCase()));
           });

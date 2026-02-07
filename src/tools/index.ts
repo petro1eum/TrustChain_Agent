@@ -14,7 +14,7 @@ import { webTools } from './webTools';
 import { fileTools } from './fileTools';
 import { searchTools } from './searchTools';
 import { codeAnalysisTools } from './codeAnalysisTools';
-import { BrowserService } from '../../services/agents/browserService';
+import { BrowserService } from '../services/agents/browserService';
 
 // Gap G: Static browser tool definitions
 const _browserSvc = new BrowserService();

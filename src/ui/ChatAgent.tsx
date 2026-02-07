@@ -24,6 +24,7 @@ import ChatHistoryViewer from './ChatHistoryViewer';
 import ArtifactsViewer from './ArtifactsViewer';
 import AgentSettings from './AgentSettings';
 import { ArtifactView } from './artifacts';
+import { TrustChainDashboard } from './dashboard';
 import { ArtifactsService } from '../services/artifacts';
 import { getDocument, GlobalWorkerOptions } from 'pdfjs-dist/legacy/build/pdf.mjs';
 import pdfWorkerSrc from 'pdfjs-dist/legacy/build/pdf.worker.min.mjs?url';
@@ -47,6 +48,7 @@ const ChatAgent: React.FC<ChatAgentProps> = ({
   const [showChatHistoryViewer, setShowChatHistoryViewer] = useState(false);
   const [showArtifactsViewer, setShowArtifactsViewer] = useState(false);
   const [showAgentSettings, setShowAgentSettings] = useState(false);
+  const [showTrustChainDashboard, setShowTrustChainDashboard] = useState(false);
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
   const [, setActiveTools] = useState<string[]>([]);
   const [forceUpdate, setForceUpdate] = useState(0);
@@ -125,7 +127,7 @@ const ChatAgent: React.FC<ChatAgentProps> = ({
   }, [voiceEnabled]);
 
   const addStatusMessage = (content: string) => {
-    chatState.setMessages(prev => [
+    chatState.setMessages((prev: any) => [
       ...prev,
       { role: 'assistant', content, timestamp: new Date() }
     ]);
@@ -294,7 +296,7 @@ const ChatAgent: React.FC<ChatAgentProps> = ({
     }
 
     const maxSizeBytes = 25 * 1024 * 1024;
-    chatState.setAttachmentsUploading(prev => prev + allowedFiles.length);
+    chatState.setAttachmentsUploading((prev: any) => prev + allowedFiles.length);
 
     for (const file of allowedFiles) {
       try {
@@ -351,17 +353,17 @@ const ChatAgent: React.FC<ChatAgentProps> = ({
           previewTable
         };
 
-        chatState.setPendingAttachments(prev => [...prev, attachment]);
+        chatState.setPendingAttachments((prev: any) => [...prev, attachment]);
       } catch (error: any) {
         addStatusMessage(`⚠️ Ошибка обработки файла: ${error.message || 'неизвестная ошибка'}.`);
       } finally {
-        chatState.setAttachmentsUploading(prev => Math.max(0, prev - 1));
+        chatState.setAttachmentsUploading((prev: any) => Math.max(0, prev - 1));
       }
     }
   };
 
   const handleRemoveAttachment = (id: string) => {
-    chatState.setPendingAttachments(prev => prev.filter(att => att.id !== id));
+    chatState.setPendingAttachments((prev: any) => prev.filter((att: any) => att.id !== id));
   };
 
   // Настройка коллбеков агента при изменении контекста
@@ -520,7 +522,7 @@ const ChatAgent: React.FC<ChatAgentProps> = ({
                   processing={chatState.processing}
                   messagesEndRef={chatState.messagesEndRef as React.RefObject<HTMLDivElement>}
                   formatTime={chatState.formatTime}
-                  onSwitchToArtifact={(filename) => setViewingArtifact(filename)}
+                  onSwitchToArtifact={(filename: any) => setViewingArtifact(filename)}
                 />
               )}
 
@@ -618,6 +620,13 @@ const ChatAgent: React.FC<ChatAgentProps> = ({
           onClose={() => setShowAgentSettings(false)}
           currentAgentId={agentConfig.currentAgentName}
           onAgentChange={agentConfig.setCurrentAgentName}
+        />
+      )}
+
+      {showTrustChainDashboard && (
+        <TrustChainDashboard
+          isOpen={showTrustChainDashboard}
+          onClose={() => setShowTrustChainDashboard(false)}
         />
       )}
     </>

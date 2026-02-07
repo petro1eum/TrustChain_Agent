@@ -26,7 +26,7 @@ export const ExcelArtifactRenderer: React.FC<ExcelArtifactRendererProps> = ({ ar
 
       // Очищаем base64 от возможных пробелов и переносов строк
       const cleanBase64 = artifact.content.replace(/\s/g, '');
-      
+
       // Декодируем base64 в бинарные данные
       const binaryString = atob(cleanBase64);
       const bytes = new Uint8Array(binaryString.length);
@@ -72,7 +72,7 @@ export const ExcelArtifactRenderer: React.FC<ExcelArtifactRendererProps> = ({ ar
     try {
       // Очищаем base64 от возможных пробелов и переносов строк
       const cleanBase64 = artifact.content.replace(/\s/g, '');
-      
+
       // Декодируем base64 в бинарные данные
       const binaryString = atob(cleanBase64);
       const bytes = new Uint8Array(binaryString.length);
@@ -86,10 +86,10 @@ export const ExcelArtifactRenderer: React.FC<ExcelArtifactRendererProps> = ({ ar
       }
 
       // Создаем blob с правильным MIME типом
-      const blob = new Blob([bytes], { 
-        type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' 
+      const blob = new Blob([bytes], {
+        type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
       });
-      
+
       // Создаем URL и скачиваем
       const url = URL.createObjectURL(blob);
       const link = document.createElement('a');
@@ -98,7 +98,7 @@ export const ExcelArtifactRenderer: React.FC<ExcelArtifactRendererProps> = ({ ar
       link.style.display = 'none';
       document.body.appendChild(link);
       link.click();
-      
+
       // Очистка
       setTimeout(() => {
         document.body.removeChild(link);
@@ -171,15 +171,14 @@ export const ExcelArtifactRenderer: React.FC<ExcelArtifactRendererProps> = ({ ar
         {/* Выбор листа */}
         {workbook.SheetNames.length > 1 && (
           <div className="mt-4 flex flex-wrap gap-2">
-            {workbook.SheetNames.map((sheetName) => (
+            {workbook.SheetNames.map((sheetName: string) => (
               <button
                 key={sheetName}
                 onClick={() => setSelectedSheet(sheetName)}
-                className={`px-3 py-1.5 rounded text-sm transition-colors ${
-                  selectedSheet === sheetName
+                className={`px-3 py-1.5 rounded text-sm transition-colors ${selectedSheet === sheetName
                     ? 'bg-blue-600 text-white'
                     : 'bg-white text-gray-700 hover:bg-gray-100 border border-gray-300'
-                }`}
+                  }`}
               >
                 {sheetName}
               </button>
@@ -224,8 +223,8 @@ export const ExcelArtifactRenderer: React.FC<ExcelArtifactRendererProps> = ({ ar
 
       {/* Информация о данных */}
       <div className="border-t border-gray-200 p-3 bg-gray-50 text-xs text-gray-500">
-        Лист: <span className="font-semibold">{selectedSheet}</span> • 
-        Строк: <span className="font-semibold">{sheetData.length - 1}</span> • 
+        Лист: <span className="font-semibold">{selectedSheet}</span> •
+        Строк: <span className="font-semibold">{sheetData.length - 1}</span> •
         Столбцов: <span className="font-semibold">{sheetData[0]?.length || 0}</span>
       </div>
     </div>

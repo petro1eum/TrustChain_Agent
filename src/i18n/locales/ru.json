@@ -1,0 +1,19 @@
+{
+    "greeting": "Привет! Я TrustChain Agent.",
+    "agent_settings": "Настройки агента",
+    "api_key": "API Ключ",
+    "model": "Модель",
+    "save": "Сохранить",
+    "cancel": "Отмена",
+    "tools": "Инструменты",
+    "status": "Статус",
+    "connected": "Подключен",
+    "disconnected": "Отключен",
+    "thinking": "Размышляю...",
+    "error": "Ошибка",
+    "send": "Отправить",
+    "settings": "Настройки",
+    "chats": "Чаты",
+    "agent": "Агент",
+    "trust": "Доверие"
+}

@@ -226,7 +226,7 @@ export class AnswerValidationService {
         try {
             const response = await this.deps.openai.chat.completions.create(
                 this.deps.getApiParams({
-                    model: 'google/gemini-flash-1.5',
+                    model: 'google/gemini-2.5-flash-lite',
                     messages: [{ role: 'user', content: validationPrompt }],
                     maxTokens: 500,
                     temperature: 0.1,

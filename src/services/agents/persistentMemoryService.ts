@@ -46,8 +46,9 @@ const MAX_RELEVANT_ENTRIES = 10;
 const MEMORY_VERSION = 1;
 
 // Backend URL для серверного хранения
+const _proc = typeof process !== 'undefined' ? process.env : {} as Record<string, string | undefined>;
 const BACKEND_URL = (typeof import.meta !== 'undefined' && import.meta.env?.VITE_BACKEND_URL)
-    || process.env.VITE_BACKEND_URL
+    || _proc.VITE_BACKEND_URL
     || 'http://localhost:8000';
 
 // ─── Сервис ───
@@ -253,8 +254,8 @@ export class PersistentMemoryService {
     async autoExtractMemories(
         messages: Array<{ role: string; content?: string }>,
         sessionId?: string
-    ): Promise<MemoryEntry[]> {
-        const extracted: MemoryEntry[] = [];
+    ): Promise<Array<Omit<MemoryEntry, 'id' | 'timestamp' | 'accessCount'>>> {
+        const extracted: Array<Omit<MemoryEntry, 'id' | 'timestamp' | 'accessCount'>> = [];
 
         // Regex-based extraction (всегда работает)
         extracted.push(...this.regexExtract(messages, sessionId));
@@ -369,7 +370,7 @@ Reply ONLY with a valid JSON array. If nothing worth remembering, reply with [].
 
         try {
             const apiParams = this.deps.getApiParams?.({
-                model: 'google/gemini-flash-1.5',
+                model: 'google/gemini-2.5-flash-lite',
                 messages: [
                     { role: 'system', content: 'You are a memory extraction system. Output only valid JSON.' },
                     { role: 'user', content: extractionPrompt }
@@ -378,7 +379,7 @@ Reply ONLY with a valid JSON array. If nothing worth remembering, reply with [].
                 max_tokens: 1000,
                 stream: false
             }) || {
-                model: 'google/gemini-flash-1.5',
+                model: 'google/gemini-2.5-flash-lite',
                 messages: [
                     { role: 'system', content: 'You are a memory extraction system. Output only valid JSON.' },
                     { role: 'user', content: extractionPrompt }

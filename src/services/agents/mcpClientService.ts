@@ -58,8 +58,9 @@ const DEFAULT_TIMEOUT = 15000;
 const DISCOVERY_CACHE_TTL = 5 * 60 * 1000; // 5 минут
 
 // Backend URL
+const _proc = typeof process !== 'undefined' ? process.env : {} as Record<string, string | undefined>;
 const BACKEND_URL = (typeof import.meta !== 'undefined' && import.meta.env?.VITE_BACKEND_URL)
-    || process.env.VITE_BACKEND_URL
+    || _proc.VITE_BACKEND_URL
     || 'http://localhost:8000';
 
 // ─── Сервис ───

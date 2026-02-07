@@ -29,6 +29,8 @@ export function getDefaultAgentConfig(): AIAgentConfig {
     },
     rateLimitConfig: {
       enabled: false, // По умолчанию выключен (можно включить через config)
+      maxTokensPerMinute: 100000,
+      maxRequestsPerMinute: 60,
       defaultLimits: {
         maxToolCalls: 1000, // Максимум tool calls за период
         maxTokens: 1000000, // Максимум токенов за период (1M)

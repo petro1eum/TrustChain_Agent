@@ -1,0 +1,19 @@
+{
+    "greeting": "Hello! I'm TrustChain Agent.",
+    "agent_settings": "Agent Settings",
+    "api_key": "API Key",
+    "model": "Model",
+    "save": "Save",
+    "cancel": "Cancel",
+    "tools": "Tools",
+    "status": "Status",
+    "connected": "Connected",
+    "disconnected": "Disconnected",
+    "thinking": "Thinking...",
+    "error": "Error",
+    "send": "Send",
+    "settings": "Settings",
+    "chats": "Chats",
+    "agent": "Agent",
+    "trust": "Trust"
+}

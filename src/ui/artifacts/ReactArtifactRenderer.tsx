@@ -6,7 +6,7 @@
 import React, { useRef, useEffect, useState } from 'react';
 import { AlertTriangle } from 'lucide-react';
 import type { ArtifactContent } from '../../services/artifacts/types';
-import { ReactValidator } from '../../services/artifacts/reactValidator';
+import { validateReactCode } from '../../services/artifacts/reactValidator';
 
 interface ReactArtifactRendererProps {
   artifact: ArtifactContent;
@@ -16,27 +16,28 @@ export const ReactArtifactRenderer: React.FC<ReactArtifactRendererProps> = ({ ar
   const iframeRef = useRef<HTMLIFrameElement>(null);
   const [validation, setValidation] = useState(() => {
     if (!artifact.content || typeof artifact.content !== 'string') {
-      return { valid: false, errors: ['Artifact content is missing or invalid'], warnings: [] };
+      return { valid: false, errors: ['Artifact content is missing or invalid'], warnings: [] as string[] };
     }
-    return ReactValidator.validateReactCode(artifact.content);
+    const result = validateReactCode(artifact.content);
+    return { ...result, warnings: [] as string[] };
   });
   const [isRendered, setIsRendered] = useState(false);
   const [iframeHeight, setIframeHeight] = useState<number>(600);
 
   // Функция для обработки импортов и определения нужных библиотек
-  const processImports = (code: string): { 
-    processedCode: string; 
+  const processImports = (code: string): {
+    processedCode: string;
     requiredLibs: Array<{ name: string; url: string; globalVar: string }>;
     importedHooks: Set<string>; // Отслеживаем какие хуки были импортированы из React
   } => {
     const requiredLibs: Array<{ name: string; url: string; globalVar: string }> = [];
     const importedHooks = new Set<string>();
-    
+
     // Проверяем, что код существует и является строкой
     if (!code || typeof code !== 'string') {
       return { processedCode: code || '', requiredLibs, importedHooks };
     }
-    
+
     let processedCode = code;
 
     // Маппинг библиотек на CDN URLs и глобальные переменные
@@ -57,25 +58,25 @@ export const ReactArtifactRenderer: React.FC<ReactArtifactRendererProps> = ({ ar
         url: 'https://unpkg.com/d3@7.8.5/dist/d3.min.js',
         globalVar: 'd3'
       },
-      'plotly.js': { 
-        url: 'https://cdn.plot.ly/plotly-latest.min.js', 
-        globalVar: 'Plotly' 
+      'plotly.js': {
+        url: 'https://cdn.plot.ly/plotly-latest.min.js',
+        globalVar: 'Plotly'
       },
-      'three': { 
-        url: 'https://unpkg.com/three@0.158.0/build/three.min.js', 
-        globalVar: 'THREE' 
+      'three': {
+        url: 'https://unpkg.com/three@0.158.0/build/three.min.js',
+        globalVar: 'THREE'
       },
-      'lucide-react': { 
-        url: 'https://unpkg.com/lucide@latest/dist/umd/lucide.js', 
-        globalVar: 'lucide' 
+      'lucide-react': {
+        url: 'https://unpkg.com/lucide@latest/dist/umd/lucide.js',
+        globalVar: 'lucide'
       },
-      'chart.js': { 
-        url: 'https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js', 
-        globalVar: 'Chart' 
+      'chart.js': {
+        url: 'https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js',
+        globalVar: 'Chart'
       },
-      'mathjs': { 
-        url: 'https://unpkg.com/mathjs@12.2.0/lib/browser/math.min.js', 
-        globalVar: 'math' 
+      'mathjs': {
+        url: 'https://unpkg.com/mathjs@12.2.0/lib/browser/math.min.js',
+        globalVar: 'math'
       },
     };
 
@@ -89,13 +90,13 @@ export const ReactArtifactRenderer: React.FC<ReactArtifactRendererProps> = ({ ar
           const parts = imp.split(' as ');
           const originalName = parts[0].trim();
           const alias = parts[1]?.trim() || originalName;
-          
+
           // Отслеживаем импортированные хуки
           const hookNames = ['useState', 'useEffect', 'useRef', 'useMemo', 'useCallback', 'useReducer'];
           if (hookNames.includes(originalName)) {
             importedHooks.add(originalName);
           }
-          
+
           // Используем window.React для надежности в strict mode
           return `const ${alias} = window.React.${originalName}`;
         }).join(';\n') + ';\n';
@@ -132,12 +133,12 @@ export const ReactArtifactRenderer: React.FC<ReactArtifactRendererProps> = ({ ar
       const namespaceImport = match[3];
       const namespaceAlias = match[4];
       const importPath = match[5];
-      
+
       // Пропускаем, если importPath не определен
       if (!importPath || typeof importPath !== 'string') {
         continue;
       }
-      
+
       const libName = importPath.split('/')[0];
 
       // Пропускаем React (уже обработали) и относительные импорты
@@ -154,7 +155,7 @@ export const ReactArtifactRenderer: React.FC<ReactArtifactRendererProps> = ({ ar
         }
         ensureLib(libName);
         const lib = libMap[libName];
-        
+
         // Обрабатываем именованные импорты
         if (namedImports) {
           const imports = namedImports.split(',').map((s: string) => s.trim());
@@ -198,13 +199,13 @@ export const ReactArtifactRenderer: React.FC<ReactArtifactRendererProps> = ({ ar
       /export\s+default\s+function\s+(\w+)\s*\(/g,
       'function $1('
     );
-    
+
     // Затем обрабатываем const экспорты
     processedCode = processedCode.replace(
       /export\s+default\s+const\s+(\w+)\s*=/g,
       'const $1 ='
     );
-    
+
     // Обрабатываем экспорт уже определенной переменной
     processedCode = processedCode.replace(
       /export\s+default\s+(\w+)\s*;?\s*$/gm,
@@ -212,7 +213,7 @@ export const ReactArtifactRenderer: React.FC<ReactArtifactRendererProps> = ({ ar
         return `const DefaultExport = ${varName};\nwindow.DefaultExport = ${varName};\nwindow.${varName} = ${varName};`;
       }
     );
-    
+
     // Обрабатываем анонимные экспорты (export default { ... } или export default function() { ... })
     // Это сложнее, поэтому используем обертку
     if (/export\s+default\s+(?!function\s+\w|const\s+\w|\w+\s*;?\s*$)/.test(processedCode)) {
@@ -222,7 +223,7 @@ export const ReactArtifactRenderer: React.FC<ReactArtifactRendererProps> = ({ ar
         'const DefaultExport = $1;\nwindow.DefaultExport = DefaultExport;'
       );
     }
-    
+
     // После всех определений функций/компонентов добавляем их в window
     // Это нужно для того, чтобы Babel мог их найти
     const functionDefRegex = /(?:function|const)\s+([A-Z][a-zA-Z0-9]*)\s*[=\(]/g;
@@ -234,10 +235,10 @@ export const ReactArtifactRenderer: React.FC<ReactArtifactRendererProps> = ({ ar
         definedFunctions.push(funcName);
       }
     }
-    
+
     // Добавляем присвоение в window для всех найденных компонентов
     if (definedFunctions.length > 0) {
-      const windowAssignments = definedFunctions.map(name => 
+      const windowAssignments = definedFunctions.map(name =>
         `if (typeof ${name} !== 'undefined') { window.${name} = ${name}; }`
       ).join('\n');
       processedCode += '\n\n' + windowAssignments;
@@ -264,7 +265,7 @@ export const ReactArtifactRenderer: React.FC<ReactArtifactRendererProps> = ({ ar
 
     const iframe = iframeRef.current;
     const doc = iframe.contentDocument || iframe.contentWindow?.document;
-    
+
     if (doc) {
       try {
         // Обрабатываем импорты
@@ -275,12 +276,12 @@ export const ReactArtifactRenderer: React.FC<ReactArtifactRendererProps> = ({ ar
         const importedHooksArray = Array.from(importedHooks);
         const allHooks = ['useState', 'useEffect', 'useRef', 'useMemo', 'useCallback', 'useReducer'];
         const hooksToDeclare = allHooks.filter(hook => !importedHooksArray.includes(hook));
-        
+
         // Создаем строку объявления хуков для вставки в шаблон
         // Используем window.* вместо var для надежности в strict mode
         let hooksDeclarationCode = '';
         if (hooksToDeclare.length > 0) {
-          const hooksAssignments = hooksToDeclare.map(hook => 
+          const hooksAssignments = hooksToDeclare.map(hook =>
             `window.${hook} = window.React.${hook};`
           ).join('\n');
           hooksDeclarationCode = `if (typeof window.React !== 'undefined') {\n  ${hooksAssignments}\n}\n`;
@@ -716,7 +717,7 @@ export const ReactArtifactRenderer: React.FC<ReactArtifactRendererProps> = ({ ar
           try {
             const body = doc.body;
             const html = doc.documentElement;
-            
+
             if (body && html) {
               // Получаем максимальную высоту из body и html
               const height = Math.max(
@@ -726,7 +727,7 @@ export const ReactArtifactRenderer: React.FC<ReactArtifactRendererProps> = ({ ar
                 html.scrollHeight,
                 html.offsetHeight
               );
-              
+
               // Устанавливаем минимальную высоту 400px и добавляем небольшой отступ
               setIframeHeight(Math.max(400, height + 20));
             }
@@ -806,7 +807,7 @@ export const ReactArtifactRenderer: React.FC<ReactArtifactRendererProps> = ({ ar
             <div className="text-sm text-red-700">
               <strong>Ошибки:</strong>
               <ul className="list-disc list-inside mt-1">
-                {validation.errors.map((error, i) => (
+                {validation.errors.map((error: any, i: any) => (
                   <li key={i}>{error}</li>
                 ))}
               </ul>
@@ -814,7 +815,7 @@ export const ReactArtifactRenderer: React.FC<ReactArtifactRendererProps> = ({ ar
                 <>
                   <strong className="mt-2 block">Предупреждения:</strong>
                   <ul className="list-disc list-inside">
-                    {validation.warnings.map((warning, i) => (
+                    {validation.warnings.map((warning: any, i: any) => (
                       <li key={i}>{warning}</li>
                     ))}
                   </ul>
@@ -840,8 +841,8 @@ export const ReactArtifactRenderer: React.FC<ReactArtifactRendererProps> = ({ ar
       <iframe
         ref={iframeRef}
         className="w-full border-0"
-        style={{ 
-          minHeight: '400px', 
+        style={{
+          minHeight: '400px',
           height: `${iframeHeight}px`,
           display: 'block'
         }}

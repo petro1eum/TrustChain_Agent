@@ -183,7 +183,7 @@ export class TaskIntentService {
     ): Promise<TaskIntent> {
         const response = await deps.openai.chat.completions.create(
             deps.getApiParams({
-                model: 'google/gemini-flash-1.5', // Быстрая модель для классификации
+                model: 'google/gemini-2.5-flash-lite', // Быстрая модель для классификации
                 messages: [
                     { role: 'system', content: INTENT_CLASSIFICATION_PROMPT },
                     { role: 'user', content: query }

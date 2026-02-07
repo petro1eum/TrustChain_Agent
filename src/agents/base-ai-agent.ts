@@ -71,11 +71,12 @@ export class AIAgent {
    * @param config - Конфигурация агента (опционально)
    */
   constructor(apiKey?: string, config?: Partial<AIAgentConfig>) {
+    const _env = typeof process !== 'undefined' ? process.env : {} as Record<string, string | undefined>;
     const openaiKey = apiKey
       || (typeof import.meta !== 'undefined' && import.meta.env?.VITE_OPENAI_API_KEY)
-      || process.env.VITE_OPENAI_API_KEY;
+      || _env.VITE_OPENAI_API_KEY;
     const baseURL = (typeof import.meta !== 'undefined' && import.meta.env?.VITE_OPENAI_BASE_URL)
-      || process.env.VITE_OPENAI_BASE_URL;
+      || _env.VITE_OPENAI_BASE_URL;
 
     if (!openaiKey) {
       console.warn('Внимание: OpenAI API ключ не найден. Используется режим демонстрации.');

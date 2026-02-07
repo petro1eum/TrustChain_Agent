@@ -33,13 +33,14 @@ import {
   BrowserService,
   EventTriggerService,
 } from '../services/agents';
-import { getAllSmartAgentTools, ALLOWED_TOOLS } from './tools';
+import { getAllSmartAgentTools, ALLOWED_TOOLS } from '../tools';
 import { SystemPrompts } from './base/systemPrompts';
 import { createApiParams } from './config/apiParams';
 import { SkillsLoaderService, SkillsMatcher } from '../services/skills';
 import { InternalReasoningService } from '../services/reasoning';
 import { ResourceManager } from '../services/resources';
 import { ObservabilityService } from '../services/observability';
+import { getLockedToolIds } from '../tools/toolRegistry';
 
 export class SmartAIAgent extends AIAgent {
   // История последних вызовов инструментов для защиты от зацикливания
@@ -499,9 +500,9 @@ export class SmartAIAgent extends AIAgent {
         progressCallback?.({
           type: 'reasoning_step',
           message: 'Использую модель для изображений',
-          reasoning_text: 'Переключаюсь на google/gemini-flash-1.5 для анализа изображений'
+          reasoning_text: 'Переключаюсь на google/gemini-2.5-flash-lite для анализа изображений'
         });
-        this.config.defaultModel = 'google/gemini-flash-1.5';
+        this.config.defaultModel = 'google/gemini-2.5-flash-lite';
       }
 
       let result: { result: any; messages: ChatMessage[] };
@@ -957,10 +958,13 @@ export class SmartAIAgent extends AIAgent {
   getToolsSpecification(): any[] {
     // Загружаем список включённых инструментов из localStorage
     let enabledTools: Set<string> | null = null;
+    let lockedToolIds: Set<string> = getLockedToolIds();
     try {
       const savedTools = localStorage.getItem('agent_enabled_tools');
       if (savedTools) {
         enabledTools = new Set(JSON.parse(savedTools));
+        // Guarantee locked tools are always included
+        for (const id of lockedToolIds) enabledTools.add(id);
       }
     } catch (e) {
       console.warn('Не удалось загрузить список инструментов');
@@ -969,6 +973,7 @@ export class SmartAIAgent extends AIAgent {
     // Функция для проверки включён ли инструмент
     const isToolEnabled = (toolId: string): boolean => {
       if (!enabledTools) return true; // Если список не настроен - все включены
+      if (lockedToolIds.has(toolId)) return true; // Locked tools always enabled
       return enabledTools.has(toolId);
     };
 
