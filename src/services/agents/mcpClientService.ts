@@ -37,7 +37,7 @@ export interface MCPServerConfig {
     id: string;
     name: string;
     url: string;
-    transport: 'stdio' | 'sse' | 'http';
+    transport: 'stdio' | 'sse' | 'http' | 'streamable-http';
     enabled: boolean;
     apiKey?: string;
     timeout?: number;
@@ -50,6 +50,7 @@ export interface MCPServerConnection {
     status: 'connected' | 'disconnected' | 'error';
     lastError?: string;
     connectedAt?: number;
+    sessionId?: string;  // For streamable-http MCP protocol
 }
 
 // ─── Константы ───
@@ -68,6 +69,7 @@ const BACKEND_URL = (typeof import.meta !== 'undefined' && import.meta.env?.VITE
 export class MCPClientService {
     private connections: Map<string, MCPServerConnection> = new Map();
     private toolCache: Map<string, { tools: any[]; timestamp: number }> = new Map();
+    private sessionIds: Map<string, string> = new Map();  // serverId → mcp-session-id
 
     // ──────────────────────────────────────────────
     // Connection Management
@@ -77,9 +79,14 @@ export class MCPClientService {
      * Подключается к MCP серверу и обнаруживает его tools/resources
      */
     async connect(config: MCPServerConfig): Promise<MCPServerConnection> {
-        console.log(`[MCP] Connecting to ${config.name} at ${config.url}...`);
+        console.log(`[MCP] Connecting to ${config.name} at ${config.url} (transport: ${config.transport})...`);
 
         try {
+            // For streamable-http: initialize the session first
+            if (config.transport === 'streamable-http') {
+                await this.initializeStreamableHTTP(config);
+            }
+
             // Получаем список tools от MCP сервера
             const tools = await this.discoverTools(config);
             const resources = await this.discoverResources(config);
@@ -89,7 +96,8 @@ export class MCPClientService {
                 tools,
                 resources,
                 status: 'connected',
-                connectedAt: Date.now()
+                connectedAt: Date.now(),
+                sessionId: this.sessionIds.get(config.id)
             };
 
             this.connections.set(config.id, connection);
@@ -158,10 +166,41 @@ export class MCPClientService {
 
     /**
      * Подключается ко всем сконфигурированным серверам
+     * Also auto-discovers well-known MCP servers (Playwright)
      */
     async connectAll(): Promise<MCPServerConnection[]> {
         const configs = await this.loadServerConfigs();
         const results: MCPServerConnection[] = [];
+
+        // Auto-discover Playwright MCP if running (via Vite proxy to bypass CORS)
+        // The proxy at /playwright-mcp forwards to localhost:8931/mcp
+        const hasPlaywright = configs.some(c => c.id === 'playwright');
+        if (!hasPlaywright) {
+            // Determine the base URL: use vite dev server origin for the proxy
+            const proxyBase = typeof window !== 'undefined' ? window.location.origin : 'http://localhost:5173';
+            const playwrightProxyUrl = `${proxyBase}/playwright-mcp`;
+            try {
+                const probe = await fetch(playwrightProxyUrl, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json', 'Accept': 'application/json, text/event-stream' },
+                    body: JSON.stringify({ jsonrpc: '2.0', method: 'initialize', params: { protocolVersion: '2024-11-05', capabilities: {}, clientInfo: { name: 'probe', version: '1.0' } }, id: 0 }),
+                    signal: AbortSignal.timeout(3000)
+                });
+                if (probe.ok) {
+                    console.log('[MCP] Auto-discovered Playwright MCP via proxy');
+                    configs.push({
+                        id: 'playwright',
+                        name: 'Playwright Browser',
+                        url: playwrightProxyUrl,
+                        transport: 'streamable-http',
+                        enabled: true,
+                        timeout: 30000
+                    });
+                }
+            } catch {
+                // Playwright MCP not running — skip
+            }
+        }
 
         for (const config of configs.filter(c => c.enabled)) {
             const conn = await this.connect(config);
@@ -169,6 +208,125 @@ export class MCPClientService {
         }
 
         return results;
+    }
+
+    // ──────────────────────────────────────────────
+    // Streamable HTTP MCP Protocol
+    // ──────────────────────────────────────────────
+
+    /**
+     * Parse SSE response body to extract JSON-RPC result
+     */
+    private async parseSSEResponse(response: Response): Promise<any> {
+        const text = await response.text();
+        // SSE format: "event: message\ndata: {json}\n\n"
+        const lines = text.split('\n');
+        for (const line of lines) {
+            if (line.startsWith('data: ')) {
+                try {
+                    return JSON.parse(line.slice(6));
+                } catch { /* skip non-JSON data lines */ }
+            }
+        }
+        // Try plain JSON
+        try { return JSON.parse(text); } catch { /* nope */ }
+        throw new Error(`Cannot parse SSE response: ${text.slice(0, 200)}`);
+    }
+
+    /**
+     * Initialize a Streamable HTTP MCP session
+     */
+    private async initializeStreamableHTTP(config: MCPServerConfig): Promise<string> {
+        const response = await fetch(config.url, {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+                'Accept': 'application/json, text/event-stream',
+                ...(config.apiKey ? { 'Authorization': `Bearer ${config.apiKey}` } : {})
+            },
+            body: JSON.stringify({
+                jsonrpc: '2.0',
+                method: 'initialize',
+                params: {
+                    protocolVersion: '2024-11-05',
+                    capabilities: {},
+                    clientInfo: { name: 'TrustChain Agent', version: '1.0' }
+                },
+                id: 1
+            }),
+            signal: AbortSignal.timeout(config.timeout || DEFAULT_TIMEOUT)
+        });
+
+        if (!response.ok) {
+            throw new Error(`MCP initialize failed: HTTP ${response.status}`);
+        }
+
+        // Extract session ID from response header
+        const sessionId = response.headers.get('mcp-session-id');
+        if (sessionId) {
+            this.sessionIds.set(config.id, sessionId);
+            console.log(`[MCP] Session established for ${config.name}: ${sessionId.slice(0, 8)}...`);
+        }
+
+        // Parse the initialize response
+        const data = await this.parseSSEResponse(response);
+        console.log(`[MCP] ${config.name} initialized: ${data.result?.serverInfo?.name} v${data.result?.serverInfo?.version}`);
+
+        // Send initialized notification (required by protocol)
+        try {
+            await fetch(config.url, {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                    'Accept': 'application/json, text/event-stream',
+                    ...(sessionId ? { 'mcp-session-id': sessionId } : {})
+                },
+                body: JSON.stringify({ jsonrpc: '2.0', method: 'notifications/initialized' }),
+                signal: AbortSignal.timeout(5000)
+            });
+        } catch { /* notification is best-effort */ }
+
+        return sessionId || '';
+    }
+
+    /**
+     * Make a JSON-RPC call to a Streamable HTTP MCP server
+     */
+    private async streamableHTTPCall(config: MCPServerConfig, method: string, params?: any): Promise<any> {
+        const sessionId = this.sessionIds.get(config.id);
+        const response = await fetch(config.url, {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+                'Accept': 'application/json, text/event-stream',
+                ...(sessionId ? { 'mcp-session-id': sessionId } : {}),
+                ...(config.apiKey ? { 'Authorization': `Bearer ${config.apiKey}` } : {})
+            },
+            body: JSON.stringify({
+                jsonrpc: '2.0',
+                method,
+                ...(params ? { params } : {}),
+                id: Date.now()
+            }),
+            signal: AbortSignal.timeout(config.timeout || DEFAULT_TIMEOUT)
+        });
+
+        if (!response.ok) {
+            const errText = await response.text().catch(() => '');
+            // Session expired? Re-initialize
+            if (response.status === 404 || errText.includes('not initialized')) {
+                console.log(`[MCP] Session expired for ${config.name}, re-initializing...`);
+                await this.initializeStreamableHTTP(config);
+                return this.streamableHTTPCall(config, method, params);
+            }
+            throw new Error(`MCP ${method} failed: HTTP ${response.status} — ${errText.slice(0, 200)}`);
+        }
+
+        const data = await this.parseSSEResponse(response);
+        if (data.error) {
+            throw new Error(`MCP ${method} error: ${data.error.message}`);
+        }
+        return data.result;
     }
 
     // ──────────────────────────────────────────────
@@ -182,6 +340,14 @@ export class MCPClientService {
         const cached = this.toolCache.get(config.id);
         if (cached && Date.now() - cached.timestamp < DISCOVERY_CACHE_TTL) {
             return cached.tools;
+        }
+
+        // Streamable HTTP MCP protocol (Playwright, etc.)
+        if (config.transport === 'streamable-http') {
+            const result = await this.streamableHTTPCall(config, 'tools/list');
+            const tools = result?.tools || [];
+            this.toolCache.set(config.id, { tools, timestamp: Date.now() });
+            return tools;
         }
 
         const timeout = config.timeout || DEFAULT_TIMEOUT;
@@ -274,6 +440,15 @@ export class MCPClientService {
 
         const config = connection.config;
         const timeout = config.timeout || DEFAULT_TIMEOUT;
+
+        // Streamable HTTP MCP protocol (Playwright, etc.)
+        if (config.transport === 'streamable-http') {
+            const result = await this.streamableHTTPCall(config, 'tools/call', {
+                name: toolName,
+                arguments: args
+            });
+            return result?.content || result;
+        }
 
         if (config.transport === 'http' || config.transport === 'sse') {
             const controller = new AbortController();

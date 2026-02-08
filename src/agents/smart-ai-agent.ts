@@ -191,6 +191,13 @@ export class SmartAIAgent extends AIAgent {
 
     // Gap B: MCP Client for dynamic tool discovery
     this.mcpClientService = new MCPClientService();
+    // Auto-connect to configured MCP servers (incl. Playwright auto-discovery on :8931)
+    this.mcpClientService.connectAll().then(connections => {
+      const connected = connections.filter(c => c.status === 'connected');
+      if (connected.length > 0) {
+        console.log(`[SmartAIAgent] MCP connected: ${connected.map(c => `${c.config.name} (${c.tools.length} tools)`).join(', ')}`);
+      }
+    }).catch(err => console.warn('[SmartAIAgent] MCP connectAll error (non-critical):', err));
 
     // Gap C: Long-running task queue with checkpoint/resume
     this.taskQueueService = new TaskQueueService();

@@ -47,6 +47,11 @@ export class ReActService {
     const MAX_CONTEXT_MESSAGES = 20;
     const RECENT_KEEP = 5; // Последние N сообщений всегда сохраняем
 
+    // Extract context-specific system prompts from chatHistory (injected by PanelApp)
+    const contextSystemMessages = chatHistory
+      .filter(m => m.role === 'system')
+      .map(m => m.content || '');
+
     const allHistory = chatHistory
       .filter(m => m.role === 'user' || m.role === 'assistant')
       .map(m => ({ role: m.role, content: m.content || '' }));
@@ -88,13 +93,43 @@ export class ReActService {
       });
     }
 
-    const systemPrompt = await this.deps.getSystemPrompt(relevantSkillsMetadata);
+    // Build system prompt: context-aware
+    // When PanelApp injects a context-specific system message (e.g., ЛОМ risk management),
+    // use it as the PRIMARY prompt — the default internal prompt (KB Catalog) is only a fallback.
+    // This ensures the agent behaves according to its embedding context.
+    let systemPrompt: string;
+    if (contextSystemMessages.length > 0) {
+      const contextBlock = contextSystemMessages.join('\n\n');
+      // Use the context prompt as the base, with only lightweight agent capabilities appended
+      const agentCapabilities = `
+
+---
+
+# AGENT CAPABILITIES
+
+Ты — мульти-платформенный AI-ассистент TrustChain. Используй доступные MCP tools для работы с данными платформы.
+
+КЛЮЧЕВЫЕ ПРИНЦИПЫ:
+1. ВСЕГДА сначала анализируй ЧТО У ТЕБЯ УЖЕ ЕСТЬ — доступные данные и контекст
+2. Минимизируй количество шагов до цели
+3. Используй MCP tools для получения реальных данных, НЕ фантазируй
+4. Отвечай на основе фактических результатов инструментов
+
+Если пользователь спрашивает "что ты видишь на странице" — используй доступные MCP tools для получения данных, или сообщи что видишь панель чата TrustChain Agent, встроенную в платформу.`;
+
+      systemPrompt = `${contextBlock}${agentCapabilities}`;
+    } else {
+      // Standalone mode — use full internal system prompt (KB Catalog, etc.)
+      systemPrompt = await this.deps.getSystemPrompt(relevantSkillsMetadata);
+    }
+
     const userContent = this.buildUserContent(instruction, attachments);
     let messagesForLLM: any[] = [
       { role: 'system', content: systemPrompt },
       ...recentHistory,
       { role: 'user', content: userContent }
     ];
+
 
     progressCallback?.({
       type: 'reasoning_step',

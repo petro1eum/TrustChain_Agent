@@ -428,6 +428,7 @@ const TrustChainAgentApp: React.FC = () => {
 
     // ── UI state ──
     const [sidebarOpen, setSidebarOpen] = useState(true);
+    const isEmbedded = typeof window !== 'undefined' && new URLSearchParams(window.location.search).get('embed') === 'true';
     const [activeSection, setActiveSection] = useState<'chats' | 'agent' | 'trust'>('chats');
     const [theme, setTheme] = useState<ThemeMode>('light');
     const [showSettings, setShowSettings] = useState(false);
@@ -750,7 +751,7 @@ const TrustChainAgentApp: React.FC = () => {
         <div data-theme={theme} className="h-screen w-screen flex tc-app overflow-hidden">
 
             {/* ═══ SIDEBAR ═══ */}
-            {sidebarOpen && (
+            {sidebarOpen && !isEmbedded && (
                 <ChatSidebar
                     activeConversation={activeConversation}
                     setActiveConversation={setActiveConversation}
@@ -774,7 +775,7 @@ const TrustChainAgentApp: React.FC = () => {
 
             {/* ═══ CHAT (center) ═══ */}
             <div className={`flex-1 flex flex-col min-w-0 ${activeArtifact && !artifactMaximized ? '' : ''}`}>
-                <ChatHeader
+                {!isEmbedded && <ChatHeader
                     sidebarOpen={sidebarOpen}
                     setSidebarOpen={setSidebarOpen}
                     activeConversation={activeConversation}
@@ -782,7 +783,7 @@ const TrustChainAgentApp: React.FC = () => {
                     toggleTheme={toggleTheme}
                     agent={agent}
                     setShowSettings={setShowSettings}
-                />
+                />}
 
                 {/* Content area — split when artifact is open */}
                 <div className="flex-1 flex min-h-0">
