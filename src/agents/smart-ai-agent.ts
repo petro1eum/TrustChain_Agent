@@ -44,6 +44,8 @@ import { InternalReasoningService } from '../services/reasoning';
 import { ResourceManager } from '../services/resources';
 import { ObservabilityService } from '../services/observability';
 import { getLockedToolIds } from '../tools/toolRegistry';
+import { trustchainService } from '../services/trustchainService';
+import { getAgentContext, getAgentInstance } from '../services/agentContext';
 
 export class SmartAIAgent extends AIAgent {
   // История последних вызовов инструментов для защиты от зацикливания
@@ -185,7 +187,10 @@ export class SmartAIAgent extends AIAgent {
       this.observabilityService = new ObservabilityService(observabilityConfig);
     }
 
-    this.conversationMemoryService = new ConversationMemoryService();
+    this.conversationMemoryService = new ConversationMemoryService({
+      openai: this.openai,
+      getApiParams: (params: any) => this.getApiParams(params)
+    });
 
     // Gap A: Persistent memory across sessions
     this.persistentMemoryService = new PersistentMemoryService({
@@ -303,6 +308,23 @@ export class SmartAIAgent extends AIAgent {
 
     // Сохраняем последнюю инструкцию в контексте для валидации
     this.context.lastInstruction = instruction;
+    trustchainService.setCurrentQuery(instruction);
+    trustchainService.setExecutionContext({
+      instance: getAgentInstance(),
+      context: getAgentContext() || undefined,
+      document_mode: (typeof window !== 'undefined')
+        ? (window as any).__trustchain_document_mode?.mode
+        : undefined,
+      tenant_id: getAgentInstance() || 'default',
+    });
+    trustchainService.setDecisionContext({
+      provider: 'openai-compatible',
+      model: this.config.defaultModel,
+      policy_version: 'v1',
+      fallback_used: false,
+      safety_mode: 'strict',
+      context: getAgentContext() || 'unknown',
+    });
     this.context.pendingFileRequest = this.detectPendingFileRequest(instruction);
     this.context.source_files = {
       ...this.context.source_files,
@@ -827,6 +849,11 @@ export class SmartAIAgent extends AIAgent {
         return await this.mcpClientService.executeMCPTool(name, args);
       } catch (mcpError: any) {
         console.error(`[MCP] Tool ${name} failed:`, mcpError.message);
+        const originalName = name.replace(/^mcp_[^_]+_/, '');
+        const isMutation = /^(create|update|delete|upsert|write|apply|set)_/.test(originalName);
+        if (isMutation) {
+          throw new Error(`Fail-closed: мутационный MCP tool отклонен: ${mcpError.message}`);
+        }
         return { error: `MCP tool error: ${mcpError.message}` };
       }
     }

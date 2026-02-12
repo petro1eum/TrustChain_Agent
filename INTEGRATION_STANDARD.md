@@ -477,10 +477,31 @@ const AgentPanel = ({ currentPath }: { currentPath: string }) => {
 
 Все взаимодействия между хост-страницей и панелью агента происходят через `postMessage`. Протокол двусторонний.
 
+### Обязательная версия протокола (v2)
+
+Каждое сообщение ДОЛЖНО содержать:
+
+- `type` — тип события (`trustchain:*`)
+- `version` — версия протокола (текущее значение: `2`)
+- `source` — источник (`onaidocs-host`, `trustchain-panel`, `trustchain-agent`)
+- `timestamp` — ISO время формирования (рекомендуется, для аудита)
+- `requestId` — обязателен для request/response пар (`call_action`, `bridge`, `*_result`)
+
+### Handshake (fail-secure порядок)
+
+1. Панель после инициализации отправляет `trustchain:ready`.
+2. Хост проверяет `origin`, `version`, `source`.
+3. Хост отправляет `trustchain:config`.
+4. Только после этого разрешены `skills/workflows/document_mode/register_actions`.
+
+> [!IMPORTANT]
+> Запрещено использовать `postMessage(..., '*')` в production. Используйте точный `targetOrigin`.
+
 ### Ваша страница → Панель
 
 | Тип сообщения | Назначение | Payload |
 |---------------|-----------|---------|
+| `trustchain:config` | Инициализационный конфиг после `ready` | `{ targetOrigin, instance, context, decision_context }` |
 | `trustchain:skills` | Контекстные кнопки действий | `{ skills: [{ label, prompt, color }] }` |
 | `trustchain:query` | Заполнить поле ввода | `{ text: "запрос" }` |
 | `trustchain:auto_query` | Отправить запрос автоматически | `{ text: "запрос" }` |
@@ -494,10 +515,12 @@ const AgentPanel = ({ currentPath }: { currentPath: string }) => {
 
 | Тип сообщения | Назначение | Payload |
 |---------------|-----------|---------|
+| `trustchain:ready` | Панель готова к приёму конфига | `{ version, source, instance, context, capabilities }` |
 | `trustchain:call_action` | Агент вызывает зарег. action | `{ requestId, name, arguments }` |
 | `trustchain:action` | Агент управляет UI | `{ action, payload }` |
 | `trustchain:response` | Агент завершил ответ | `{ text, hasArtifacts }` |
 | `trustchain:bridge` | Page observe/read/interact | `{ action, payload }` |
+| `trustchain:error` | Ошибка протокола/версии | `{ code, message }` |
 
 ### Ваша страница → Панель (ответы)
 
@@ -763,6 +786,45 @@ panelFrame.contentWindow.postMessage({
 - [ ] Audit trail сохраняется в отдельную таблицу
 - [ ] Playwright MCP запущен для визуального доступа к странице
 - [ ] Собственный greeting и branding через `trustchain:agent_config`
+
+### Crypto Policy (strict profile)
+
+- `algorithm`: только `ed25519` (режим `hmac-sha256` допускается только при явно включенном compat-флаге).
+- `signature_schema_version`: обязателен и проверяется сервером.
+- `key_id`: обязателен для allowlist/rotation/revocation.
+- `timestamp`: обязательная проверка допустимого окна времени (anti-replay/time-skew).
+- `session_id + sequence`: обязательная монотонность и уникальность.
+- `parent_signature`: обязательная непрерывность цепочки для Pro/Enterprise.
+
+### Deny Codes (единый контракт)
+
+`POST /tools/call` при отказе возвращает `result.content[0].text` с JSON:
+
+- `action: "deny"`
+- `policy: <policy_name>`
+- `code: <deny_code>`
+- `message: <human_readable>`
+
+Базовые коды:
+
+- `SIGNED_TRUSTCHAIN_REQUIRED` — мутация без `trustchain` envelope.
+- `SCHEMA_VERSION_UNSUPPORTED` — неподдерживаемая `signature_schema_version`.
+- `TIMESTAMP_SKEW` — выход за допустимое временное окно.
+- `UNTRUSTED_KEY_ID` / `UNTRUSTED_PUBKEY` / `REVOKED_KEY_ID` — ключевой контур.
+- `REPLAY_DETECTED` / `CHAIN_BREAK` — нарушение sequence/цепочки.
+- `HUMAN_APPROVAL_REQUIRED` — high-risk без обязательного human approval.
+
+### Независимая офлайн-верификация
+
+- Экспортируйте `audit_trail` в JSON.
+- Запустите: `npm run trustchain:verify-proof -- ./audit.json`.
+- Для CI/CD provenance gate: `npm run trustchain:provenance-gate -- ./audit.json`.
+
+### Decision Context Attestation
+
+Для high-risk рекомендаций в envelope обязателен `decision_context`:
+- `provider`, `model`, `policy_version`, `fallback_used`, `safety_mode`, `incident_flags`.
+- Отсутствие `decision_context` должно приводить к deny-path на policy gate.
 
 ---
 
