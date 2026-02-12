@@ -21,7 +21,7 @@ export interface ArtifactEntry {
 const _proc = typeof process !== 'undefined' ? (process as any).env ?? {} : {};
 const BACKEND_URL = (typeof import.meta !== 'undefined' && (import.meta as any).env?.VITE_BACKEND_URL)
     || _proc.VITE_BACKEND_URL
-    || 'http://localhost:8000';
+    || '';
 
 // ── Service ──
 

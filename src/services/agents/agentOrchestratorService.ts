@@ -1,20 +1,28 @@
 /**
- * Gap F: Agent Orchestrator Service — Multi-Agent Decomposition
+ * Agent Orchestrator Service — Multi-Agent Decomposition
  *
- * Паттерн "Orchestrator" для декомпозиции сложных задач
- * и распределения между специализированными sub-агентами.
+ * UNIVERSAL orchestrator that decomposes complex tasks into sub-tasks
+ * and distributes them across specialized sub-agents.
+ *
+ * Agent specialties are DYNAMIC — host apps inject their own
+ * specializations via trustchain:agent_config postMessage.
+ * The orchestrator ships with a universal set of built-in specialties
+ * (code, analysis, data, general) and merges host-provided ones.
  */
 
-import type { ChatMessage, ProgressEvent, ChatAttachment } from '../../agents/types';
+import type { ProgressEvent } from '../../agents/types';
 
-// ─── Типы ───
+// ─── Types ───
 
-export type AgentSpecialty =
-    | 'search-specialist'     // Поиск по каталогу и OpenSearch
-    | 'code-specialist'       // Анализ кода и скриптов
-    | 'analysis-specialist'   // Аналитика и расчёты
-    | 'data-specialist'       // Обработка данных и Excel
-    | 'general';              // Общие задачи
+/** Specialty name — any string. Built-in: 'code', 'analysis', 'data', 'general'. */
+export type AgentSpecialty = string;
+
+/** Custom specialty definition injected by host app. */
+export interface CustomSpecialty {
+    name: string;        // e.g. 'document-specialist', 'hr-specialist'
+    patterns: string[];  // Regex-safe keywords: ['документ', 'входящ', 'document']
+    description?: string; // Human-readable: 'Handling documents and correspondence'
+}
 
 export interface SubTask {
     id: string;
@@ -39,7 +47,7 @@ export interface OrchestratorConfig {
     decompositionThreshold: number; // Minimum complexity to decompose
 }
 
-// ─── Константы ───
+// ─── Constants ───
 
 const DEFAULT_CONFIG: OrchestratorConfig = {
     maxParallelAgents: 3,
@@ -47,54 +55,126 @@ const DEFAULT_CONFIG: OrchestratorConfig = {
     decompositionThreshold: 5   // Tasks with complexity >= 5 get decomposed
 };
 
-// ─── Сервис ───
+/** Built-in universal specialties that always work, even without host config. */
+const BUILTIN_SPECIALTIES: CustomSpecialty[] = [
+    { name: 'code-specialist', patterns: ['код', 'скрипт', 'функци', 'баг', 'ошибк', 'code', 'debug', 'refactor', 'script'] },
+    { name: 'analysis-specialist', patterns: ['анализ', 'рассчитай', 'статистик', 'метрик', 'analyz', 'calculat', 'report'] },
+    { name: 'data-specialist', patterns: ['данные', 'таблиц', 'excel', 'csv', 'json', 'обработ', 'data', 'import', 'export'] },
+];
+
+// ─── Service ───
 
 export class AgentOrchestratorService {
     private config: OrchestratorConfig;
     private activeSubTasks: Map<string, SubTask> = new Map();
+    private customSpecialties: CustomSpecialty[] = [];
+    private customComplexityKeywords: string[] = [];
 
     constructor(config?: Partial<OrchestratorConfig>) {
         this.config = { ...DEFAULT_CONFIG, ...config };
     }
 
+    // ─── Host App Configuration ───
+
     /**
-     * Анализирует запрос и определяет нужна ли декомпозиция
+     * Register custom specialties from host app.
+     * Called when receiving trustchain:agent_config postMessage.
+     * Merges with built-in specialties (host specialties take priority).
+     */
+    setCustomSpecialties(specialties: CustomSpecialty[]): void {
+        this.customSpecialties = specialties;
+        console.log(`[Orchestrator] Registered ${specialties.length} custom specialties:`,
+            specialties.map(s => s.name).join(', '));
+    }
+
+    /**
+     * Set domain-specific keywords that increase complexity score.
+     * E.g. ['документооборот', 'contract management', 'workflow']
+     */
+    setComplexityKeywords(keywords: string[]): void {
+        this.customComplexityKeywords = keywords;
+        console.log(`[Orchestrator] Registered ${keywords.length} complexity keywords`);
+    }
+
+    /**
+     * Sync from shared window config set by PanelApp's trustchain:agent_config handler.
+     * This bridges the postMessage world to the orchestrator instance.
+     */
+    private syncFromSharedConfig(): void {
+        const cfg = (typeof window !== 'undefined') && (window as any).__trustchain_agent_config;
+        if (!cfg) return;
+
+        if (cfg.specialties && cfg.specialties !== this._lastSyncedSpecialties) {
+            this.setCustomSpecialties(cfg.specialties);
+            this._lastSyncedSpecialties = cfg.specialties;
+        }
+        if (cfg.complexityKeywords && cfg.complexityKeywords !== this._lastSyncedKeywords) {
+            this.setComplexityKeywords(cfg.complexityKeywords);
+            this._lastSyncedKeywords = cfg.complexityKeywords;
+        }
+    }
+
+    private _lastSyncedSpecialties: any = null;
+    private _lastSyncedKeywords: any = null;
+
+    // ─── Core Logic ───
+
+    /**
+     * Get all active specialties (built-in + custom).
+     * Custom specialties override built-in ones with the same name.
+     */
+    private getAllSpecialties(): CustomSpecialty[] {
+        const merged = new Map<string, CustomSpecialty>();
+        for (const s of BUILTIN_SPECIALTIES) merged.set(s.name, s);
+        for (const s of this.customSpecialties) merged.set(s.name, s);
+        return Array.from(merged.values());
+    }
+
+    /**
+     * Analyze query and determine if decomposition is needed.
+     * Uses universal heuristics (length, markers, domain count).
      */
     analyzeComplexity(instruction: string): number {
         let complexity = 1;
 
-        // Длина запроса
+        // Length
         if (instruction.length > 200) complexity += 1;
         if (instruction.length > 500) complexity += 1;
 
-        // Количество задач (по маркерам)
-        const taskMarkers = instruction.match(/(\d+\)|\d+\.|\bи\b.*\bи\b|\bтакже\b|\bещё\b)/gi);
+        // Task count markers (universal: numbered lists, conjunctions)
+        const taskMarkers = instruction.match(/(\d+\)|\d+\.|\bи\b.*\bи\b|\bтакже\b|\bещё\b|\balso\b|\bthen\b)/gi);
         if (taskMarkers) complexity += Math.min(taskMarkers.length, 3);
 
-        // Мультидоменность
-        const domains = [
-            /поиск|найди|search/i,
-            /код|скрипт|функци|code|script/i,
-            /анализ|рассчитай|статистик|analyz/i,
-            /данные|таблиц|excel|csv|data/i
-        ];
-        const domainCount = domains.filter(d => d.test(instruction)).length;
+        // Multi-domain detection: count how many specialty domains are mentioned
+        const allSpecialties = this.getAllSpecialties();
+        const domainCount = allSpecialties.filter(spec => {
+            const regex = new RegExp(spec.patterns.join('|'), 'i');
+            return regex.test(instruction);
+        }).length;
         if (domainCount >= 2) complexity += 2;
 
-        // Явные маркеры сложности
+        // Custom complexity keywords from host app
+        if (this.customComplexityKeywords.length > 0) {
+            const kwRegex = new RegExp(this.customComplexityKeywords.join('|'), 'i');
+            if (kwRegex.test(instruction)) complexity += 1;
+        }
+
+        // Explicit complexity markers
         if (/сложн|complex|multi-step/i.test(instruction)) complexity += 1;
 
         return Math.min(10, complexity);
     }
 
     /**
-     * Декомпозирует задачу на подзадачи
+     * Decompose task into sub-tasks.
      */
     decompose(instruction: string): DecompositionResult {
+        // Auto-sync from shared config (set by PanelApp's trustchain:agent_config handler)
+        this.syncFromSharedConfig();
+
         const complexity = this.analyzeComplexity(instruction);
 
         if (complexity < this.config.decompositionThreshold) {
-            // Простая задача — не декомпозируем
             return {
                 originalInstruction: instruction,
                 subTasks: [{
@@ -110,7 +190,6 @@ export class AgentOrchestratorService {
             };
         }
 
-        // Декомпозируем по паттернам
         const subTasks = this.extractSubTasks(instruction);
         const strategy = this.determineStrategy(subTasks);
 
@@ -123,26 +202,37 @@ export class AgentOrchestratorService {
     }
 
     /**
-     * Определяет специализацию агента для задачи
+     * Detect the best specialist for a given text.
+     * Checks custom specialties first (host app priority), then built-in.
      */
     detectSpecialty(text: string): AgentSpecialty {
         const lower = text.toLowerCase();
 
-        if (/поиск|найди|каталог|search|opensearch|индекс/i.test(lower)) return 'search-specialist';
-        if (/код|скрипт|функци|баг|ошибк|code|debug|refactor/i.test(lower)) return 'code-specialist';
-        if (/анализ|рассчитай|статистик|метрик|analyz|calculat/i.test(lower)) return 'analysis-specialist';
-        if (/данные|таблиц|excel|csv|json|обработ|data|import|export/i.test(lower)) return 'data-specialist';
+        // Check all specialties (custom first, then built-in)
+        const allSpecialties = this.getAllSpecialties();
+
+        // Custom specialties get priority — check them first
+        for (const spec of this.customSpecialties) {
+            const regex = new RegExp(spec.patterns.join('|'), 'i');
+            if (regex.test(lower)) return spec.name;
+        }
+
+        // Then built-in specialties
+        for (const spec of BUILTIN_SPECIALTIES) {
+            const regex = new RegExp(spec.patterns.join('|'), 'i');
+            if (regex.test(lower)) return spec.name;
+        }
 
         return 'general';
     }
 
     /**
-     * Извлекает подзадачи из instruction
+     * Extract sub-tasks from instruction.
      */
     private extractSubTasks(instruction: string): SubTask[] {
         const tasks: SubTask[] = [];
 
-        // Разбиваем по нумерованным спискам
+        // Split by numbered lists
         const numbered = instruction.match(/\d+[.)]\s*([^\n]+)/g);
         if (numbered && numbered.length >= 2) {
             for (let i = 0; i < numbered.length; i++) {
@@ -151,7 +241,7 @@ export class AgentOrchestratorService {
                     id: `sub_${i + 1}`,
                     description: desc,
                     specialist: this.detectSpecialty(desc),
-                    dependencies: i > 0 ? [`sub_${i}`] : [], // Sequential by default
+                    dependencies: i > 0 ? [`sub_${i}`] : [],
                     priority: i + 1,
                     status: 'pending'
                 });
@@ -159,12 +249,12 @@ export class AgentOrchestratorService {
             return tasks;
         }
 
-        // Разбиваем по "и", "также", "потом"
-        const parts = instruction.split(/\s*(?:,\s+и\s+|;\s+|\.\s+(?:Также|Потом|Затем)\s+)/i);
+        // Split by conjunctions
+        const parts = instruction.split(/\s*(?:,\s+и\s+|;\s+|\.\s+(?:Также|Потом|Затем|Also|Then)\s+)/i);
         if (parts.length >= 2) {
             for (let i = 0; i < parts.length; i++) {
                 const desc = parts[i].trim();
-                if (desc.length < 10) continue; // Skip short fragments
+                if (desc.length < 10) continue;
                 tasks.push({
                     id: `sub_${i + 1}`,
                     description: desc,
@@ -177,7 +267,7 @@ export class AgentOrchestratorService {
             return tasks;
         }
 
-        // Не удалось декомпозировать — возвращаем как одну задачу
+        // Can't decompose — return as single task
         tasks.push({
             id: 'main',
             description: instruction,
@@ -191,7 +281,7 @@ export class AgentOrchestratorService {
     }
 
     /**
-     * Определяет стратегию выполнения
+     * Determine execution strategy.
      */
     private determineStrategy(subTasks: SubTask[]): 'sequential' | 'parallel' | 'mixed' {
         const hasDeps = subTasks.some(t => t.dependencies.length > 0);
@@ -201,11 +291,7 @@ export class AgentOrchestratorService {
     }
 
     /**
-     * Выполняет подзадачи параллельно с учётом зависимостей.
-     * 
-     * @param decomposition - результат декомпозиции
-     * @param executor - функция, получающая instruction и возвращающая результат
-     * @param progressCallback - колбэк прогресса
+     * Execute sub-tasks in parallel with dependency tracking.
      */
     async executeParallel(
         decomposition: DecompositionResult,
@@ -214,55 +300,49 @@ export class AgentOrchestratorService {
     ): Promise<string> {
         const { subTasks, strategy } = decomposition;
 
-        // Track in activeSubTasks
         for (const st of subTasks) {
             this.activeSubTasks.set(st.id, st);
         }
 
         if (strategy === 'sequential') {
-            // Sequential: execute one by one
             for (const st of subTasks) {
                 st.status = 'running';
                 progressCallback?.({
                     type: 'reasoning_step',
-                    message: `▶️ Подзадача: ${st.description}`,
-                    reasoning_text: `Специалист: ${st.specialist}`
+                    message: `▶️ Sub-task: ${st.description}`,
+                    reasoning_text: `Specialist: ${st.specialist}`
                 });
                 try {
                     st.result = await executor(st.description);
                     st.status = 'completed';
                 } catch (err: any) {
                     st.status = 'failed';
-                    st.result = `Ошибка: ${err.message}`;
+                    st.result = `Error: ${err.message}`;
                 }
             }
         } else {
-            // Parallel/Mixed: execute in waves based on dependencies
             const completed = new Set<string>();
             const maxWaves = 10;
             let wave = 0;
 
             while (completed.size < subTasks.length && wave < maxWaves) {
                 wave++;
-                // Find tasks whose dependencies are all completed
                 const ready = subTasks.filter(
                     st => st.status === 'pending' &&
                         st.dependencies.every(d => completed.has(d))
                 );
 
-                if (ready.length === 0) break; // Deadlock or done
+                if (ready.length === 0) break;
 
-                // Limit parallelism
                 const batch = ready.slice(0, this.config.maxParallelAgents);
                 for (const st of batch) st.status = 'running';
 
                 progressCallback?.({
                     type: 'reasoning_step',
-                    message: `🔄 Волна ${wave}: ${batch.length} подзадач параллельно`,
+                    message: `🔄 Wave ${wave}: ${batch.length} sub-tasks in parallel`,
                     reasoning_text: batch.map(st => st.description).join('\n')
                 });
 
-                // Execute batch in parallel
                 const results = await Promise.allSettled(
                     batch.map(st => executor(st.description))
                 );
@@ -274,7 +354,7 @@ export class AgentOrchestratorService {
                         st.result = res.value;
                         st.status = 'completed';
                     } else {
-                        st.result = `Ошибка: ${res.reason?.message || 'unknown'}`;
+                        st.result = `Error: ${res.reason?.message || 'unknown'}`;
                         st.status = 'failed';
                     }
                     completed.add(st.id);
@@ -286,12 +366,12 @@ export class AgentOrchestratorService {
     }
 
     /**
-     * Объединяет результаты подзадач
+     * Merge sub-task results.
      */
     mergeResults(subTasks: SubTask[]): string {
         const completed = subTasks.filter(t => t.status === 'completed' && t.result);
 
-        if (completed.length === 0) return 'Не удалось получить результаты подзадач';
+        if (completed.length === 0) return 'No results from sub-tasks';
         if (completed.length === 1) return String(completed[0].result);
 
         const sections = completed.map(t =>
@@ -302,7 +382,7 @@ export class AgentOrchestratorService {
     }
 
     /**
-     * Возвращает статус всех подзадач
+     * Get status of all sub-tasks.
      */
     getStatus(): SubTask[] {
         return [...this.activeSubTasks.values()];

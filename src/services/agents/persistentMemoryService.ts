@@ -49,7 +49,7 @@ const MEMORY_VERSION = 1;
 const _proc = typeof process !== 'undefined' ? process.env : {} as Record<string, string | undefined>;
 const BACKEND_URL = (typeof import.meta !== 'undefined' && import.meta.env?.VITE_BACKEND_URL)
     || _proc.VITE_BACKEND_URL
-    || 'http://localhost:8000';
+    || '';
 
 // ─── Сервис ───
 
@@ -79,20 +79,22 @@ export class PersistentMemoryService {
 
         try {
             // Попытка загрузить с backend
-            const response = await fetch(`${BACKEND_URL}/api/agent/memory`, {
-                method: 'GET',
-                headers: { 'Content-Type': 'application/json' }
-            });
+            if (BACKEND_URL) {
+                const response = await fetch(`${BACKEND_URL}/api/agent/memory`, {
+                    method: 'GET',
+                    headers: { 'Content-Type': 'application/json' }
+                });
 
-            if (response.ok) {
-                const data = await response.json();
-                if (data && data.entries) {
-                    this.store = data;
-                    this.loaded = true;
-                    console.log(`[PersistentMemory] Loaded ${this.store.entries.length} entries from backend`);
-                    return;
+                if (response.ok) {
+                    const data = await response.json();
+                    if (data && data.entries) {
+                        this.store = data;
+                        this.loaded = true;
+                        console.log(`[PersistentMemory] Loaded ${this.store.entries.length} entries from backend`);
+                        return;
+                    }
                 }
-            }
+            } // end if (BACKEND_URL)
         } catch {
             // Backend недоступен — пробуем localStorage
         }
@@ -131,13 +133,15 @@ export class PersistentMemoryService {
         }
 
         try {
-            await fetch(`${BACKEND_URL}/api/agent/memory`, {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify(this.store)
-            });
-            console.log(`[PersistentMemory] Saved ${this.store.entries.length} entries to backend`);
-            return;
+            if (BACKEND_URL) {
+                await fetch(`${BACKEND_URL}/api/agent/memory`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(this.store)
+                });
+                console.log(`[PersistentMemory] Saved ${this.store.entries.length} entries to backend`);
+                return;
+            } // end if (BACKEND_URL)
         } catch {
             // Backend недоступен
         }

@@ -8,6 +8,7 @@
  */
 
 import type OpenAI from 'openai';
+// Platform-agnostic: tools come from MCP, no hardcoded platform checks
 
 export type TaskAction = 'extract' | 'search' | 'calculate' | 'create' | 'compare' | 'analyze' | 'transform' | 'navigate' | 'configure' | 'diagnose';
 
@@ -34,31 +35,39 @@ export interface IntentClassificationDeps {
 // Regex Fallback (legacy patterns)
 // ============================
 
-const ACTION_PATTERNS: Array<{
+// Build ACTION_PATTERNS — universal, project-agnostic patterns only.
+// Platform-specific tools are discovered via MCP, not hardcoded.
+function getActionPatterns(): Array<{
     action: TaskAction;
     patterns: RegExp[];
     requiredTools: string[];
-}> = [
-        {
-            action: 'extract',
-            patterns: [
-                /извлек|извлечь|вытащ|оцифр|распознай/i,
-                /extract|parse|ocr/i,
-                /из\s+(pdf|пдф|документ|файл|страниц)/i,
-                /со\s+страницы?\s+\d+/i
-            ],
-            requiredTools: ['extract_table_to_excel', 'match_specification_to_catalog', 'view', 'bash_tool']
-        },
-        {
-            action: 'search',
-            patterns: [
-                /поиск|поищи|найд|искать/i,
-                /в\s+каталог|в\s+базе?|у\s+нас/i,
-                /search|find|lookup/i,
-                /подбер|подобрать/i
-            ],
-            requiredTools: ['expert_search', 'category_search', 'match_specification_to_catalog', 'search_files_by_name']
-        },
+}> {
+    const patterns: Array<{ action: TaskAction; patterns: RegExp[]; requiredTools: string[] }> = [];
+
+    // Universal: extract from documents
+    patterns.push({
+        action: 'extract',
+        patterns: [
+            /извлек|извлечь|вытащ|оцифр|распознай/i,
+            /extract|parse|ocr/i,
+            /из\s+(pdf|пдф|документ|файл|страниц)/i,
+            /со\s+страницы?\s+\d+/i
+        ],
+        requiredTools: ['extract_table_to_excel', 'view', 'bash_tool']
+    });
+    // Universal: search
+    patterns.push({
+        action: 'search',
+        patterns: [
+            /поиск|поищи|найд|искать/i,
+            /search|find|lookup/i,
+            /подбер|подобрать/i
+        ],
+        requiredTools: ['web_search', 'search_files_by_name']
+    });
+
+    // Universal patterns — apply in all contexts
+    patterns.push(
         {
             action: 'calculate',
             patterns: [
@@ -78,21 +87,13 @@ const ACTION_PATTERNS: Array<{
             requiredTools: ['create_file', 'create_artifact', 'extract_table_to_excel']
         },
         {
-            action: 'compare',
-            patterns: [
-                /сравни|сопостав|соотнеси/i,
-                /compare|match|correlate/i
-            ],
-            requiredTools: ['compare_products', 'search_products']
-        },
-        {
             action: 'analyze',
             patterns: [
                 /анализ|проанализируй|изучи/i,
                 /analyze|examine|review/i,
                 /качеств|статистик/i
             ],
-            requiredTools: ['analyze_search_params', 'execute_code']
+            requiredTools: ['execute_code']
         },
         {
             action: 'transform',
@@ -103,45 +104,93 @@ const ACTION_PATTERNS: Array<{
             ],
             requiredTools: ['execute_code', 'bash_tool']
         }
-    ];
+    );
+
+    // Universal: compare
+    patterns.push({
+        action: 'compare',
+        patterns: [
+            /сравни|сопостав|соотнеси/i,
+            /compare|match|correlate/i
+        ],
+        requiredTools: ['execute_code']
+    });
+
+    return patterns;
+}
 
 // ============================
-// LLM Classification Prompt
+// LLM Classification Prompt (generic, project-agnostic)
 // ============================
 
-const INTENT_CLASSIFICATION_PROMPT = `You are an intent classifier for an industrial product catalog AI agent.
+function buildIntentClassificationPrompt(availableToolNames: string[]): string {
+    const toolList = availableToolNames.length > 0
+        ? availableToolNames.join(', ')
+        : 'execute_code, execute_bash, web_search, web_fetch, create_file, create_artifact, view, search_files_by_name';
+
+    return `You are an intent classifier for an AI assistant.
 Classify the user query into task steps. Each step has:
 - action: one of [extract, search, calculate, create, compare, analyze, transform, navigate, configure, diagnose]
 - reasoning: brief explanation why this action is needed
 - requiredTools: list of tools from the available set
 
-Available tools:
-- search_products, quick_search, compare_products, analyze_search_params (product search)
-- match_specification_to_catalog (PDF → catalog matching, full pipeline)
-- extract_table_to_excel (PDF/image table extraction)
-- export_search_to_excel, advanced_export_to_excel (Excel export)
-- execute_code, execute_bash, bash_tool (code execution)
-- create_file, create_artifact (file/artifact creation)
-- web_search, web_fetch (web search)
-- view, search_files_by_name, read_project_file (file operations)
-- get_category_info, get_category_config, run_category_diagnostic (diagnostics)
-- navigate_to_tab, get_current_screen (UI navigation)
+Available tools: ${toolList}
 
-IMPORTANT: For "extract from PDF + search in catalog" → use SINGLE step with match_specification_to_catalog.
+IMPORTANT: Only use tools from the available set above. Do NOT invent tools.
 
 Respond in JSON: {"steps": [{"action": "...", "reasoning": "...", "requiredTools": ["..."]}]}`;
+}
 
 // Intent cache to avoid re-classification
 const intentCache = new Map<string, { intent: TaskIntent; timestamp: number }>();
 const CACHE_TTL_MS = 5 * 60 * 1000; // 5 minutes
 
+/**
+ * Custom intent pattern that projects can inject via postMessage (trustchain:intent_patterns).
+ * Patterns are RegExp-serialized as strings and converted at injection time.
+ */
+export interface CustomIntentPattern {
+    action: TaskAction;
+    patterns: string[];   // Regex patterns as strings, e.g. ["поиск.*документ", "find.*doc"]
+    requiredTools: string[];
+}
+
 export class TaskIntentService {
+    // Extensibility: projects can inject their own patterns and domain hints
+    private customPatterns: Array<{ action: TaskAction; patterns: RegExp[]; requiredTools: string[] }> = [];
+    private domainHints: string = '';
+
+    /**
+     * Inject custom intent patterns from integrating project.
+     * Called when receiving `trustchain:intent_patterns` postMessage.
+     */
+    setCustomPatterns(patterns: CustomIntentPattern[]): void {
+        this.customPatterns = patterns.map(p => ({
+            action: p.action,
+            patterns: p.patterns.map(s => new RegExp(s, 'i')),
+            requiredTools: p.requiredTools,
+        }));
+        // Clear cache — patterns changed
+        intentCache.clear();
+        console.log(`[TaskIntentService] Loaded ${this.customPatterns.length} custom intent patterns`);
+    }
+
+    /**
+     * Inject domain-specific hints for LLM classifier.
+     * E.g., "This is a document management system. Users may ask about documents, tasks, meetings."
+     */
+    setDomainHints(hints: string): void {
+        this.domainHints = hints;
+        intentCache.clear();
+    }
+
     /**
      * Async LLM-based intent analysis with regex fallback
      */
     async analyzeIntentAsync(
         query: string,
-        deps?: IntentClassificationDeps
+        deps?: IntentClassificationDeps,
+        availableToolNames?: string[]
     ): Promise<TaskIntent> {
         // Check cache first
         const cacheKey = query.trim().toLowerCase().slice(0, 200);
@@ -153,7 +202,7 @@ export class TaskIntentService {
         // Try LLM classification
         if (deps?.openai) {
             try {
-                const llmIntent = await this.classifyWithLLM(query, deps);
+                const llmIntent = await this.classifyWithLLM(query, deps, availableToolNames || []);
                 intentCache.set(cacheKey, { intent: llmIntent, timestamp: Date.now() });
                 return llmIntent;
             } catch (error: any) {
@@ -179,13 +228,16 @@ export class TaskIntentService {
      */
     private async classifyWithLLM(
         query: string,
-        deps: IntentClassificationDeps
+        deps: IntentClassificationDeps,
+        availableToolNames: string[]
     ): Promise<TaskIntent> {
+        const prompt = buildIntentClassificationPrompt(availableToolNames)
+            + (this.domainHints ? `\n\nDomain context: ${this.domainHints}` : '');
         const response = await deps.openai.chat.completions.create(
             deps.getApiParams({
                 model: 'google/gemini-2.5-flash-lite', // Быстрая модель для классификации
                 messages: [
-                    { role: 'system', content: INTENT_CLASSIFICATION_PROMPT },
+                    { role: 'system', content: prompt },
                     { role: 'user', content: query }
                 ],
                 response_format: { type: 'json_object' },
@@ -234,7 +286,9 @@ export class TaskIntentService {
         const detectedSteps: TaskStep[] = [];
         const queryLower = query.toLowerCase();
 
-        for (const actionDef of ACTION_PATTERNS) {
+        // Universal patterns + project-injected custom patterns
+        const allPatterns = [...getActionPatterns(), ...this.customPatterns];
+        for (const actionDef of allPatterns) {
             const matchingPatterns = actionDef.patterns.filter(p => p.test(queryLower));
 
             if (matchingPatterns.length > 0) {
@@ -247,22 +301,6 @@ export class TaskIntentService {
                     requiredTools: actionDef.requiredTools
                 });
             }
-        }
-
-        // Special case: "X со страницы Y в каталоге" pattern
-        const hasPdfPages = /со\s+страницы?\s+\d+/i.test(query) || /из\s+(pdf|пдф)/i.test(query);
-        const hasCatalog = /в\s+каталог|у\s+нас|jde|аналог|подбор|сматч|подбер/i.test(query);
-        if (hasPdfPages && hasCatalog) {
-            return {
-                steps: [{
-                    action: 'search',
-                    keywords: ['со страницы', 'в каталоге'],
-                    requiredTools: ['match_specification_to_catalog']
-                }],
-                isMultiStep: false,
-                originalQuery: query,
-                classifiedBy: 'regex'
-            };
         }
 
         return {
@@ -332,3 +370,9 @@ export class TaskIntentService {
         intentCache.clear();
     }
 }
+
+/**
+ * Shared singleton — used by ReActService and PanelApp postMessage handler.
+ * Projects inject custom patterns via `trustchain:intent_patterns` postMessage.
+ */
+export const sharedIntentService = new TaskIntentService();

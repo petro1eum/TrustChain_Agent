@@ -160,6 +160,12 @@ export class SkillsLoaderService {
   private static async _loadSkillsMetadata(): Promise<SkillMetadata[]> {
     const skills: SkillMetadata[] = [];
 
+    // Skip Docker-based skills loading when no backend is configured (universal mode)
+    const { backendApiService } = await import('../backendApiService');
+    if (!backendApiService.getBaseUrl()) {
+      return skills;
+    }
+
     // Загружаем метаданные каждого skill через view
     for (const containerPath of this.SKILL_PATHS) {
       try {

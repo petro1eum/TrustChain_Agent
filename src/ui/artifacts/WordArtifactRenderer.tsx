@@ -29,8 +29,8 @@ export const WordArtifactRenderer: React.FC<WordArtifactRendererProps> = ({ arti
       }
 
       // Создаем blob и URL
-      const blob = new Blob([bytes], { 
-        type: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document' 
+      const blob = new Blob([bytes], {
+        type: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document'
       });
       const url = URL.createObjectURL(blob);
       return url;
@@ -60,10 +60,10 @@ export const WordArtifactRenderer: React.FC<WordArtifactRendererProps> = ({ arti
     try {
       // Пробуем получить предпросмотр через backend API
       // Если есть endpoint для конвертации docx в HTML через pandoc
-      const backendUrl = (typeof import.meta !== 'undefined' && import.meta.env?.VITE_BACKEND_URL) || 
-                         process.env.VITE_BACKEND_URL || 
-                         'http://localhost:8000';
-      
+      const backendUrl = (typeof import.meta !== 'undefined' && import.meta.env?.VITE_BACKEND_URL) ||
+        process.env.VITE_BACKEND_URL ||
+        '';
+
       // Пока просто показываем сообщение, что предпросмотр недоступен
       // В будущем можно добавить endpoint для конвертации через pandoc
       setError('Предпросмотр Word файлов пока недоступен. Используйте скачивание для просмотра.');
@@ -159,7 +159,7 @@ export const WordArtifactRenderer: React.FC<WordArtifactRendererProps> = ({ arti
             <span className="ml-3 text-gray-600">Загрузка предпросмотра...</span>
           </div>
         ) : previewHtml ? (
-          <div 
+          <div
             className="prose max-w-none"
             dangerouslySetInnerHTML={{ __html: previewHtml }}
           />

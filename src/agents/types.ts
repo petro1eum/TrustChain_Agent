@@ -237,6 +237,14 @@ export interface AlternativeApproach {
   reasoning: string;
 }
 
+/**
+ * @deprecated Use AppActionsRegistry (src/services/appActionsRegistry.ts) instead.
+ * Host apps should register actions dynamically via postMessage:
+ *   postMessage({ type: 'trustchain:register_actions', actions: [...] })
+ *
+ * This interface is kept for backward compatibility with existing code
+ * that still references appActions directly. It will be removed in a future version.
+ */
 export interface AppActions {
   loadFileFromPath: (filePath: string, clientName?: string) => Promise<boolean>;
   switchView: (view: string) => void;
@@ -261,6 +269,7 @@ export interface AppActions {
   getTransformationData: () => Promise<any>;
   searchTransformationData: (query: string) => Promise<any>;
   getFileMetadata: (fileName: string) => Promise<any>;
+  [key: string]: (...args: any[]) => any; // Allow dynamic methods
 }
 
 export interface Rule {

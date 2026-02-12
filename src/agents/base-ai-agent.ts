@@ -362,7 +362,10 @@ export class AIAgent {
             name: toolName,
             content: output,
             result: output,
-            error: error ? (error.message || String(error)) : undefined
+            error: error ? (error.message || String(error)) : undefined,
+            // TrustChain Ed25519 signature from MCP tool call result
+            signature: output?.signature,
+            certificate: output?.certificate,
           }
         });
       } catch (callbackError: any) {
@@ -439,7 +442,8 @@ export class AIAgent {
         const streamingResult = await this.chatWithToolsLoopStreaming(
           loopMessages,
           toolsSpec,
-          progressCallback
+          progressCallback,
+          i  // pass iteration index for tool_choice strategy
         );
 
         if (streamingResult.toolCalls.length > 0) {
@@ -474,6 +478,50 @@ export class AIAgent {
 
           continue; // Переходим к следующей итерации
         } else {
+          // FALLBACK: Gemini sometimes generates print(default_api.mcp_...) text instead of a real function call
+          // Detect and parse this pattern, then execute the tool call manually
+          const codeCallMatch = (streamingResult.content || '').match(
+            /(?:print\()?default_api[.\s]*(\w+)\((.*?)\)\)?/s
+          );
+          if (codeCallMatch && codeCallMatch[1]?.startsWith('mcp_')) {
+            const toolName = codeCallMatch[1];
+            const argsStr = codeCallMatch[2] || '';
+            // Parse keyword arguments: key = "value", key = "value"
+            const args: Record<string, any> = {};
+            const argMatches = argsStr.matchAll(/(\w+)\s*=\s*"([^"]*)"/g);
+            for (const m of argMatches) {
+              args[m[1]] = m[2];
+            }
+            console.warn(`[BaseAIAgent] FALLBACK: Model generated code text instead of tool call. Parsing: ${toolName}(${JSON.stringify(args)})`);
+
+            const syntheticId = `fallback_${Date.now()}`;
+            // Execute the parsed tool call
+            await this.executeSingleToolCall({
+              toolName,
+              args,
+              toolCallId: syntheticId,
+              progressCallback,
+              executedToolCalls,
+              loopMessages,
+              resultMessages
+            });
+
+            // Add the synthetic tool call to messages and continue loop for LLM to synthesize response
+            loopMessages.push({
+              role: 'assistant',
+              content: null,
+              tool_calls: [{
+                id: syntheticId,
+                type: 'function',
+                function: {
+                  name: toolName,
+                  arguments: JSON.stringify(args)
+                }
+              }]
+            });
+            continue; // Let the LLM synthesize the final response from tool results
+          }
+
           // Нет tool calls - завершаем
           const finalText = (streamingResult.content || '').trim();
           let looksEmpty = !finalText || /^готово\.?$/i.test(finalText) || /^done\.?$/i.test(finalText);
@@ -634,7 +682,8 @@ export class AIAgent {
   private async chatWithToolsLoopStreaming(
     messages: any[],
     toolsSpec: any[],
-    progressCallback?: (event: ProgressEvent) => void
+    progressCallback?: (event: ProgressEvent) => void,
+    iteration: number = 0
   ): Promise<{
     content: string;
     toolCalls: Array<{ id: string; name: string; args: any }>;
@@ -656,10 +705,11 @@ export class AIAgent {
       },
       onToolUseStart: (toolCallId: string, toolName: string) => {
         toolCallAccumulators.set(toolCallId, { name: toolName, args: '' });
+        // NOTE: Don't emit tool_call here — executeSingleToolCall already emits it with args.
+        // Instead, emit a reasoning_step to show the model's intent.
         progressCallback?.({
-          type: 'tool_call',
+          type: 'reasoning_step',
           message: `Выбираю инструмент: ${toolName}`,
-          event_data: { name: toolName, id: toolCallId }
         });
       },
       onToolUseDelta: (toolCallId: string, argsDelta: string) => {
@@ -706,11 +756,17 @@ export class AIAgent {
         hasOnlineSuffix: modelWithSearch.endsWith(':online')
       });
 
+      // On first iteration with MCP tools, force tool usage to prevent
+      // the model from answering from memory instead of calling data tools
+      const hasMcpTools = toolsSpec.some(t => t.function?.name?.startsWith('mcp_'));
+      const toolChoice = (iteration === 0 && hasMcpTools) ? 'required' as const : 'auto' as const;
+      console.log('[BaseAIAgent] tool_choice strategy:', { iteration, hasMcpTools, toolChoice });
+
       const stream = await this.openai.chat.completions.create({
         model: modelWithSearch,
         messages,
         tools: toolsSpec,
-        tool_choice: 'auto',
+        tool_choice: toolChoice,
         temperature: this.config.temperature,
         max_tokens: Math.min(this.config.maxTokens || 8000, 32000),
         stream: true
@@ -935,12 +991,7 @@ export class AIAgent {
     args: any,
     progressCallback?: (event: ProgressEvent) => void
   ): Promise<string> {
-    progressCallback?.({
-      type: 'tool_call',
-      message: t('agent.executingTool', { toolName: name }),
-      event_data: { name, args }
-    });
-
+    // NOTE: Don't emit tool_call here — executeSingleToolCall already handles it.
     return `Базовый обработчик для ${name} выполнен с аргументами: ${JSON.stringify(args)}`;
   }
 

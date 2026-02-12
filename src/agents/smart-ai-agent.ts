@@ -33,7 +33,10 @@ import {
   BrowserService,
   EventTriggerService,
 } from '../services/agents';
-import { getAllSmartAgentTools, ALLOWED_TOOLS } from '../tools';
+import { getAllSmartAgentTools, UNIVERSAL_TOOLS } from '../tools';
+import { pageTools, PAGE_TOOL_NAMES } from '../tools/pageTools';
+import { HostBridgeService } from '../services/hostBridgeService';
+import { appActionsRegistry } from '../services/appActionsRegistry';
 import { SystemPrompts } from './base/systemPrompts';
 import { createApiParams } from './config/apiParams';
 import { SkillsLoaderService, SkillsMatcher } from '../services/skills';
@@ -61,6 +64,7 @@ export class SmartAIAgent extends AIAgent {
   private answerValidationService: AnswerValidationService;
   private persistentMemoryService: PersistentMemoryService;
   private mcpClientService: MCPClientService;
+  private _mcpReadyPromise: Promise<any[]> | null = null;
   private taskQueueService: TaskQueueService;
   private testRunnerService: TestRunnerService;
   private agentOrchestrator: AgentOrchestratorService;
@@ -192,12 +196,17 @@ export class SmartAIAgent extends AIAgent {
     // Gap B: MCP Client for dynamic tool discovery
     this.mcpClientService = new MCPClientService();
     // Auto-connect to configured MCP servers (incl. Playwright auto-discovery on :8931)
-    this.mcpClientService.connectAll().then(connections => {
+    // IMPORTANT: Store the promise so analyzeAndProcess can await it before first query
+    this._mcpReadyPromise = this.mcpClientService.connectAll().then(connections => {
       const connected = connections.filter(c => c.status === 'connected');
       if (connected.length > 0) {
         console.log(`[SmartAIAgent] MCP connected: ${connected.map(c => `${c.config.name} (${c.tools.length} tools)`).join(', ')}`);
       }
-    }).catch(err => console.warn('[SmartAIAgent] MCP connectAll error (non-critical):', err));
+      return connections;
+    }).catch(err => {
+      console.warn('[SmartAIAgent] MCP connectAll error (non-critical):', err);
+      return [] as any[];
+    });
 
     // Gap C: Long-running task queue with checkpoint/resume
     this.taskQueueService = new TaskQueueService();
@@ -332,6 +341,11 @@ export class SmartAIAgent extends AIAgent {
     }
 
     try {
+      // Ensure MCP tools are fully discovered before first LLM call
+      if (this._mcpReadyPromise) {
+        await this._mcpReadyPromise;
+        this._mcpReadyPromise = null; // Only wait once
+      }
       // Skills Auto-Triggering: загружаем релевантные skills
       progressCallback?.({
         type: 'reasoning_step',
@@ -817,6 +831,25 @@ export class SmartAIAgent extends AIAgent {
       }
     }
 
+    // ── Page Bridge Tools: route to HostBridgeService ──
+    if (PAGE_TOOL_NAMES.has(name)) {
+      try {
+        const bridge = HostBridgeService.getInstance();
+        switch (name) {
+          case 'page_observe':
+            return await bridge.observe();
+          case 'page_read':
+            return await bridge.read(args.target || '');
+          case 'page_interact':
+            return await bridge.interact(args.action || 'click', args.target || '');
+          default:
+            return { error: `Unknown page tool: ${name}` };
+        }
+      } catch (bridgeError: any) {
+        return { error: `Page bridge error: ${bridgeError.message}` };
+      }
+    }
+
     // Выполняем инструмент через ToolExecutionService
     const toolResult = await this.toolExecutionService.executeToolIntelligently(name, args, context);
 
@@ -961,105 +994,99 @@ export class SmartAIAgent extends AIAgent {
     return SystemPrompts.getPlanningSystemPrompt();
   }
 
-  // === Переопределяем инструменты для умного агента ===
+  // === 3-Tier Tool Architecture ===
+  // Tier 1: Universal tools (always loaded, project-agnostic)
+  // Tier 2: TrustChain tools (Ed25519, audit — always loaded)
+  // Tier 3: Platform tools (from MCP — dynamically discovered, always trusted)
   getToolsSpecification(): any[] {
-    // Загружаем список включённых инструментов из localStorage
+    // User-managed tool toggles from localStorage
     let enabledTools: Set<string> | null = null;
     let lockedToolIds: Set<string> = getLockedToolIds();
     try {
       const savedTools = localStorage.getItem('agent_enabled_tools');
       if (savedTools) {
         enabledTools = new Set(JSON.parse(savedTools));
-        // Guarantee locked tools are always included
         for (const id of lockedToolIds) enabledTools.add(id);
       }
     } catch (e) {
-      console.warn('Не удалось загрузить список инструментов');
+      console.warn('Failed to load enabled tools list');
     }
 
-    // Функция для проверки включён ли инструмент
     const isToolEnabled = (toolId: string): boolean => {
-      if (!enabledTools) return true; // Если список не настроен - все включены
-      if (lockedToolIds.has(toolId)) return true; // Locked tools always enabled
+      if (!enabledTools) return true;
+      if (lockedToolIds.has(toolId)) return true;
       return enabledTools.has(toolId);
     };
 
-    // Получаем все инструменты из модулей
-    // ВАЖНО: Сначала базовые инструменты (create_artifact для графиков), потом специфичные
+    // Tier 1: Base tools from AIAgent (create_artifact, etc.)
     const baseTools = super.getToolsSpecification();
-    const smartTools = getAllSmartAgentTools();
-    const mcpTools = this.mcpClientService.convertToOpenAITools(); // Gap B: Dynamic MCP tools
+    // Tier 1: Universal tools (code exec, web, files, browser, code analysis)
+    const universalTools = getAllSmartAgentTools();
+    // Tier 3: Platform tools from MCP (dynamically discovered, always trusted)
+    const mcpTools = this.mcpClientService.convertToOpenAITools();
+    // Tier 4: App actions registered via postMessage (client-side tools)
+    const appActionTools = appActionsRegistry.getToolDefinitions();
+
     const allTools = [
-      ...baseTools, // Базовые инструменты (create_artifact идет здесь!)
-      ...smartTools, // Специфичные инструменты (categoryManagementTools и др.)
-      ...mcpTools   // Gap B: Динамические MCP инструменты
+      ...baseTools,
+      ...universalTools,
+      ...mcpTools,
+      ...pageTools,  // Tier 1: Universal page interaction tools (always loaded)
+      ...appActionTools, // Tier 4: Dynamic app actions from host
     ];
 
-    // ДИАГНОСТИКА: Логируем количество инструментов
-    console.log('[SmartAIAgent] getToolsSpecification:', {
-      baseToolsCount: baseTools.length,
-      smartToolsCount: smartTools.length,
-      allToolsCount: allTools.length,
-      baseToolNames: baseTools.map(t => t.function?.name).filter(Boolean),
-      hasCreateArtifact: allTools.some(t => t.function?.name === 'create_artifact'),
-      hasCreateCategoryIndex: allTools.some(t => t.function?.name === 'create_category_index')
+    console.log('[SmartAIAgent] 4-Tier Tools:', {
+      baseCount: baseTools.length,
+      universalCount: universalTools.length,
+      mcpCount: mcpTools.length,
+      appActionCount: appActionTools.length,
+      totalCount: allTools.length,
     });
 
-    // КРИТИЧНО: Дедупликация инструментов по имени (если один инструмент есть в двух местах, берем первый)
-    const seenToolNames = new Set<string>();
-    const deduplicatedTools = allTools.filter(t => {
+    // Deduplicate by name (first occurrence wins)
+    const seen = new Set<string>();
+    const deduped = allTools.filter(t => {
       const name = t.function?.name;
-      if (!name) return false;
-      if (seenToolNames.has(name)) {
-        console.warn(`[SmartAIAgent] Duplicate tool ${name} filtered out`);
-        return false;
-      }
-      seenToolNames.add(name);
+      if (!name || seen.has(name)) return false;
+      seen.add(name);
       return true;
     });
 
-    // Фильтруем по белому списку разрешенных инструментов
-    // Gap B: MCP tools (mcp_*) bypass whitelist — they are dynamically registered
-    const curated = deduplicatedTools.filter(t => {
+    // Filter: universal tools through whitelist, MCP tools always pass
+    const curated = deduped.filter(t => {
       const name = t.function?.name;
-      if (name?.startsWith('mcp_')) return true; // Gap B: MCP tools always allowed
-      const allowed = ALLOWED_TOOLS.has(name);
-      if (!allowed && name) {
-        console.warn(`[SmartAIAgent] Tool ${name} filtered out - not in ALLOWED_TOOLS`);
-      }
-      return allowed;
+      if (!name) return false;
+      // MCP tools are trusted — they were discovered from project's MCP Server
+      if (name.startsWith('mcp_')) return true;
+      // Page tools are always allowed (universal frontend bridge)
+      if (PAGE_TOOL_NAMES.has(name)) return true;
+      // Universal tools checked against whitelist
+      return UNIVERSAL_TOOLS.has(name);
     });
 
+    // Remove web_search/web_fetch if model has native grounding
     const supportsNativeSearch = this.checkModelSupportsNativeWebSearch();
-    const webSearchFiltered = supportsNativeSearch
+    const filtered = supportsNativeSearch
       ? curated.filter(t => {
-        const name = t.function?.name;
-        return name !== 'web_search' && name !== 'web_fetch';
+        const n = t.function?.name;
+        return n !== 'web_search' && n !== 'web_fetch';
       })
       : curated;
 
-    // Фильтруем по включенным инструментам из localStorage
-    const finalTools = webSearchFiltered.filter(tool => {
-      const toolName = tool.function?.name;
-      return toolName ? isToolEnabled(toolName) : true;
+    // Apply user-managed toggles
+    const finalTools = filtered.filter(t => {
+      const name = t.function?.name;
+      return name ? isToolEnabled(name) : true;
     });
 
-    // ДИАГНОСТИКА: Логируем финальный список
     console.log('[SmartAIAgent] Final tools:', {
-      deduplicatedCount: deduplicatedTools.length,
-      curatedCount: curated.length,
-      nativeSearch: supportsNativeSearch,
-      webSearchFilteredCount: webSearchFiltered.length,
-      finalCount: finalTools.length,
-      finalToolNames: finalTools.map(t => t.function?.name).filter(Boolean),
-      createArtifactIndex: finalTools.findIndex(t => t.function?.name === 'create_artifact'),
-      createCategoryIndexIndex: finalTools.findIndex(t => t.function?.name === 'create_category_index'),
-      createArtifactExists: finalTools.some(t => t.function?.name === 'create_artifact'),
-      createCategoryIndexExists: finalTools.some(t => t.function?.name === 'create_category_index')
+      count: finalTools.length,
+      names: finalTools.map(t => t.function?.name).filter(Boolean),
     });
 
     return finalTools;
   }
+
 
   // Режим агента для выбора специализированного промпта
   private agentProfileMode: 'general' | 'search_expert' | 'diagnostic' = 'general';
@@ -1101,10 +1128,11 @@ export class SmartAIAgent extends AIAgent {
     // Загружаем базовый промпт с guidelines из родительского класса
     const basePrompt = await super.getSystemPrompt();
 
-    // Если режим поискового эксперта - используем специализированный промпт
+    // Если режим поискового эксперта — используем тот же универсальный промпт,
+    // специфика поиска приходит через MCP tools и context prompt.
     if (this.agentProfileMode === 'search_expert') {
-      console.log('[SmartAIAgent] Using SEARCH EXPERT system prompt');
-      return SystemPrompts.getSearchExpertSystemPrompt(basePrompt);
+      console.log('[SmartAIAgent] Using SEARCH EXPERT system prompt (universal)');
+      return SystemPrompts.getSmartAgentSystemPrompt('', basePrompt);
     }
 
     // Формируем секцию с релевантными skills

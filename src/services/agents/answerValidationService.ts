@@ -90,9 +90,19 @@ export class AnswerValidationService {
         const completedSteps: TaskStep[] = [];
         const missingSteps: TaskStep[] = [];
 
+        // MCP tools fulfill any data-related intent step (the model chose the right tool)
+        const hasMcpToolExecution = executedTools.some(t => t.startsWith('mcp_'));
+        const hasAnyToolExecution = executedTools.length > 0;
+        const dataActions = new Set(['search', 'extract', 'analyze', 'compare', 'navigate', 'calculate', 'create']);
+
         for (const step of intent.steps) {
-            const isCompleted = step.requiredTools.some(tool => executedTools.includes(tool));
-            if (isCompleted) {
+            const exactMatch = step.requiredTools.some(tool => executedTools.includes(tool));
+            // MCP tools satisfy any data-related step — the model picked the right MCP tool
+            const mcpSatisfied = hasMcpToolExecution && dataActions.has(step.action);
+            // If any tool was executed and model already synthesized, don't force continuation
+            const implicitlyComplete = hasAnyToolExecution && dataActions.has(step.action);
+
+            if (exactMatch || mcpSatisfied || implicitlyComplete) {
                 completedSteps.push(step);
             } else {
                 missingSteps.push(step);

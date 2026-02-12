@@ -7,6 +7,9 @@
  * MCP spec: https://modelcontextprotocol.io
  */
 
+import { trustchainService } from '../trustchainService';
+import type { TrustChainEnvelope } from '../trustchainService';
+
 // ─── Типы MCP Protocol ───
 
 export interface MCPToolParameter {
@@ -62,7 +65,7 @@ const DISCOVERY_CACHE_TTL = 5 * 60 * 1000; // 5 минут
 const _proc = typeof process !== 'undefined' ? process.env : {} as Record<string, string | undefined>;
 const BACKEND_URL = (typeof import.meta !== 'undefined' && import.meta.env?.VITE_BACKEND_URL)
     || _proc.VITE_BACKEND_URL
-    || 'http://localhost:8000';
+    || '';  // No default — skip backend calls when not configured
 
 // ─── Сервис ───
 
@@ -137,18 +140,20 @@ export class MCPClientService {
      * Загружает конфигурации MCP серверов из настроек
      */
     async loadServerConfigs(): Promise<MCPServerConfig[]> {
-        // Пробуем загрузить из backend
-        try {
-            const response = await fetch(`${BACKEND_URL}/api/agent/mcp/servers`, {
-                method: 'GET',
-                headers: { 'Content-Type': 'application/json' }
-            });
-            if (response.ok) {
-                const data = await response.json();
-                return (data.servers || []) as MCPServerConfig[];
+        // Пробуем загрузить из backend (only if configured)
+        if (BACKEND_URL) {
+            try {
+                const response = await fetch(`${BACKEND_URL}/api/agent/mcp/servers`, {
+                    method: 'GET',
+                    headers: { 'Content-Type': 'application/json' }
+                });
+                if (response.ok) {
+                    const data = await response.json();
+                    return (data.servers || []) as MCPServerConfig[];
+                }
+            } catch {
+                // Backend недоступен
             }
-        } catch {
-            // Backend недоступен
         }
 
         // Fallback: localStorage
@@ -430,7 +435,8 @@ export class MCPClientService {
     }
 
     /**
-     * Вызывает tool на MCP сервере
+     * Вызывает tool на MCP сервере.
+     * Каждый вызов подписывается TrustChain Ed25519 — см. INTEGRATION_STANDARD.md § TrustChain.
      */
     async callTool(serverId: string, toolName: string, args: Record<string, any>): Promise<any> {
         const connection = this.connections.get(serverId);
@@ -441,13 +447,47 @@ export class MCPClientService {
         const config = connection.config;
         const timeout = config.timeout || DEFAULT_TIMEOUT;
 
+        // ── TrustChain: sign the outgoing call ──
+        let tcEnvelope: TrustChainEnvelope | undefined;
+        try {
+            tcEnvelope = await trustchainService.sign(toolName, args);
+        } catch (e) {
+            console.warn('[MCP] TrustChain signing skipped:', (e as Error).message);
+        }
+
+        // Helper: attach TrustChain metadata to raw result
+        const attachSignature = (rawResult: any) => {
+            if (!tcEnvelope) return rawResult;
+            // If result is an array of content blocks, wrap them
+            if (Array.isArray(rawResult)) {
+                return {
+                    content: rawResult,
+                    signature: tcEnvelope.signature,
+                    signature_id: `sig_${tcEnvelope.sequence}`,
+                    timestamp: Date.parse(tcEnvelope.timestamp) / 1000,
+                    certificate: tcEnvelope.certificate,
+                };
+            }
+            // If result is already an object, merge
+            if (rawResult && typeof rawResult === 'object') {
+                return {
+                    ...rawResult,
+                    signature: rawResult.signature || tcEnvelope.signature,
+                    signature_id: rawResult.signature_id || `sig_${tcEnvelope.sequence}`,
+                    timestamp: rawResult.timestamp || Date.parse(tcEnvelope.timestamp) / 1000,
+                    certificate: rawResult.certificate || tcEnvelope.certificate,
+                };
+            }
+            return rawResult;
+        };
+
         // Streamable HTTP MCP protocol (Playwright, etc.)
         if (config.transport === 'streamable-http') {
             const result = await this.streamableHTTPCall(config, 'tools/call', {
                 name: toolName,
                 arguments: args
             });
-            return result?.content || result;
+            return attachSignature(result?.content || result);
         }
 
         if (config.transport === 'http' || config.transport === 'sse') {
@@ -465,6 +505,8 @@ export class MCPClientService {
                         jsonrpc: '2.0',
                         method: 'tools/call',
                         params: { name: toolName, arguments: args },
+                        // TrustChain: cryptographic signature of this call
+                        ...(tcEnvelope ? { trustchain: tcEnvelope } : {}),
                         id: Date.now()
                     }),
                     signal: controller.signal
@@ -477,7 +519,8 @@ export class MCPClientService {
                 }
 
                 const data = await response.json();
-                return data.result?.content || data.result || data;
+                const rawResult = data.result?.content || data.result || data;
+                return attachSignature(rawResult);
             } catch (error: any) {
                 clearTimeout(timeoutId);
                 throw error;
@@ -488,7 +531,10 @@ export class MCPClientService {
         const response = await fetch(`${BACKEND_URL}/api/agent/mcp/call`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ serverId: config.id, toolName, args })
+            body: JSON.stringify({
+                serverId: config.id, toolName, args,
+                ...(tcEnvelope ? { trustchain: tcEnvelope } : {})
+            })
         });
 
         if (!response.ok) {
@@ -496,7 +542,7 @@ export class MCPClientService {
         }
 
         const data = await response.json();
-        return data.result || data;
+        return attachSignature(data.result || data);
     }
 
     // ──────────────────────────────────────────────

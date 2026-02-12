@@ -18,6 +18,6 @@ export { MCPClientService, type MCPServerConfig, type MCPToolDefinition } from '
 export { TaskQueueService, type BackgroundTask, type TaskStatus } from './taskQueueService';
 export { PlanningService, type PlanPreview, type PlanPreviewStep } from './planningService';
 export { TestRunnerService, type TestResult, type TestFailure } from './testRunnerService';
-export { AgentOrchestratorService, type SubTask, type DecompositionResult } from './agentOrchestratorService';
+export { AgentOrchestratorService, type SubTask, type DecompositionResult, type CustomSpecialty } from './agentOrchestratorService';
 export { BrowserService, type BrowserAction, type BrowserResult } from './browserService';
 export { EventTriggerService, type EventTrigger, type EventPayload } from './eventTriggerService';

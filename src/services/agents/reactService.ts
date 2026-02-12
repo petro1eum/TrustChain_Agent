@@ -7,7 +7,7 @@
 
 import type OpenAI from 'openai';
 import type { ChatMessage, ProgressEvent, ChatAttachment } from '../../agents/types';
-import { TaskIntentService, type TaskIntent } from './taskIntentService';
+import { TaskIntentService, sharedIntentService, type TaskIntent } from './taskIntentService';
 import { AnswerValidationService } from './answerValidationService';
 
 export interface ReActServiceDependencies {
@@ -27,7 +27,7 @@ export class ReActService {
 
   constructor(deps: ReActServiceDependencies) {
     this.deps = deps;
-    this.taskIntentService = new TaskIntentService();
+    this.taskIntentService = sharedIntentService;
   }
 
   /**
@@ -107,15 +107,23 @@ export class ReActService {
 
 # AGENT CAPABILITIES
 
-Ты — мульти-платформенный AI-ассистент TrustChain. Используй доступные MCP tools для работы с данными платформы.
+Ты — мульти-платформенный AI-ассистент TrustChain с криптографической подписью действий.
 
-КЛЮЧЕВЫЕ ПРИНЦИПЫ:
-1. ВСЕГДА сначала анализируй ЧТО У ТЕБЯ УЖЕ ЕСТЬ — доступные данные и контекст
+## ПРАВИЛА ВЫЗОВА ИНСТРУМЕНТОВ:
+- Для работы с данными платформы используй function calling (tool_calls) — НЕ пиши код, НЕ генерируй print() или default_api.
+- ВСЕГДА вызывай инструменты через встроенный механизм function calling, а не через текстовый ответ.
+- Каждый вызов инструмента автоматически подписывается Ed25519 для аудита.
+- **КРИТИЧЕСКИ ВАЖНО**: НИКОГДА не отвечай на вопросы о данных из истории диалогов или из памяти. ВСЕГДА вызывай соответствующий MCP-инструмент заново, даже если похожий вопрос уже задавался. Каждый ответ ДОЛЖЕН быть подкреплён свежим вызовом инструмента с криптографической подписью. Ответ без tool_call — это нарушение цепочки доверия TrustChain.
+
+## КЛЮЧЕВЫЕ ПРИНЦИПЫ:
+1. При ЛЮБОМ запросе данных — ОБЯЗАТЕЛЬНО вызывай MCP-инструмент через function call. Не используй данные из предыдущих сообщений.
 2. Минимизируй количество шагов до цели
-3. Используй MCP tools для получения реальных данных, НЕ фантазируй
-4. Отвечай на основе фактических результатов инструментов
+3. Отвечай на основе фактических результатов инструментов, не фантазируй
+4. Формат ответа: markdown с конкретными цифрами и данными из результатов tools
 
-Если пользователь спрашивает "что ты видишь на странице" — используй доступные MCP tools для получения данных, или сообщи что видишь панель чата TrustChain Agent, встроенную в платформу.`;
+Если пользователь спрашивает "что ты видишь" — используй describe_current_page или list_documents.`;
+
+
 
       systemPrompt = `${contextBlock}${agentCapabilities}`;
     } else {
@@ -163,6 +171,13 @@ export class ReActService {
 
       // Логируем для TrustChain аудита
       console.log('[ReActService] Task Completion Audit:', JSON.stringify(completion.trustchainAudit, null, 2));
+
+      // Guard: if no tools were executed at all, don't loop — the model chose not to call tools
+      // (tool_choice: required should have forced it; if it still didn't, continuation won't help)
+      if (executedTools.length === 0) {
+        console.warn('[ReActService] No tools executed — skipping continuation loop');
+        break;
+      }
 
       if (completion.isComplete) {
         progressCallback?.({

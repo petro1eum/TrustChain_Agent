@@ -87,32 +87,21 @@ export interface UseAgentReturn {
     resetToolsToDefaults: () => void;
 }
 
-// ─── Tool Category Mapping ───
+// ─── Tool Category Mapping (universal tools only) ───
+// MCP tools auto-categorize as 'MCP' — no need to list them here.
 
 const TOOL_CATEGORIES: Record<string, string> = {
-    list_api_endpoints: 'Backend API', list_data_files: 'Backend API', backend_api_call: 'Backend API',
-    get_yaml_file: 'Backend API', save_yaml_file: 'Backend API',
-    get_app_structure: 'Frontend', get_current_screen: 'Frontend', navigate_to_tab: 'Frontend',
-    navigate_to_subtab: 'Frontend', select_category: 'Frontend', select_product: 'Frontend',
-    search_ui: 'Frontend', apply_filters: 'Frontend', get_screen_data: 'Frontend',
-    get_selected_items: 'Frontend', click_element: 'Frontend',
     search_files_by_name: 'File Ops', read_project_file: 'File Ops', get_synonyms_preview: 'File Ops',
+    extract_table_to_excel: 'File Ops',
     web_search: 'Web Search', web_fetch: 'Web Search',
     execute_code: 'Code Execution', execute_bash: 'Code Execution', bash_tool: 'Code Execution',
     view: 'Code Execution', create_file: 'Code Execution', str_replace: 'Code Execution',
     import_tool: 'Code Execution', save_tool: 'Code Execution', list_tools: 'Code Execution',
     load_tool: 'Code Execution',
     create_artifact: 'Artifacts',
-    search_products: 'Search', analyze_search_params: 'Search', compare_products: 'Search',
-    quick_search: 'Search',
-    match_specification_to_catalog: 'Spec Matching',
     analyze_code_structure: 'Code Analysis', search_code_symbols: 'Code Analysis',
     get_code_dependencies: 'Code Analysis',
     browser_navigate: 'Browser', browser_screenshot: 'Browser', browser_extract: 'Browser',
-    run_category_diagnostic: 'Diagnostics', test_category_search: 'Diagnostics',
-    get_category_info: 'Diagnostics', get_category_config: 'Diagnostics',
-    export_search_to_excel: 'Export', advanced_export_to_excel: 'Export',
-    get_available_categories: 'Export',
 };
 
 // ─── Hook ───

@@ -5,8 +5,6 @@
  */
 
 import { agentDebugService } from '../agentDebugService';
-import { backendApiService, API_ENDPOINTS, DATA_FILES } from '../backendApiService';
-import { frontendNavigationService } from '../frontendNavigationService';
 import { webSearchService } from '../webSearchService';
 import { codeExecutionService } from '../codeExecutionService';
 import { bashExecutionService } from '../bashExecutionService';
@@ -16,14 +14,6 @@ import type { AppActions, DataProcessingContext, ExecutionPlan } from '../../age
 import type { ResourceManager } from '../resources';
 import { CodeAnalysisService } from './codeAnalysisService';
 
-// Поддержка как Vite окружения, так и Node.js окружения
-const _proc = typeof process !== 'undefined' ? process.env : {} as Record<string, string | undefined>;
-const BACKEND_URL = (typeof import.meta !== 'undefined' && (import.meta.env?.VITE_BACKEND_URL || import.meta.env?.VITE_API_BASE))
-  || _proc.VITE_BACKEND_URL
-  || _proc.VITE_API_BASE
-  || 'http://localhost:8000';
-
-console.log(`[ToolExecutionService] Backend URL: ${BACKEND_URL}`);
 const FETCH_TIMEOUT = 30000; // 30 секунд timeout для всех fetch запросов
 
 /**
@@ -324,11 +314,7 @@ export class ToolExecutionService {
     let result: any;
 
     switch (toolName) {
-      // === File & Data инструменты ===
-      case 'get_synonyms_preview': case 'search_files_by_name':
-      case 'read_project_file':
-        return this.routeFileTool(toolName, args);
-
+      // === Web инструменты ===
       case 'web_search': case 'web_fetch':
         result = await this.routeWebTool(toolName, args);
         break;
@@ -366,109 +352,6 @@ export class ToolExecutionService {
         result = await this.deps.toolHandlers.handleDataQualityAnalysis(args, context);
         break;
 
-      // === Инструменты приложения ===
-      case 'load_file_from_path': {
-        const norm = this.deps.normalizeArgs(args, { client_name: 'clientName', file_path: 'filePath' });
-        const res = await this.deps.safeAppAction(() => Promise.resolve(this.deps.appActions!.loadFileFromPath(norm.filePath, norm.clientName)));
-        result = res.success ? res.data : { success: false, error: res.error };
-        break;
-      }
-
-      case 'analyze_file_content': {
-        const norm = this.deps.normalizeArgs(args, { file_id: 'fileId', file_name: 'fileName' });
-        const fileId = norm.fileId || norm.fileName;
-        const res = await this.deps.safeAppAction(() => Promise.resolve(this.deps.appActions!.loadFileContent(fileId)));
-        result = res.success ? res.data : { success: false, error: res.error };
-        break;
-      }
-
-      case 'data_quality_check': {
-        const norm = this.deps.normalizeArgs(args, { file_id: 'fileId' });
-        const res = await this.deps.safeAppAction(() => Promise.resolve(this.deps.appActions!.dataQualityCheck(norm.fileId)));
-        result = res.success ? res.data : { success: false, error: res.error };
-        break;
-      }
-
-      case 'execute_rule': {
-        const norm = this.deps.normalizeArgs(args, { rule_id: 'ruleId', file_id: 'fileId' });
-        const res = await this.deps.safeAppAction(() => Promise.resolve(this.deps.appActions!.executeRule(norm.ruleId, norm.fileId)));
-        result = res.success ? res.data : { success: false, error: res.error };
-        break;
-      }
-
-      case 'validate_rule': {
-        const norm = this.deps.normalizeArgs(args, {});
-        const res = await this.deps.safeAppAction(() => Promise.resolve(this.deps.appActions!.validateRule(norm.ruleData)));
-        result = res.success ? res.data : { success: false, error: res.error };
-        break;
-      }
-
-      case 'fuzzy_matching': {
-        const norm = this.deps.normalizeArgs(args, {});
-        const res = await this.deps.safeAppAction(() => Promise.resolve(this.deps.appActions!.fuzzyMatching(norm.data, norm.config)));
-        result = res.success ? res.data : { success: false, error: res.error };
-        break;
-      }
-
-      case 'create_data_report': {
-        const norm = this.deps.normalizeArgs(args, { file_id: 'fileId' });
-        const res = await this.deps.safeAppAction(() => Promise.resolve(this.deps.appActions!.createDataReport(norm.fileId, norm.format)));
-        result = res.success ? res.data : { success: false, error: res.error };
-        break;
-      }
-
-      case 'export_data': {
-        const norm = this.deps.normalizeArgs(args, { file_id: 'fileId' });
-        const res = await this.deps.safeAppAction(() => Promise.resolve(this.deps.appActions!.exportData(norm.fileId, norm.format)));
-        result = res.success ? res.data : { success: false, error: res.error };
-        break;
-      }
-
-      case 'get_available_files': {
-        const res = await this.deps.safeAppAction(() => Promise.resolve(this.deps.appActions!.getAvailableFiles()));
-        result = res.success ? res.data : { success: false, error: res.error };
-        break;
-      }
-
-      case 'get_available_clients': {
-        const res = await this.deps.safeAppAction(() => Promise.resolve(this.deps.appActions!.getAvailableClients()));
-        result = res.success ? res.data : { success: false, error: res.error };
-        break;
-      }
-
-      case 'switch_view': {
-        const norm = this.deps.normalizeArgs(args, {});
-        const res = await this.deps.safeAppAction(async () => { this.deps.appActions!.switchView(norm.view); return true; });
-        result = res.success ? res.data : { success: false, error: res.error };
-        break;
-      }
-
-      case 'select_client': {
-        const norm = this.deps.normalizeArgs(args, { client_id: 'clientId' });
-        const res = await this.deps.safeAppAction(() => Promise.resolve(this.deps.appActions!.selectClient(norm.clientId)));
-        result = res.success ? res.data : { success: false, error: res.error };
-        break;
-      }
-
-      case 'select_file': {
-        const norm = this.deps.normalizeArgs(args, { file_id: 'fileId' });
-        const res = await this.deps.safeAppAction(() => Promise.resolve(this.deps.appActions!.selectFile(norm.fileId)));
-        result = res.success ? res.data : { success: false, error: res.error };
-        break;
-      }
-
-      case 'backup_system': {
-        const res = await this.deps.safeAppAction(() => Promise.resolve(this.deps.appActions!.backupSystem()));
-        result = res.success ? res.data : { success: false, error: res.error };
-        break;
-      }
-
-      case 'system_status': {
-        const res = await this.deps.safeAppAction(() => Promise.resolve(this.deps.appActions!.systemStatus()));
-        result = res.success ? res.data : { success: false, error: res.error };
-        break;
-      }
-
       // === Инструменты файловой системы ===
       case 'access_source_file':
         result = await this.deps.toolHandlers.handleAccessSourceFile(args, context);
@@ -478,7 +361,7 @@ export class ToolExecutionService {
         result = await this.deps.toolHandlers.handleAddToWorkspace(args, context);
         break;
 
-      // === Новые инструменты для работы с данными проекта ===
+      // === Инструменты для работы с данными проекта ===
       case 'get_transformation_data':
         result = await this.deps.toolHandlers.handleGetTransformationData(args, context);
         break;
@@ -492,57 +375,13 @@ export class ToolExecutionService {
         break;
 
       case 'extract_table_to_excel':
-        return this.routeFileTool(toolName, args);
+        result = await this.deps.toolHandlers.handleExtractTableToExcel(args);
+        break;
 
       // === Docker Agent инструменты ===
       case 'bash_tool': case 'view': case 'create_file':
       case 'create_artifact': case 'str_replace':
         result = await this.routeDockerTool(toolName, args);
-        break;
-
-      // === Backend API инструменты ===
-      case 'backend_api_call': case 'get_yaml_file': case 'save_yaml_file':
-      case 'list_api_endpoints': case 'list_data_files':
-        result = await this.routeBackendApiTool(toolName, args);
-        break;
-
-      // === Frontend Navigation инструменты ===
-      case 'get_app_structure': case 'get_current_screen':
-      case 'navigate_to_tab': case 'navigate_to_subtab':
-      case 'select_category': case 'select_product':
-      case 'search_ui': case 'apply_filters':
-      case 'get_screen_data': case 'get_selected_items':
-      case 'click_element':
-        result = await this.routeFrontendTool(toolName, args, context);
-        break;
-
-      // === Категории: тестирование и диагностика ===
-      case 'run_category_diagnostic': case 'test_category_search':
-        result = await this.routeCategoryTool(toolName, args);
-        break;
-
-      // === Search & Export инструменты ===
-      case 'export_search_to_excel': case 'advanced_export_to_excel':
-      case 'get_available_categories': case 'search_products':
-      case 'analyze_search_params': case 'compare_products':
-      case 'quick_search':
-        result = await this.routeSearchTool(toolName, args);
-        break;
-
-      // === Category config/info/management ===
-      case 'get_category_info': case 'get_category_config':
-      case 'save_category_config': case 'get_category_backups':
-      case 'restore_category_backup': case 'get_diagnostic_history':
-      case 'validate_category_config': case 'get_category_param_coverage':
-      case 'create_category_index': case 'load_category_data':
-      case 'check_category_data_loading': case 'get_atomic_file':
-      case 'save_atomic_file': case 'get_index_registry':
-      case 'update_index_registry':
-        result = await this.routeCategoryTool(toolName, args);
-        break;
-
-      case 'run_regression_tests':
-        result = await this.routeCategoryTool(toolName, args);
         break;
 
       // === Code execution инструменты ===
@@ -552,20 +391,7 @@ export class ToolExecutionService {
         result = await this.routeCodeTool(toolName, args);
         break;
 
-      // === Conversation Memory ===
-      case 'conversation_search':
-        result = await this.deps.toolHandlers.handleConversationSearch(args);
-        break;
-      case 'recent_chats':
-        result = await this.deps.toolHandlers.handleRecentChats(args);
-        break;
-
-      // === Search: match specification ===
-      case 'match_specification_to_catalog':
-        result = await this.routeSearchTool(toolName, args);
-        break;
-
-      // === Code Analysis (Gap #6): AST-level code understanding ===
+      // === Code Analysis: AST-level code understanding ===
       case 'analyze_code_structure':
       case 'search_code_symbols':
       case 'get_code_dependencies':
@@ -578,8 +404,16 @@ export class ToolExecutionService {
         return { success: true, message: 'Direct answer without tools' };
 
       default:
-        console.error(`[ToolExecution] Unknown tool: ${toolName}`);
-        throw new Error(`Unknown tool: ${toolName}`);
+        // Check if this is a dynamically registered app action
+        const { appActionsRegistry } = await import('../appActionsRegistry');
+        if (appActionsRegistry.has(toolName)) {
+          result = await appActionsRegistry.callAction(toolName, args);
+          break;
+        }
+        // All domain-specific tools are handled by MCP servers.
+        // If we reach here, the tool was not routed through MCP.
+        console.error(`[ToolExecution] Unknown tool: ${toolName}. Domain tools should be served via MCP or registered via postMessage.`);
+        throw new Error(`Unknown tool: ${toolName}. Provide via MCP server or register via trustchain:register_actions postMessage.`);
     }
 
     // КРИТИЧНО: Проверяем что result был установлен
@@ -637,376 +471,6 @@ export class ToolExecutionService {
         return { success: true, ...(await webSearchService.fetchPage(url)) };
       }
       default: throw new Error(`Unknown web tool: ${toolName}`);
-    }
-  }
-
-  /** Backend API tools: backend_api_call, get/save_yaml, list_endpoints/files */
-  private async routeBackendApiTool(toolName: string, args: any): Promise<any> {
-    switch (toolName) {
-      case 'backend_api_call':
-        return backendApiService.callEndpoint(args.endpoint, args.params, args.body);
-      case 'get_yaml_file':
-        return backendApiService.getYamlFile(args.path);
-      case 'save_yaml_file':
-        await backendApiService.saveYamlFile(args.path, args.content);
-        return { success: true, message: 'File saved successfully' };
-      case 'list_api_endpoints':
-        return { endpoints: Object.keys(API_ENDPOINTS), spec: backendApiService.getApiSpec() };
-      case 'list_data_files':
-        return { files: DATA_FILES, spec: backendApiService.getFilesSpec() };
-      default: throw new Error(`Unknown backend API tool: ${toolName}`);
-    }
-  }
-
-  /** File & data tools: get_synonyms_preview, search_files, read_project_file, extract_table */
-  private async routeFileTool(toolName: string, args: any): Promise<any> {
-    switch (toolName) {
-      case 'get_synonyms_preview': {
-        const limit = Math.max(1, Math.min(Number(args.limit || 20), 100));
-        const toPairs = (data: any): string[] => {
-          if (!data) return [];
-          if (Array.isArray(data)) {
-            return data.map((v: any) => {
-              if (typeof v === 'string') return v;
-              if (v && typeof v === 'object') {
-                const raw = v.raw ?? v.src ?? v.from ?? v.key ?? '';
-                const norm = v.norm ?? v.dst ?? v.to ?? v.value ?? '';
-                return `${String(raw)}` + (norm ? ` -> ${String(norm)}` : '');
-              }
-              return String(v);
-            });
-          }
-          if (typeof data === 'object') {
-            const obj = data.items || data.synonyms || data;
-            return Object.keys(obj).map(k => `${k} -> ${obj[k]}`);
-          }
-          return [];
-        };
-        const tryFetchJson = async (url: string) => {
-          try { const r = await fetch(url, { method: 'GET' }); if (!r.ok) return null; return await r.json(); } catch { return null; }
-        };
-        try {
-          const auto = await backendApiService.callEndpoint('autoreplace_get');
-          const items = toPairs(auto).slice(0, limit);
-          if (items.length) return { success: true, source: 'autoreplace', items };
-        } catch { }
-        try {
-          const compiled = await backendApiService.callEndpoint('synonyms_compile');
-          const items = toPairs(compiled).slice(0, limit);
-          if (items.length) return { success: true, source: 'synonyms_compile', items };
-        } catch { }
-        const candidates = ['http://127.0.0.1:8000/static/atomic/autoreplace.json', 'http://localhost:8000/static/atomic/autoreplace.json', '/atomic/autoreplace.json'];
-        for (const url of candidates) {
-          const json = await tryFetchJson(url);
-          if (json) { const items = toPairs(json).slice(0, limit); if (items.length) return { success: true, source: url, items }; }
-        }
-        return { success: false, error: 'synonyms_not_found' };
-      }
-      case 'search_files_by_name': {
-        const needleRaw = String(args.query || '').trim().toLowerCase();
-        if (!needleRaw) throw new Error('query is required');
-        const collect = (): { path: string; section: string }[] => {
-          const out: { path: string; section: string }[] = [];
-          for (const f of DATA_FILES.categories || []) out.push({ path: `categories/${f}`, section: 'categories' });
-          for (const f of DATA_FILES.mixins || []) out.push({ path: `mixins/${f}`, section: 'mixins' });
-          for (const f of DATA_FILES.atomic || []) out.push({ path: `atomic/${f}`, section: 'atomic' });
-          const desc = (DATA_FILES as any).descriptors as Record<string, string[]> | undefined;
-          const groups: Array<keyof NonNullable<typeof desc>> = ['diameter', 'pressure', 'thread', 'valve'];
-          for (const grp of groups) { const arr = desc?.[grp] || []; for (const f of arr) out.push({ path: `descriptors/${grp}/${f}`, section: `descriptors/${grp}` }); }
-          return out;
-        };
-        const all = collect();
-        return { success: true, query: needleRaw, hits: all.filter(e => e.path.toLowerCase().includes(needleRaw)) };
-      }
-      case 'read_project_file': {
-        const pathInput = String(args.path || '').trim();
-        const limitNum = Math.max(1, Math.min(Number(args.limit || 20), 200));
-        if (!pathInput) throw new Error('path is required');
-        const resolvePath = (p: string): string | null => {
-          if (p.includes('/')) return p;
-          const fname = p;
-          const cands: string[] = [];
-          for (const f of DATA_FILES.categories || []) cands.push(`categories/${f}`);
-          for (const f of DATA_FILES.mixins || []) cands.push(`mixins/${f}`);
-          for (const f of DATA_FILES.atomic || []) cands.push(`atomic/${f}`);
-          const desc: Record<'diameter' | 'pressure' | 'thread' | 'valve', string[]> | undefined = DATA_FILES.descriptors as any;
-          for (const grp of (['diameter', 'pressure', 'thread', 'valve'] as const)) { for (const f of (desc?.[grp] || []) as string[]) cands.push(`descriptors/${grp}/${f}`); }
-          const matches = cands.filter((c: string) => c.endsWith(`/${fname}`) || c === fname || c.toLowerCase().includes(fname.toLowerCase()));
-          if (matches.length === 1) return matches[0];
-          if (matches.length > 1) { matches.sort((a: string, b: string) => a.length - b.length); return matches[0]; }
-          return null;
-        };
-        const path = resolvePath(pathInput) || pathInput;
-        const isYaml = /\.ya?ml$/i.test(path) || /(descriptors|categories|mixins)\//.test(path);
-        const isJson = /\.json$/i.test(path) || path.startsWith('atomic/');
-        const previewLines = (text: string, lim: number): string[] => text.split(/\r?\n/).slice(0, lim);
-        const previewJson = (data: any, lim: number): any => {
-          if (Array.isArray(data)) return data.slice(0, lim);
-          if (data && typeof data === 'object') return Object.fromEntries(Object.entries(data as Record<string, unknown>).slice(0, lim));
-          return data;
-        };
-        if (isYaml) {
-          try { const content: any = await backendApiService.getYamlFile(path); return { success: true, path, type: 'yaml', preview: previewLines(String(content || ''), limitNum) }; }
-          catch (e: any) { return { success: false, path, error: e?.message || 'yaml_read_failed' }; }
-        }
-        if (isJson) {
-          const fileName = path.split('/').pop() || path;
-          try { const unified = await backendApiService.callEndpoint('files_read', undefined, { path, limit: limitNum }); if (unified?.success) return { success: true, path, type: 'json', source: 'backend:files_read', preview: unified.preview ?? unified.content }; } catch { }
-          const jsonCandidates = [`http://127.0.0.1:8000/static/atomic/${fileName}`, `http://localhost:8000/static/atomic/${fileName}`, `/atomic/${fileName}`];
-          const tryFJ = async (url: string): Promise<any | null> => { try { const r = await fetch(url, { method: 'GET' }); if (!r.ok) return null; return await r.json(); } catch { return null; } };
-          if (/autoreplace\.json$/i.test(fileName)) { try { const auto = await backendApiService.callEndpoint('autoreplace_get'); return { success: true, path, type: 'json', source: 'backend:autoreplace_get', preview: previewJson(auto, limitNum) }; } catch { } }
-          for (const url of jsonCandidates) { const json = await tryFJ(url); if (json) return { success: true, path, type: 'json', source: url, preview: previewJson(json, limitNum) }; }
-          return { success: false, path, error: 'json_not_found' };
-        }
-        try { const r = await fetch(path); if (r.ok) { const text = await r.text(); return { success: true, path, type: 'text', preview: previewLines(text, limitNum) }; } return { success: false, path, error: `fetch_failed ${r.status}` }; }
-        catch (e: any) { return { success: false, path, error: e?.message || 'read_failed' }; }
-      }
-      case 'extract_table_to_excel':
-        return this.deps.toolHandlers.handleExtractTableToExcel(args);
-      default: throw new Error(`Unknown file tool: ${toolName}`);
-    }
-  }
-
-  /** Frontend navigation tools */
-  private async routeFrontendTool(toolName: string, args: any, context: Record<string, any>): Promise<any> {
-    switch (toolName) {
-      case 'get_app_structure':
-        return { structure: frontendNavigationService.getAppStructure(), description: frontendNavigationService.getAppStructureDescription() };
-      case 'get_current_screen':
-        return { state: frontendNavigationService.getCurrentState(), context: await frontendNavigationService.getScreenContext(), availableActions: frontendNavigationService.getAvailableActions() };
-      case 'navigate_to_tab':
-        return frontendNavigationService.navigateToTab(args.tabId);
-      case 'navigate_to_subtab':
-        return frontendNavigationService.navigateToSubTab(args.tabId, args.subTabId);
-      case 'select_category':
-        return frontendNavigationService.selectCategory(args.categoryId);
-      case 'select_product':
-        return frontendNavigationService.selectProduct(args.productId);
-      case 'search_ui': {
-        try {
-          const result = await frontendNavigationService.search(args.query);
-          if (result && typeof result === 'object' && (result.error || result.success === false)) {
-            const errorMsg = result.error || result.message || '';
-            if (errorMsg.includes('not available') || errorMsg.includes('setSearchQuery')) {
-              const categorySlug = args.categorySlug || context.categorySlug;
-              return { success: false, error: `search_ui недоступен. Используй test_category_search вместо этого.`, suggestion: categorySlug ? `test_category_search(query="${args.query}", categorySlug="${categorySlug}")` : undefined, originalError: errorMsg };
-            }
-          }
-          return result;
-        } catch (error: any) {
-          const errorMsg = error.message || String(error);
-          if (errorMsg.includes('not available') || errorMsg.includes('setSearchQuery'))
-            return { success: false, error: `search_ui недоступен: ${errorMsg}. Используй test_category_search для тестирования поиска.`, suggestion: 'test_category_search(query, categorySlug)' };
-          throw error;
-        }
-      }
-      case 'apply_filters':
-        return frontendNavigationService.applyFilters(args.filters);
-      case 'get_screen_data':
-        return frontendNavigationService.getScreenData();
-      case 'get_selected_items':
-        return frontendNavigationService.getSelectedItems();
-      case 'click_element':
-        return frontendNavigationService.clickElement(args.elementId);
-      default: throw new Error(`Unknown frontend tool: ${toolName}`);
-    }
-  }
-
-  /** Search & export tools */
-  private async routeSearchTool(toolName: string, args: any): Promise<any> {
-    switch (toolName) {
-      case 'search_products': {
-        const response = await fetchWithTimeout(`${BACKEND_URL}/api/os/search/products`, {
-          method: 'POST', headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ query: args.query, category_slug: args.category_slug || args.categorySlug, filters: args.filters || {}, size: args.size || 20, explain: args.explain || false, include_params: args.include_params !== false })
-        }, 30000);
-        if (!response?.ok) { const t = response ? await response.text() : 'No response'; throw new Error(`search_products failed: ${t}`); }
-        return response.json();
-      }
-      case 'export_search_to_excel': {
-        const response = await fetchWithTimeout(`${BACKEND_URL}/api/os/search/export`, {
-          method: 'POST', headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ query: args.query, category_slug: args.category_slug || args.categorySlug, size: args.size || 1000, filename: args.filename })
-        }, 60000);
-        if (!response?.ok) { const t = response ? await response.text() : 'No response'; throw new Error(`Export failed: ${t}`); }
-        const exportResult = await response.json();
-        if (exportResult.success && exportResult.content_base64) {
-          await this.deps.toolHandlers.handleCreateArtifact({ description: `Excel экспорт: "${args.query}" (${exportResult.rows} строк)`, filename: exportResult.filename, content: exportResult.content_base64, type: 'excel' });
-          return { success: true, filename: exportResult.filename, rows: exportResult.rows, columns: exportResult.columns, column_names: exportResult.column_names, query: exportResult.query, category: exportResult.category, message: `Excel "${exportResult.filename}" создан (${exportResult.rows} строк).`, artifact_created: true };
-        }
-        return exportResult;
-      }
-      case 'advanced_export_to_excel': {
-        const response = await fetchWithTimeout(`${BACKEND_URL}/api/os/search/export/advanced`, {
-          method: 'POST', headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ queries: args.queries, filename: args.filename, columns: args.columns, merge_sheets: args.merge_sheets ?? false, include_search_info: args.include_search_info ?? true })
-        }, 120000);
-        if (!response?.ok) { const t = response ? await response.text() : 'No response'; throw new Error(`Advanced export failed: ${t}`); }
-        const exportResult = await response.json();
-        if (exportResult.success && exportResult.content_base64) {
-          await this.deps.toolHandlers.handleCreateArtifact({ description: `Excel экспорт: ${args.queries?.length || 0} запросов, ${exportResult.total_rows} строк`, filename: exportResult.filename, content: exportResult.content_base64, type: 'excel' });
-          return { success: true, filename: exportResult.filename, total_rows: exportResult.total_rows, sheets: exportResult.sheets, queries_processed: exportResult.queries_processed, queries_requested: exportResult.queries_requested, message: `Excel "${exportResult.filename}" создан (${exportResult.total_rows} строк).`, artifact_created: true };
-        }
-        return exportResult;
-      }
-      case 'get_available_categories': {
-        const response = await fetchWithTimeout(`${BACKEND_URL}/api/os/export/categories`, { method: 'GET', headers: { 'Content-Type': 'application/json' } }, 10000);
-        if (!response?.ok) throw new Error('Failed to get categories');
-        return response.json();
-      }
-      case 'quick_search': {
-        const response = await fetchWithTimeout(`${BACKEND_URL}/api/os/search/quick`, {
-          method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ query: args.query })
-        }, 10000);
-        if (!response?.ok) { const t = response ? await response.text() : 'No response'; throw new Error(`quick_search failed: ${t}`); }
-        return response.json();
-      }
-      case 'compare_products': {
-        const response = await fetchWithTimeout(`${BACKEND_URL}/api/os/search/compare`, {
-          method: 'POST', headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ queries: args.queries, compare_by: args.compare_by || ['price', 'count', 'brands', 'params'] })
-        }, 60000);
-        if (!response?.ok) { const t = response ? await response.text() : 'No response'; throw new Error(`compare_products failed: ${t}`); }
-        return response.json();
-      }
-      case 'analyze_search_params': {
-        const categorySlug = args.category_slug || args.categorySlug;
-        let url = `${BACKEND_URL}/api/os/search/params`;
-        if (categorySlug) url += `?category_slug=${encodeURIComponent(categorySlug)}`;
-        else if (args.query) url += `?query=${encodeURIComponent(args.query)}`;
-        const response = await fetchWithTimeout(url, { method: 'GET', headers: { 'Content-Type': 'application/json' } }, 15000);
-        if (!response?.ok) { const t = response ? await response.text() : 'No response'; throw new Error(`analyze_search_params failed: ${t}`); }
-        return response.json();
-      }
-      case 'match_specification_to_catalog':
-        return this.deps.toolHandlers.handleMatchSpecificationToCatalog(args);
-      default: throw new Error(`Unknown search tool: ${toolName}`);
-    }
-  }
-
-  /** Category management & diagnostics tools */
-  private async routeCategoryTool(toolName: string, args: any): Promise<any> {
-    switch (toolName) {
-      case 'run_category_diagnostic': {
-        const stepMap: Record<string, string> = { 'full': 'full', '0.5': 'step0.5-check-atomics-loading', '1': 'step1-check-data', '2': 'step2-check-category', '3': 'step3-check-tokenization', '3.5': 'step3.5-check-parameter-extraction', '3.6': 'step3.6-check-synonyms-in-atomics', '3.7': 'step3.7-check-article-numbers-preserved', '4': 'step4-check-filters', '4.7': 'step4.7-check-diameter-format', '5': 'step5-check-exclusions', '6': 'step6-check-operator' };
-        const endpoint = stepMap[args.step] || args.step;
-        const endpointPath = endpoint === 'full' ? `/api/os/category/${args.categorySlug}/diagnostic/full` : `/api/os/category/${args.categorySlug}/diagnostic/${endpoint}`;
-        const response = await fetch(`${BACKEND_URL}${endpointPath}`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ query: args.query, ...(args.jdeCode && { jde_code: args.jdeCode }) }) });
-        if (!response.ok) { const t = await response.text(); throw new Error(`Diagnostic failed: ${response.status} - ${t}`); }
-        return response.json();
-      }
-      case 'test_category_search': {
-        const response = await fetchWithTimeout(`${BACKEND_URL}/api/os/search`, {
-          method: 'POST', headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ q: args.query, category: args.categorySlug, size: args.size || 10, debug: args.debug !== false })
-        }, FETCH_TIMEOUT);
-        if (!response?.ok) { const t = response ? await response.text() : 'No response'; throw new Error(`Search test failed: ${response?.status} - ${t}`); }
-        return response.json();
-      }
-      case 'get_category_info': {
-        const response = await fetchWithTimeout(`${BACKEND_URL}/api/os/category/${args.categorySlug}/info`, { method: 'GET', headers: { 'Content-Type': 'application/json' } }, FETCH_TIMEOUT);
-        if (!response?.ok) { const t = response ? await response.text() : 'No response'; throw new Error(`Failed to get category info: ${t}`); }
-        return response.json();
-      }
-      case 'get_category_config': {
-        const pathMap: Record<string, string> = { 'yaml': `/api/os/category/${args.categorySlug}/config/yaml`, 'json': `/api/os/category/${args.categorySlug}/config/json`, 'py': `/api/os/category/${args.categorySlug}/config/py` };
-        const response = await fetch(`${BACKEND_URL}${pathMap[args.configType]}`, { method: 'GET', headers: { 'Content-Type': 'application/json' } });
-        if (!response.ok) { const t = await response.text(); throw new Error(`Failed to get config: ${t}`); }
-        return response.json();
-      }
-      case 'save_category_config': {
-        const pathMap: Record<string, string> = { 'yaml': `/api/os/category/${args.categorySlug}/config/yaml`, 'json': `/api/os/category/${args.categorySlug}/config/json`, 'py': `/api/os/category/${args.categorySlug}/config/py` };
-        const response = await fetch(`${BACKEND_URL}${pathMap[args.configType]}`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ content: args.content }) });
-        if (!response.ok) { const t = await response.text(); throw new Error(`Failed to save config: ${t}`); }
-        return response.json();
-      }
-      case 'get_category_backups': {
-        const url = new URL(`${BACKEND_URL}/api/os/category/${args.categorySlug}/backups`);
-        if (args.configType) url.searchParams.set('type', args.configType);
-        const response = await fetch(url.toString(), { method: 'GET', headers: { 'Content-Type': 'application/json' } });
-        if (!response.ok) { const t = await response.text(); throw new Error(`Failed to get backups: ${t}`); }
-        return response.json();
-      }
-      case 'restore_category_backup': {
-        const response = await fetch(`${BACKEND_URL}/api/os/category/${args.categorySlug}/restore-backup`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ backup_path: args.backupPath }) });
-        if (!response.ok) { const t = await response.text(); throw new Error(`Failed to restore backup: ${t}`); }
-        return response.json();
-      }
-      case 'get_diagnostic_history': {
-        const url = new URL(`${BACKEND_URL}/api/os/category/${args.categorySlug}/diagnostic/history`);
-        url.searchParams.set('limit', String(args.limit || 50));
-        const response = await fetch(url.toString(), { method: 'GET', headers: { 'Content-Type': 'application/json' } });
-        if (!response.ok) { const t = await response.text(); throw new Error(`Failed to get diagnostic history: ${t}`); }
-        return response.json();
-      }
-      case 'validate_category_config': {
-        const response = await fetch(`${BACKEND_URL}/api/os/category/${args.categorySlug}/validate-config`, { method: 'POST', headers: { 'Content-Type': 'application/json' } });
-        if (!response.ok) { const t = await response.text(); throw new Error(`Validation failed: ${t}`); }
-        return response.json();
-      }
-      case 'get_category_param_coverage': {
-        const response = await fetch(`${BACKEND_URL}/api/os/category/${args.categorySlug}/diagnostic/param-coverage`, { method: 'GET', headers: { 'Content-Type': 'application/json' } });
-        if (!response.ok) { const t = await response.text(); throw new Error(`Failed to get param coverage: ${t}`); }
-        return response.json();
-      }
-      case 'create_category_index': {
-        const { dockerAgentService } = await import('../dockerAgentService');
-        const cmd = `cd /mnt/workspace && admin_app_backend/.venv/bin/python tools/os_build_index.py --category ${args.categorySlug}${args.recreate ? ' --recreate' : ''}`.trim();
-        const r = await dockerAgentService.bashTool({ command: cmd, description: `Создание индекса ${args.categorySlug}` });
-        if (!r.success) throw new Error(`Failed to create index: ${r.stderr || r.error}`);
-        return { success: true, categorySlug: args.categorySlug, recreated: args.recreate || false, output: r.stdout, message: `Индекс ${args.categorySlug} ${args.recreate ? 'пересоздан' : 'создан'}` };
-      }
-      case 'load_category_data': {
-        const { dockerAgentService } = await import('../dockerAgentService');
-        const cmd = `cd /mnt/workspace && admin_app_backend/.venv/bin/python tools/load_category_to_v8.py ${args.categorySlug}${args.clear ? ' --clear' : ''}`.trim();
-        const r = await dockerAgentService.bashTool({ command: cmd, description: `Загрузка данных ${args.categorySlug}`, timeout: 300000 });
-        if (!r.success) throw new Error(`Failed to load data: ${r.stderr || r.error}`);
-        return { success: true, categorySlug: args.categorySlug, cleared: args.clear || false, output: r.stdout, message: `Данные ${args.categorySlug} загружены` };
-      }
-      case 'check_category_data_loading': {
-        const { dockerAgentService } = await import('../dockerAgentService');
-        const r = await dockerAgentService.bashTool({ command: `cd /mnt/workspace && admin_app_backend/.venv/bin/python tools/find_skipped_documents.py ${args.categorySlug}`, description: `Проверка загрузки ${args.categorySlug}` });
-        if (!r.success) throw new Error(`Failed: ${r.stderr || r.error}`);
-        const output = r.stdout;
-        return { success: true, categorySlug: args.categorySlug, loaded: output.match(/Загружено:\s*(\d+)/)?.[1] ? parseInt(output.match(/Загружено:\s*(\d+)/)![1], 10) : null, skipped: output.match(/Пропущено:\s*(\d+)/)?.[1] ? parseInt(output.match(/Пропущено:\s*(\d+)/)![1], 10) : null, percentLoaded: output.match(/Процент загружено:\s*([\d.]+)%/)?.[1] ? parseFloat(output.match(/Процент загружено:\s*([\d.]+)%/)![1]) : null, output: r.stdout, isComplete: output.match(/Процент загружено:\s*([\d.]+)%/)?.[1] ? parseFloat(output.match(/Процент загружено:\s*([\d.]+)%/)![1]) === 100.0 : false };
-      }
-      case 'get_atomic_file': {
-        const { dockerAgentService } = await import('../dockerAgentService');
-        const fp = `/mnt/workspace/atomic/${args.fileName}.json`;
-        const vr = await dockerAgentService.view({ path: fp, description: `Чтение атомика ${args.fileName}` });
-        if (vr.type !== 'file') throw new Error(`Atomic file ${args.fileName} not found`);
-        return { success: true, fileName: args.fileName, content: JSON.parse(vr.content), path: fp };
-      }
-      case 'save_atomic_file': {
-        const { dockerAgentService } = await import('../dockerAgentService');
-        const fp = `/mnt/workspace/atomic/${args.fileName}.json`;
-        await dockerAgentService.bashTool({ command: `cd /mnt/workspace && cp atomic/${args.fileName}.json atomic/${args.fileName}.json.backup.$(date +%Y%m%d_%H%M%S) 2>/dev/null || true`, description: `Backup атомика ${args.fileName}` });
-        await dockerAgentService.createFile({ path: fp, file_text: args.content, description: `Сохранение атомика ${args.fileName}` });
-        JSON.parse(args.content); // validate
-        return { success: true, fileName: args.fileName, path: fp, message: `Атомик ${args.fileName} сохранён (backup создан)` };
-      }
-      case 'get_index_registry': {
-        const { dockerAgentService } = await import('../dockerAgentService');
-        const fp = '/mnt/workspace/config/opensearch/index_versions.yaml';
-        const vr = await dockerAgentService.view({ path: fp, description: 'Чтение реестра индексов' });
-        if (vr.type !== 'file') throw new Error('Index registry not found');
-        return { success: true, content: vr.content, path: fp };
-      }
-      case 'update_index_registry': {
-        const { dockerAgentService } = await import('../dockerAgentService');
-        const fp = '/mnt/workspace/config/opensearch/index_versions.yaml';
-        await dockerAgentService.bashTool({ command: `cd /mnt/workspace && cp config/opensearch/index_versions.yaml config/opensearch/index_versions.yaml.backup.$(date +%Y%m%d_%H%M%S)`, description: 'Backup реестра индексов' });
-        await dockerAgentService.createFile({ path: fp, file_text: args.content, description: 'Обновление реестра индексов' });
-        return { success: true, path: fp, message: 'Реестр индексов обновлён (backup создан)' };
-      }
-      case 'run_regression_tests': {
-        const { dockerAgentService } = await import('../dockerAgentService');
-        const cmd = `cd /mnt/workspace && admin_app_backend/.venv/bin/python tests/test_search.py${args.categorySlug ? ` --category ${args.categorySlug}` : ''}`.trim();
-        const r = await dockerAgentService.bashTool({ command: cmd, description: `Регрессия${args.categorySlug ? ` ${args.categorySlug}` : ''}`, timeout: 600000 });
-        const output = r.stdout;
-        return { success: r.success && r.returncode === 0, categorySlug: args.categorySlug || 'all', passed: output.match(/(\d+)\s+passed/)?.[1] ? parseInt(output.match(/(\d+)\s+passed/)![1], 10) : null, failed: output.match(/(\d+)\s+failed/)?.[1] ? parseInt(output.match(/(\d+)\s+failed/)![1], 10) : null, total: output.match(/(\d+)\s+total/)?.[1] ? parseInt(output.match(/(\d+)\s+total/)![1], 10) : null, output: r.stdout, stderr: r.stderr, returncode: r.returncode };
-      }
-      default: throw new Error(`Unknown category tool: ${toolName}`);
     }
   }
 
