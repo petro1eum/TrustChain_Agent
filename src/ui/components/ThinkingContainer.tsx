@@ -1,7 +1,62 @@
-import React, { useState } from 'react';
-import { Zap, ChevronRight, Sparkles, FileText, CheckCircle } from 'lucide-react';
+import React, { useState, useCallback } from 'react';
+import { Zap, ChevronRight, Sparkles, FileText, CheckCircle, Download } from 'lucide-react';
 import type { ExecutionStep, Artifact } from './types';
 import { ARTIFACT_META, TierBadge } from './constants';
+
+/**
+ * Downloads the execution trace as a JSON file for debugging.
+ */
+function downloadTrace(steps: ExecutionStep[]) {
+    const trace = {
+        exportedAt: new Date().toISOString(),
+        totalSteps: steps.length,
+        toolCalls: steps.filter(s => s.type === 'tool').length,
+        signedCalls: steps.filter(s => s.signed).length,
+        steps: steps.map(s => ({
+            id: s.id,
+            type: s.type,
+            label: s.label,
+            ...(s.toolName && { toolName: s.toolName }),
+            ...(s.args && Object.keys(s.args).length > 0 && { args: s.args }),
+            ...(s.result && { result: s.result }),
+            ...(s.detail && { detail: s.detail }),
+            ...(s.signature && { signature: s.signature }),
+            signed: !!s.signed,
+            ...(s.latencyMs && s.latencyMs > 0 && { latencyMs: s.latencyMs }),
+            ...(s.artifactIds && { artifactIds: s.artifactIds }),
+        })),
+    };
+    const jsonStr = JSON.stringify(trace, null, 2);
+    const filename = `agent-trace-${new Date().toISOString().replace(/[:.]/g, '-').slice(0, 19)}.json`;
+
+    // If running inside an iframe, send download request to parent window
+    // (blob downloads in iframes lose the filename attribute in some browsers)
+    if (window.parent !== window) {
+        try {
+            window.parent.postMessage({
+                type: 'trustchain:download',
+                data: jsonStr,
+                filename,
+                mimeType: 'application/json',
+            }, '*');
+            return;
+        } catch { /* fall through to direct download */ }
+    }
+
+    // Direct download (non-iframe or fallback)
+    const blob = new Blob([jsonStr], { type: 'application/json' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = filename;
+    a.style.display = 'none';
+    document.body.appendChild(a);
+    a.click();
+    setTimeout(() => {
+        document.body.removeChild(a);
+        URL.revokeObjectURL(url);
+    }, 100);
+}
 
 /**
  * ThinkingContainer — Rich visualization of agent execution timeline.
@@ -17,6 +72,11 @@ export const ThinkingContainer: React.FC<{
     const toolSteps = steps.filter(s => s.type === 'tool');
     const signedCount = toolSteps.filter(s => s.signed).length;
 
+    const handleDownload = useCallback((e: React.MouseEvent) => {
+        e.stopPropagation(); // don't toggle accordion
+        downloadTrace(steps);
+    }, [steps]);
+
     return (
         <div className="mb-2.5 tc-thinking-container rounded-xl border tc-border-light overflow-hidden">
             {/* Header */}
@@ -31,7 +91,16 @@ export const ThinkingContainer: React.FC<{
                     Agent Execution
                 </span>
                 <span className="text-[10px] tc-text-muted">
-                    {steps.length} steps · {totalMs}ms · {signedCount}/{toolSteps.length} signed
+                    {steps.length} steps{totalMs > 0 ? ` · ${totalMs}ms` : ''} · {signedCount}/{toolSteps.length} signed
+                </span>
+                <span
+                    role="button"
+                    title="Скачать trace (JSON)"
+                    onClick={handleDownload}
+                    className="p-0.5 rounded hover:bg-white/10 transition-colors"
+                    style={{ cursor: 'pointer' }}
+                >
+                    <Download size={11} className="tc-text-muted" />
                 </span>
                 <ChevronRight size={12} className={`tc-text-muted transition-transform ${expanded ? 'rotate-90' : ''}`} />
             </button>
@@ -68,10 +137,10 @@ const StepRow: React.FC<{
                         <Sparkles size={10} className="text-amber-500" />
                     </div>
                     <span className="text-[11px] tc-text font-medium flex-1">{step.label}</span>
-                    {step.latencyMs && <span className="text-[10px] tc-text-muted">{step.latencyMs}ms</span>}
+                    {step.latencyMs != null && step.latencyMs > 0 && <span className="text-[10px] tc-text-muted">{step.latencyMs}ms</span>}
                 </div>
                 {step.detail && (
-                    <div className="ml-10 mt-1 text-[11px] tc-text-secondary font-mono">{step.detail}</div>
+                    <div className="ml-10 mt-1 text-[11px] tc-text-secondary font-mono" style={{ wordBreak: 'break-word' }}>{step.detail}</div>
                 )}
             </div>
         );
@@ -112,12 +181,13 @@ const StepRow: React.FC<{
     return (
         <div className="border-b tc-border-light">
             <button onClick={() => setOpen(!open)}
+                style={{ cursor: 'pointer' }}
                 className="w-full px-3 py-2 flex items-center gap-2 text-left tc-surface-hover transition-colors">
                 <span className="text-[10px] tc-text-muted w-4 text-right">{index}.</span>
                 <Zap size={11} className="text-amber-400" />
                 <span className="text-[11px] text-blue-500 font-mono flex-1">{step.toolName}</span>
                 {step.tier && <TierBadge tier={step.tier} />}
-                {step.latencyMs && <span className="text-[10px] tc-text-muted">{step.latencyMs}ms</span>}
+                {step.latencyMs != null && step.latencyMs > 0 && <span className="text-[10px] tc-text-muted">{step.latencyMs}ms</span>}
                 {step.signed && <CheckCircle size={10} className="text-emerald-500" />}
                 <ChevronRight size={10} className={`tc-text-muted transition-transform ${open ? 'rotate-90' : ''}`} />
             </button>

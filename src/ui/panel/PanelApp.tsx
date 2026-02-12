@@ -1,4 +1,6 @@
 import React, { useState, useEffect, useCallback, useMemo } from 'react';
+import '../agentTheme.css';
+import { ThinkingContainer } from '../components/ThinkingContainer';
 import {
     Bot, X, Loader2, ArrowUp, Check, ChevronRight,
     Search, FileText, BarChart3, Sparkles, Wrench, Zap, Shield,
@@ -9,6 +11,7 @@ import { useAgent, type AgentTool } from '../../hooks/useAgent';
 import { useChatState } from '../../hooks/useChatState';
 import { chatHistoryService } from '../../services/chatHistoryService';
 import { agentCallbacksService } from '../../services/agents/agentCallbacksService';
+import { setAgentContext } from '../../services/agentContext';
 import type { Message, Artifact, ExecutionStep } from '../components/types';
 import { renderFullMarkdown } from '../components/MarkdownRenderer';
 import '../theme.ts';
@@ -17,9 +20,32 @@ import '../theme.ts';
 
 function getPanelParams() {
     const params = new URLSearchParams(window.location.search);
+    const mcpUrl = params.get('mcp') || null;
+    const instance = params.get('instance') || 'default';
+
+    // Pre-register MCP config in localStorage BEFORE Agent initializes.
+    // This fixes a race condition: SmartAIAgent constructor fires connectAll()
+    // which reads from 'kb_agent_mcp_servers' — if we don't write here first,
+    // the MCP server never gets discovered.
+    if (mcpUrl) {
+        try {
+            const mcpConfig = {
+                id: `panel_${instance}`,
+                name: `Panel MCP (${instance})`,
+                url: mcpUrl,
+                transport: 'sse',
+                enabled: true,
+            };
+            const existing = JSON.parse(localStorage.getItem('kb_agent_mcp_servers') || '[]');
+            const filtered = existing.filter((c: any) => c.id !== mcpConfig.id);
+            filtered.push(mcpConfig);
+            localStorage.setItem('kb_agent_mcp_servers', JSON.stringify(filtered));
+        } catch { /* ignore */ }
+    }
+
     return {
-        instance: params.get('instance') || 'default',
-        mcpUrl: params.get('mcp') || null,
+        instance,
+        mcpUrl,
         systemPrompt: params.get('system') ? atob(params.get('system')!) : null,
         theme: (params.get('theme') as 'dark' | 'light') || 'dark',
         lang: params.get('lang') || 'ru',
@@ -76,117 +102,15 @@ function getContextSkills(context: string | null, mcpTools: Array<{ name: string
         });
     }
 
-    // 2. Context-based suggestions when no MCP
-    switch (context) {
-        case 'risk_tree':
-        case 'risks':
-            return [
-                { icon: <Search size={13} />, label: 'Показать все риски', prompt: 'Покажи все риски из реестра', color: '#06b6d4' },
-                { icon: <Sparkles size={13} />, label: 'Анализ выбранного риска', prompt: 'Проанализируй выбранный риск — дай оценку P/I и рекомендации', color: '#a78bfa' },
-                { icon: <BarChart3 size={13} />, label: 'Гармонизация по ГОСТ', prompt: 'Сделай гармонизацию реестра рисков по ГОСТ', color: '#34d399' },
-                { icon: <TrendingUp size={13} />, label: 'Тренд-анализ', prompt: 'Покажи тренды по рискам за последний период', color: '#fbbf24' },
-            ];
-        case 'contracts':
-            return [
-                { icon: <FileText size={13} />, label: 'Анализ договора', prompt: 'Проанализируй текущий договор на ключевые риски', color: '#3b82f6' },
-                { icon: <Search size={13} />, label: 'Поиск по условиям', prompt: 'Найди все пункты про ответственность сторон', color: '#06b6d4' },
-                { icon: <AlertTriangle size={13} />, label: 'Проверка соответствия', prompt: 'Проверь договор на соответствие шаблону', color: '#f59e0b' },
-            ];
-        case 'documents':
-            return [
-                { icon: <FileText size={13} />, label: 'Суммаризация', prompt: 'Сделай краткое резюме документа', color: '#3b82f6' },
-                { icon: <Sparkles size={13} />, label: 'Извлечение данных', prompt: 'Извлеки ключевые данные из документа', color: '#a78bfa' },
-                { icon: <Search size={13} />, label: 'Поиск по документу', prompt: 'Найди в документе информацию о...', color: '#06b6d4' },
-            ];
-        case 'catalog':
-        case 'kb':
-            return [
-                { icon: <Search size={13} />, label: 'Поиск продукции', prompt: 'Найди аналоги для указанной позиции', color: '#06b6d4' },
-                { icon: <BarChart3 size={13} />, label: 'Сравнение позиций', prompt: 'Сравни характеристики выбранных позиций', color: '#34d399' },
-                { icon: <Sparkles size={13} />, label: 'Подбор по ТЗ', prompt: 'Подбери продукцию по техническому заданию', color: '#a78bfa' },
-            ];
-        case 'radar':
-            return [
-                { icon: <Activity size={13} />, label: 'Объясни фазы радара', prompt: 'Объясни текущее состояние фаз на радаре рисков', color: '#06b6d4' },
-                { icon: <AlertTriangle size={13} />, label: 'Найди критические', prompt: 'Какие риски сейчас в критической зоне радара?', color: '#ef4444' },
-                { icon: <TrendingUp size={13} />, label: 'Прогноз динамики', prompt: 'Спрогнозируй динамику рисков на следующий период', color: '#fbbf24' },
-                { icon: <BarChart3 size={13} />, label: 'Сравни кластеры', prompt: 'Сравни кластеры рисков по π и θ параметрам', color: '#34d399' },
-            ];
-        case 'harmonization':
-            return [
-                { icon: <FileText size={13} />, label: 'Статус плана', prompt: 'Покажи текущий статус плана гармонизации', color: '#3b82f6' },
-                { icon: <Sparkles size={13} />, label: 'Предложи меры', prompt: 'Предложи меры митигации для незакрытых рисков', color: '#a78bfa' },
-                { icon: <BarChart3 size={13} />, label: 'Оценка бюджета', prompt: 'Оцени бюджет на реализацию плана гармонизации', color: '#fbbf24' },
-                { icon: <Terminal size={13} />, label: 'Экспорт в отчёт', prompt: 'Сформируй отчёт по плану гармонизации для руководства', color: '#34d399' },
-            ];
-        case 'investigations':
-            return [
-                { icon: <Search size={13} />, label: 'Создай расследование', prompt: 'Создай новое расследование инцидента', color: '#06b6d4' },
-                { icon: <Sparkles size={13} />, label: 'Анализ 5 Why', prompt: 'Проведи анализ корневых причин методом 5 Why', color: '#a78bfa' },
-                { icon: <AlertTriangle size={13} />, label: 'Найди причину', prompt: 'Определи корневую причину инцидента на основе данных', color: '#f59e0b' },
-                { icon: <Activity size={13} />, label: 'Timeline событий', prompt: 'Построй хронологию событий инцидента', color: '#3b82f6' },
-            ];
-        case 'green_sheet':
-            return [
-                { icon: <FileText size={13} />, label: 'Описание мер', prompt: 'Опиши текущие меры митигации для выбранного риска', color: '#22c55e' },
-                { icon: <Sparkles size={13} />, label: 'Оценка эффективности', prompt: 'Оцени эффективность текущих мер митигации', color: '#a78bfa' },
-                { icon: <Search size={13} />, label: 'Связь с рисками', prompt: 'Покажи какие риски покрывает каждая мера', color: '#06b6d4' },
-            ];
-        case 'blue_sheet':
-            return [
-                { icon: <FileText size={13} />, label: 'Карточка риска', prompt: 'Покажи полную карточку выбранного риска', color: '#60a5fa' },
-                { icon: <Activity size={13} />, label: 'История изменений', prompt: 'Покажи историю изменений параметров этого риска', color: '#06b6d4' },
-                { icon: <Search size={13} />, label: 'Связанные меры', prompt: 'Какие меры митигации связаны с этим риском?', color: '#34d399' },
-            ];
-        case 'gold_sheet':
-            return [
-                { icon: <BarChart3 size={13} />, label: 'Сводка проекта', prompt: 'Покажи сводную информацию по проекту рисков', color: '#D4AF37' },
-                { icon: <TrendingUp size={13} />, label: 'KPI рисков', prompt: 'Рассчитай ключевые KPI по управлению рисками', color: '#fbbf24' },
-                { icon: <Sparkles size={13} />, label: 'Матрица P/I', prompt: 'Построй матрицу вероятность/воздействие для всех рисков', color: '#a78bfa' },
-            ];
-        case 'ai_control':
-            return [
-                { icon: <Activity size={13} />, label: 'Статус агентов', prompt: 'Покажи статус подключённых AI агентов и MCP серверов', color: '#06b6d4' },
-                { icon: <Terminal size={13} />, label: 'Лог запросов', prompt: 'Покажи последние запросы и ответы агента', color: '#64748b' },
-                { icon: <Database size={13} />, label: 'Настройки MCP', prompt: 'Покажи текущие настройки MCP подключений', color: '#a78bfa' },
-            ];
-        default:
-            // Generic — no page-specific suggestions, just show a clean prompt
-            return [
-                { icon: <MessageSquare size={13} />, label: 'Задайте вопрос', prompt: '', color: '#818cf8' },
-            ];
-    }
+    // 2. No MCP tools — generic fallback. Host can inject skills via trustchain:skills postMessage.
+    return [
+        { icon: <MessageSquare size={13} />, label: 'Задайте вопрос', prompt: '', color: '#818cf8' },
+    ];
 }
 
 function getContextGreeting(context: string | null): { title: string; subtitle: string } {
-    switch (context) {
-        case 'risk_tree':
-        case 'risks':
-            return { title: 'Управление рисками', subtitle: 'Анализ, оценка и мониторинг рисков' };
-        case 'radar':
-            return { title: 'Радар рисков', subtitle: 'Мониторинг фаз и кластеров' };
-        case 'harmonization':
-            return { title: 'Гармонизация', subtitle: 'План мероприятий и меры митигации' };
-        case 'investigations':
-            return { title: 'Расследования', subtitle: 'Root Cause Analysis и 5 Why' };
-        case 'green_sheet':
-            return { title: 'Зелёный лист', subtitle: 'Меры митигации и их эффективность' };
-        case 'blue_sheet':
-            return { title: 'Синий лист', subtitle: 'Детальные карточки рисков' };
-        case 'gold_sheet':
-            return { title: 'Золотой лист', subtitle: 'Сводка и KPI проекта' };
-        case 'ai_control':
-            return { title: 'AI Control Center', subtitle: 'Управление агентами и MCP серверами' };
-        case 'contracts':
-            return { title: 'Работа с договорами', subtitle: 'Анализ и проверка контрактных документов' };
-        case 'documents':
-            return { title: 'Обработка документов', subtitle: 'Суммаризация, извлечение и анализ' };
-        case 'catalog':
-        case 'kb':
-            return { title: 'Каталог продукции', subtitle: 'Поиск, подбор и сравнение позиций' };
-        default:
-            return { title: 'Чем могу помочь?', subtitle: 'Задайте вопрос или выберите действие' };
-    }
+    // Generic greeting. Host app can override via trustchain:greeting postMessage.
+    return { title: 'Чем могу помочь?', subtitle: 'Задайте вопрос или выберите действие' };
 }
 
 // ═══════════════════════════════════════════
@@ -198,185 +122,30 @@ function getContextSystemPrompt(context: string | null): string {
     const params = getPanelParams();
     const hostUrl = params.hostUrl;
 
+    // Playwright instructions — generic, not project-specific
     const browserInstructions = hostUrl
         ? `
 
-## Взаимодействие со страницей (Playwright Browser)
-У тебя есть инструменты Playwright для ПРЯМОГО взаимодействия с веб-страницей приложения.
-Текущая страница приложения: ${hostUrl}
+## Browser (Playwright)
+You have Playwright tools for direct interaction with the host page: ${hostUrl}
+⚠️ PRIORITY: Always use MCP tools first! Playwright is a last resort for:
+- Visually verifying page content
+- Clicking UI elements
+- When MCP tools don't provide needed information
 
-Порядок действий:
-1. Сначала НАВИГИРУЙ: mcp_playwright_browser_navigate с url="${hostUrl}"
-2. Затем СМОТРИ: mcp_playwright_browser_snapshot — получишь accessibility tree с ref-ами элементов
-3. КЛИК: mcp_playwright_browser_click с ref (из snapshot) и element (описание)
-4. ВВОД: mcp_playwright_browser_type с ref и text
-5. СКРИНШОТ: mcp_playwright_browser_screenshot (при необходимости)
+Steps: mcp_playwright_browser_navigate → mcp_playwright_browser_snapshot → click/type`
+        : '';
 
-ВАЖНО:
-- ВСЕГДА начинай с browser_navigate перед первым snapshot!
-- snapshot возвращает дерево элементов с ref-ами — используй ref для кликов и ввода
-- Предпочитай snapshot вместо screenshot (экономит токены)
-- Если страница пуста (about:blank) — значит ты не навигировал!`
-        : `
+    // Generic fallback — no domain knowledge, no project-specific tools
+    // Projects MUST supply their own system prompt via ?system= URL parameter.
+    // See INTEGRATION_STANDARD.md for requirements.
+    return `You are an AI assistant integrated via TrustChain Agent.
+Use MCP tools to access the platform's real data. Never fabricate data — always call an MCP tool.
+Only use tools that are provided by the connected MCP server (prefixed with mcp_panel_*).
+Do NOT use built-in tools like search_products, compare_products, quick_search — they belong to other contexts.
 
-## Взаимодействие со страницей (Playwright Browser)
-У тебя есть инструменты Playwright для взаимодействия с веб-страницами.
-Чтобы начать — спроси у пользователя URL страницы, или используй mcp_playwright_browser_navigate с нужным URL.
-После навигации используй mcp_playwright_browser_snapshot чтобы увидеть содержимое страницы.`;
-
-    const base = `Ты — AI-ассистент платформы ЛОМ (Управление рисками нефтегазовых проектов). Отвечай на русском. Используй MCP tools для доступа к реальным данным. Формат ответов:
-— Начинай с **жирного заголовка** секции
-— Используй нумерованные списки для приоритетов
-— Приводи конкретные ID рисков (R1, R2...), значения pi, theta, P, I
-— Завершай секцией **Рекомендация:** с конкретным действием${browserInstructions}`;
-
-    switch (context) {
-        case 'risk_tree':
-        case 'risks':
-            return `${base}
-
-Ты — эксперт по ДЕРЕВУ РИСКОВ. Твоя роль: анализ иерархии рисков, связей parent→child, каскадных эффектов.
-
-Знания:
-- Каждый риск имеет: ID, shortName, description, P (вероятность 0-1), I (влияние 0-1), pi (π = P×I - 1), theta (фаза 0-360°), статус
-- pi < -0.3 = высокое негативное влияние, требует приоритетной проработки
-- Каскадный эффект: если R_parent критический, все R_child наследуют повышенный уровень
-- Уровни: НИЗКИЙ (pi > -0.1), СРЕДНИЙ (-0.3 < pi < -0.1), ВЫСОКИЙ (pi < -0.3), КРИТИЧЕСКИЙ (pi < -0.5)
-
-При анализе риска всегда указывай:
-1. **Оценка текущего состояния** — pi, P, I, уровень
-2. **Ключевые наблюдения** — связи, каскады, триггеры
-3. **Рекомендация:** — конкретное действие`;
-
-        case 'radar':
-            return `${base}
-
-Ты — эксперт по РАДАРУ РИСКОВ. Твоя роль: мониторинг фаз (theta), кластеров, динамики рисков на полярном графике.
-
-Знания:
-- Радар показывает риски в полярных координатах: угол θ = фаза жизненного цикла, радиус = |π|
-- Фазы: 0-90° (Идентификация), 90-180° (Оценка), 180-270° (Митигация), 270-360° (Мониторинг)
-- Кластеры — группы рисков в одном секторе, могут усиливать друг друга
-- "Горячие зоны": кластеры с pi < -0.3 в фазах 0-90° — необработанные критические риски
-- Скорость ∂θ/∂t показывает, как быстро риск проходит жизненный цикл
-
-При анализе радара всегда:
-1. **Состояние фаз** — сколько рисков в каждой фазе
-2. **Горячие кластеры** — ID, pi, theta, почему опасны
-3. **Прогноз:** — куда движутся кластеры`;
-
-        case 'harmonization':
-            return `${base}
-
-Ты — эксперт по ГАРМОНИЗАЦИИ. Твоя роль: формирование плана мероприятий, выбор рисков для проработки, оценка бюджета.
-
-Знания:
-- Гармонизация = процесс планирования мероприятий по митигации рисков
-- Выбор рисков для проработки: начинать с pi < -0.3, уровень ВЫСОКИЙ/КРИТИЧЕСКИЙ
-- Каскадный эффект: риски со связями гасят несколько проблем одновременно
-- Синергии: мероприятия, покрывающие 2+ рисков, снижают бюджет
-- Конфликты: мероприятия, противоречащие друг другу
-- KPI гармонизации: ∑Δpi (суммарное снижение pi), покрытие (% рисков с мероприятиями)
-
-При гармонизации:
-1. **Выбор рисков для проработки** — топ по pi с обоснованием
-2. **Генерация мероприятий** — конкретные шаги, ответственные, сроки
-3. **Синергии и конфликты** — какие мероприятия можно объединить
-4. **Рекомендация:** — оптимальный план`;
-
-        case 'investigations':
-            return `${base}
-
-Ты — эксперт по РАССЛЕДОВАНИЯМ ИНЦИДЕНТОВ (RCA). Твоя роль: Root Cause Analysis, метод 5 Why, построение таймлайнов.
-
-Знания:
-- Root Cause Analysis (RCA) — поиск первопричины инцидента через систематический анализ
-- Метод 5 Why: последовательные "Почему?" до корневой причины
-- Таймлайн инцидента: хронология событий с привязкой к рискам
-- Категории причин: Люди, Процессы, Технология, Среда
-- Каждое расследование привязано к конкретным рискам из реестра
-
-При расследовании:
-1. **Описание инцидента** — что произошло, когда, последствия
-2. **Анализ 5 Why** — цепочка причин до корневой
-3. **Связь с рисками** — какие R_id были затронуты
-4. **Корректирующие действия:** — что сделать, чтобы не повторилось`;
-
-        case 'green_sheet':
-            return `${base}
-
-Ты — эксперт по ЗЕЛЁНОМУ ЛИСТУ. Твоя роль: анализ мер митигации и их эффективности.
-
-Знания:
-- Зелёный лист = реестр мероприятий по митигации рисков
-- Каждое мероприятие: название, описание, статус, ответственный, дедлайн, связанные риски
-- Эффективность = Δpi (насколько снизился pi после внедрения меры)
-- Статусы: Планируется, В работе, Выполнено, Просрочено
-- Покрытие: % рисков с хотя бы одной активной мерой
-
-При анализе:
-1. **Статус мероприятий** — сколько выполнено/в работе/просрочено
-2. **Эффективность** — какие меры дали наибольший Δpi
-3. **Рекомендация:** — приоритетные меры для запуска`;
-
-        case 'blue_sheet':
-            return `${base}
-
-Ты — эксперт по СИНЕМУ ЛИСТУ. Твоя роль: детальные карточки рисков, их история и полная информация.
-
-Знания:
-- Синий лист = детальная карточка каждого риска
-- Содержит: описание, категория, владелец, даты, история изменений P/I/pi
-- Связанные документы, триггеры, индикаторы раннего предупреждения
-- Тренд: рост или снижение pi за последние периоды
-- Зрелость: насколько хорошо проработан риск (описание, меры, мониторинг)
-
-При анализе карточки:
-1. **Полная информация** — все параметры риска
-2. **История изменений** — как менялись P, I, pi
-3. **Связанные меры** — привязанные мероприятия из зелёного листа
-4. **Рекомендация:** — что нужно доработать`;
-
-        case 'gold_sheet':
-            return `${base}
-
-Ты — эксперт по ЗОЛОТОМУ ЛИСТУ. Твоя роль: сводная аналитика, KPI проекта, матрица P/I.
-
-Знания:
-- Золотой лист = executive summary по всей системе управления рисками
-- KPI: общий π-score проекта (∑pi/N), покрытие мерами (%), % критических рисков
-- Матрица P/I: распределение рисков по осям Вероятность × Влияние (5×5 матрица)
-- Тренды: улучшается или ухудшается общая ситуация
-- Benchmarks: сравнение с отраслевыми стандартами (ГОСТ Р ИСО 31000)
-
-При анализе:
-1. **Сводка KPI** — ключевые метрики одним взглядом
-2. **Матрица P/I** — где сконцентрированы риски
-3. **Тренд** — динамика за период
-4. **Рекомендация:** — стратегические приоритеты`;
-
-        case 'ai_control':
-            return `${base}
-
-Ты — эксперт по AI CONTROL CENTER. Твоя роль: управление AI-агентами, MCP-серверами, конфигурация моделей.
-
-Знания:
-- AI Control Center = панель управления AI-инфраструктурой платформы
-- MCP (Model Context Protocol) — протокол для подключения AI к внешним инструментам
-- Каждый MCP-сервер предоставляет набор tools (list_risks, analyze_risk, etc.)
-- Модели: google/gemini-2.5-flash, openai/gpt-4o, etc.
-- Мониторинг: latency, token usage, error rate, cache hit ratio
-
-При анализе:
-1. **Статус серверов** — какие MCP подключены, их health
-2. **Логи выполнения** — последние запросы и результаты
-3. **Рекомендация:** — оптимизация конфигурации`;
-
-        default:
-            return `${base}
-
-Ты — универсальный AI-ассистент платформы ЛОМ. Помогаешь с любыми вопросами по управлению рисками нефтегазовых проектов.`;
-    }
+Respond in the same language as the user's message.
+Format: use **bold headers**, numbered lists, tables, and conclude with a **Recommendation:** section.${browserInstructions}`;
 }
 
 
@@ -395,13 +164,20 @@ const formatTime = (d: Date | undefined): string => {
 // ─── Progress Steps (Harmonization pattern) ───
 
 const ProgressSteps: React.FC<{ steps: ExecutionStep[] }> = ({ steps }) => {
-    const [expanded, setExpanded] = useState(false);
-    const toolSteps = steps?.filter(s => s.type === 'tool' && s.toolName) || [];
-    const planningSteps = steps?.filter(s => s.type === 'planning') || [];
-    const allSteps = [...planningSteps, ...toolSteps];
-    if (allSteps.length === 0) return null;
+    const [expandedIds, setExpandedIds] = useState<Set<string>>(new Set());
+    const [showAll, setShowAll] = useState(false);
 
-    const visibleSteps = expanded ? allSteps : allSteps.slice(0, 4);
+    const toggleStep = (id: string) => {
+        setExpandedIds(prev => {
+            const next = new Set(prev);
+            if (next.has(id)) next.delete(id); else next.add(id);
+            return next;
+        });
+    };
+
+    if (!steps || steps.length === 0) return null;
+
+    const visibleSteps = showAll ? steps : steps.slice(0, 6);
 
     return (
         <div style={{
@@ -410,25 +186,105 @@ const ProgressSteps: React.FC<{ steps: ExecutionStep[] }> = ({ steps }) => {
         }}>
             <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 6 }}>
                 <span style={{ fontSize: 10, color: '#64748b', fontWeight: 600, letterSpacing: 0.5 }}>Progress Updates</span>
-                {allSteps.length > 4 && (
+                {steps.length > 6 && (
                     <button
-                        onClick={() => setExpanded(!expanded)}
+                        onClick={() => setShowAll(!showAll)}
                         style={{ fontSize: 10, color: '#818cf8', cursor: 'pointer', background: 'none', border: 'none', padding: 0 }}
                     >
-                        {expanded ? 'Collapse' : 'Expand all'}
+                        {showAll ? 'Collapse' : 'Expand all'}
                     </button>
                 )}
             </div>
-            {visibleSteps.map((step, i) => (
-                <div key={step.id} style={{
-                    display: 'flex', alignItems: 'flex-start', gap: 6, fontSize: 11,
-                    marginTop: i === 0 ? 0 : 3, color: '#cbd5e1', lineHeight: 1.5,
-                }}>
-                    <span style={{ color: '#475569', fontSize: 10, minWidth: 12, textAlign: 'right', flexShrink: 0, marginTop: 1 }}>{i + 1}</span>
-                    <span style={{ flex: 1 }}>{step.toolName || step.label || step.detail}</span>
-                    <Check size={11} style={{ color: '#34d399', flexShrink: 0, marginTop: 3 }} />
-                </div>
-            ))}
+            {visibleSteps.map((step, i) => {
+                const isExpanded = expandedIds.has(step.id);
+                const isTool = step.type === 'tool' && step.toolName;
+                const isPlanning = step.type === 'planning';
+
+                return (
+                    <div key={step.id} style={{ marginTop: i === 0 ? 0 : 2 }}>
+                        <div
+                            onClick={isTool ? () => toggleStep(step.id) : undefined}
+                            style={{
+                                display: 'flex', alignItems: 'center', gap: 6, fontSize: 11,
+                                color: '#cbd5e1', cursor: isTool ? 'pointer' : 'default',
+                                padding: '2px 0', lineHeight: 1.5,
+                            }}
+                        >
+                            {/* Step icon */}
+                            {isTool ? (
+                                <Wrench size={10} style={{ color: '#818cf8', flexShrink: 0 }} />
+                            ) : isPlanning ? (
+                                <Activity size={10} style={{ color: '#64748b', flexShrink: 0 }} />
+                            ) : (
+                                <Check size={10} style={{ color: '#34d399', flexShrink: 0 }} />
+                            )}
+
+                            {/* Label */}
+                            <span style={{ flex: 1, color: isTool ? '#a5b4fc' : '#94a3b8' }}>
+                                {isTool ? step.toolName : (step.label || step.detail)}
+                            </span>
+
+                            {/* Signature badge */}
+                            {step.signed && (
+                                <span style={{ display: 'flex', alignItems: 'center', gap: 2 }}>
+                                    <Shield size={8} style={{ color: '#34d399' }} />
+                                </span>
+                            )}
+
+                            {/* Status */}
+                            {isTool && (
+                                <ChevronRight size={10} style={{
+                                    color: '#475569', flexShrink: 0,
+                                    transform: isExpanded ? 'rotate(90deg)' : 'none',
+                                    transition: 'transform 0.15s'
+                                }} />
+                            )}
+                            {!isTool && <Check size={10} style={{ color: '#34d399', flexShrink: 0 }} />}
+                        </div>
+
+                        {/* Expanded tool details */}
+                        {isTool && isExpanded && (
+                            <div style={{
+                                marginLeft: 16, marginTop: 2, marginBottom: 4,
+                                padding: '6px 8px', background: 'rgba(15,23,42,0.6)',
+                                borderRadius: 6, border: '1px solid #1e293b',
+                                fontSize: 10, color: '#94a3b8', lineHeight: 1.6,
+                            }}>
+                                {step.args && Object.keys(step.args).length > 0 && (
+                                    <div style={{ marginBottom: 4 }}>
+                                        <span style={{ color: '#64748b' }}>Args: </span>
+                                        <code style={{ color: '#67e8f9', fontSize: 9 }}>
+                                            {JSON.stringify(step.args)}
+                                        </code>
+                                    </div>
+                                )}
+                                {step.result && (
+                                    <div style={{ marginBottom: 4 }}>
+                                        <span style={{ color: '#64748b' }}>Result: </span>
+                                        <span style={{ color: '#cbd5e1' }}>
+                                            {step.result.length > 200 ? step.result.substring(0, 200) + '…' : step.result}
+                                        </span>
+                                    </div>
+                                )}
+                                {step.signature && (
+                                    <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
+                                        <Shield size={8} style={{ color: '#34d399' }} />
+                                        <code style={{ color: '#34d399', fontSize: 8, wordBreak: 'break-all' }}>
+                                            {step.signature.substring(0, 32)}…
+                                        </code>
+                                    </div>
+                                )}
+                                {step.latencyMs !== undefined && step.latencyMs > 0 && (
+                                    <div>
+                                        <span style={{ color: '#64748b' }}>Latency: </span>
+                                        <span>{step.latencyMs}ms</span>
+                                    </div>
+                                )}
+                            </div>
+                        )}
+                    </div>
+                );
+            })}
         </div>
     );
 };
@@ -538,7 +394,7 @@ const PanelMessage: React.FC<{
 
             {/* Progress steps (if present) */}
             {message.executionSteps && message.executionSteps.length > 0 && (
-                <ProgressSteps steps={message.executionSteps} />
+                <ThinkingContainer steps={message.executionSteps} onOpenArtifact={onOpenArtifact} allArtifacts={allArtifacts} />
             )}
 
             {/* Main response card */}
@@ -693,6 +549,11 @@ const WelcomeContent: React.FC<{
 const PanelApp: React.FC = () => {
     const params = useMemo(() => getPanelParams(), []);
 
+    // Initialize agent context singleton so internal services know the platform
+    useEffect(() => {
+        setAgentContext(params.instance, params.context);
+    }, [params.instance, params.context]);
+
     const {
         messages, setMessages,
         inputValue, setInputValue,
@@ -707,6 +568,13 @@ const PanelApp: React.FC = () => {
     const [mcpTools, setMcpTools] = useState<Array<{ name: string; description: string }>>([]);
     const [viewingArtifact, setViewingArtifact] = useState<Artifact | null>(null);
     const [hostSkills, setHostSkills] = useState<ContextSkill[]>([]);
+
+    // ── Initialize Host Bridge (for page_observe/read/interact tools) ──
+    useEffect(() => {
+        import('../../services/hostBridgeService').then(({ HostBridgeService }) => {
+            HostBridgeService.getInstance().attachListener();
+        });
+    }, []);
 
     // ── Listen for postMessage from host page ──
     useEffect(() => {
@@ -738,6 +606,53 @@ const PanelApp: React.FC = () => {
                     const btn = document.querySelector('[data-send-btn]') as HTMLButtonElement;
                     btn?.click();
                 }, 100);
+            }
+
+            // Host can inject custom intent patterns for TaskIntentService
+            if (e.data.type === 'trustchain:intent_patterns' && Array.isArray(e.data.patterns)) {
+                import('../../services/agents/taskIntentService').then(({ sharedIntentService }) => {
+                    sharedIntentService.setCustomPatterns(e.data.patterns);
+                });
+            }
+
+            // Host can inject domain hints for LLM intent classifier
+            if (e.data.type === 'trustchain:domain_hints' && e.data.hints) {
+                import('../../services/agents/taskIntentService').then(({ sharedIntentService }) => {
+                    sharedIntentService.setDomainHints(e.data.hints);
+                });
+            }
+
+            // Host can register client-side app actions dynamically
+            if (e.data.type === 'trustchain:register_actions' && Array.isArray(e.data.actions)) {
+                import('../../services/appActionsRegistry').then(({ appActionsRegistry }) => {
+                    appActionsRegistry.registerActions(e.data.actions);
+                });
+            }
+
+            // Host can clear all registered actions (e.g. on context/page change)
+            if (e.data.type === 'trustchain:clear_actions') {
+                import('../../services/appActionsRegistry').then(({ appActionsRegistry }) => {
+                    appActionsRegistry.clear();
+                });
+            }
+
+            // Host can inject agent specializations for the orchestrator
+            if (e.data.type === 'trustchain:agent_config') {
+                import('../../services/agents/agentOrchestratorService').then(({ AgentOrchestratorService }) => {
+                    // The orchestrator is instantiated per-agent, but config is shared via
+                    // a module-level singleton that agent reads on next decomposition.
+                    const sharedConfig = (window as any).__trustchain_agent_config = (window as any).__trustchain_agent_config || {};
+                    if (Array.isArray(e.data.specialties)) {
+                        sharedConfig.specialties = e.data.specialties;
+                        console.log('[PanelApp] Received agent specialties:', e.data.specialties.length);
+                    }
+                    if (Array.isArray(e.data.complexityKeywords)) {
+                        sharedConfig.complexityKeywords = e.data.complexityKeywords;
+                    }
+                    if (typeof e.data.greeting === 'string') {
+                        sharedConfig.greeting = e.data.greeting;
+                    }
+                });
             }
         };
         window.addEventListener('message', handleMessage);
@@ -774,10 +689,10 @@ const PanelApp: React.FC = () => {
                     transport: 'sse' as const,
                     enabled: true,
                 };
-                const existingConfigs = JSON.parse(localStorage.getItem('mcp_servers') || '[]');
+                const existingConfigs = JSON.parse(localStorage.getItem('kb_agent_mcp_servers') || '[]');
                 const filtered = existingConfigs.filter((c: any) => c.id !== mcpConfig.id);
                 filtered.push(mcpConfig);
-                localStorage.setItem('mcp_servers', JSON.stringify(filtered));
+                localStorage.setItem('kb_agent_mcp_servers', JSON.stringify(filtered));
 
                 const response = await fetch(`${params.mcpUrl}/tools`, { signal: AbortSignal.timeout(5000) });
                 if (response.ok) {
@@ -860,7 +775,9 @@ const PanelApp: React.FC = () => {
         if (agent.isInitialized) {
             if (messages.length === 0) chatHistoryService.startSession(`Panel (${params.instance})`, 'openai');
             chatHistoryService.addMessage({ role: 'user', content: text, timestamp: new Date() });
-            const systemPrompt = getContextSystemPrompt(params.context);
+            // Use host-provided system prompt (URL ?system=base64) if available,
+            // otherwise fall back to hardcoded context prompts (ЛОМ, kb-catalog, etc.)
+            const systemPrompt = params.systemPrompt || getContextSystemPrompt(params.context);
             const chatHistory = [
                 { role: 'system' as const, content: systemPrompt },
                 ...messages.filter(m => (m.role as string) !== 'assistant_temp').map(m => ({ role: m.role, content: m.content })),
@@ -871,16 +788,173 @@ const PanelApp: React.FC = () => {
             const { artifactIds: createdArtifactIds, newArtifacts } = extractArtifactsFromEvents(events);
             if (Object.keys(newArtifacts).length > 0) setDynamicArtifacts(prev => ({ ...prev, ...newArtifacts }));
 
+            // ── Post-process: mark data from signed tool calls with TrustChain badges ──
+            const signedResults: { result: string; signature: string; toolName: string }[] = [];
+            for (const ev of events as any[]) {
+                if (ev.type === 'tool_result' && (ev.signature || ev.certificate)) {
+                    const resultStr = typeof ev.result === 'string' ? ev.result : JSON.stringify(ev.result);
+                    signedResults.push({
+                        result: resultStr || '',
+                        signature: ev.signature || ev.certificate || '',
+                        toolName: ev.toolName || '',
+                    });
+                }
+            }
+
+            let responseContent = result?.text || 'Агент обработал запрос.';
+
+            if (signedResults.length > 0 && responseContent.length > 20) {
+                // ── Universal data point extraction from signed tool results ──
+                let totalDataPoints = 0;
+                const verifiedIds = new Set<string>();
+
+                for (const sr of signedResults) {
+                    // Try to parse the result as JSON — handle nested formats
+                    let parsed: any = null;
+                    try {
+                        parsed = JSON.parse(sr.result);
+                        // Handle double-stringified JSON
+                        if (typeof parsed === 'string') {
+                            parsed = JSON.parse(parsed);
+                        }
+                        // Handle MCP content wrapper: {content: [{type: "text", text: "..."}]}
+                        if (parsed?.content?.[0]?.text) {
+                            parsed = JSON.parse(parsed.content[0].text);
+                        }
+                        // Handle TrustChain data wrapper: {data: {...}, signature: "..."}
+                        if (parsed?.data && (parsed?.signature || parsed?.certificate)) {
+                            parsed = parsed.data;
+                        }
+                    } catch {
+                        parsed = null;
+                    }
+
+                    if (parsed && typeof parsed === 'object') {
+                        // Count items from common array fields (works with any MCP tool)
+                        // Use a seenIds set to avoid counting duplicate items across overlapping arrays
+                        const seenItemIds = new Set<string>();
+                        const arrayFields = ['items', 'tasks', 'documents', 'contracts',
+                            'meetings', 'vacancies', 'hits', 'results',
+                            'employees', 'organizations'];
+                        for (const field of arrayFields) {
+                            if (Array.isArray(parsed[field])) {
+                                for (const item of parsed[field]) {
+                                    if (!item || typeof item !== 'object') continue;
+                                    // Deduplicate by id to avoid double-counting items/tasks
+                                    const itemKey = item.id ? `${item.id}` : JSON.stringify(item).substring(0, 100);
+                                    if (seenItemIds.has(itemKey)) continue;
+                                    seenItemIds.add(itemKey);
+                                    totalDataPoints++;
+                                    // Extract identifying values for line marking
+                                    if (item.number) verifiedIds.add(item.number);
+                                    if (item.reg_number) verifiedIds.add(item.reg_number);
+                                    if (item.name && item.name.length > 3) verifiedIds.add(item.name);
+                                    if (item.assignee_name) verifiedIds.add(item.assignee_name);
+                                    if (item.author_name) verifiedIds.add(item.author_name);
+                                    if (item.doc_id) verifiedIds.add(item.doc_id);
+                                    if (item.article) verifiedIds.add(item.article);
+                                    if (item.id) verifiedIds.add(String(item.id));
+                                }
+                            }
+                        }
+                        // Stats-only results (e.g. get_task_stats) count as data points too
+                        if (parsed.total !== undefined && totalDataPoints === 0) {
+                            totalDataPoints += 1;
+                        }
+                        // Count by_status / by_priority breakdown entries
+                        for (const field of ['by_status', 'by_priority']) {
+                            if (Array.isArray(parsed[field])) {
+                                totalDataPoints += parsed[field].length;
+                                for (const entry of parsed[field]) {
+                                    if (entry.status) verifiedIds.add(entry.status);
+                                    if (entry.priority) verifiedIds.add(entry.priority);
+                                }
+                            }
+                        }
+                    } else {
+                        // String result — use regex fallback for doc IDs / task numbers
+                        const text = sr.result || '';
+                        const idPatterns = [
+                            /[A-Z]{2,5}-\d{4}-\d{3,6}/g,
+                            /№\s*\d+/g,
+                            /\d{2,3}-\d{2,4}/g,  // task numbers like 01-125
+                        ];
+                        for (const pat of idPatterns) {
+                            const matches = text.match(pat);
+                            if (matches) {
+                                matches.forEach(m => verifiedIds.add(m));
+                                totalDataPoints += matches.length;
+                            }
+                        }
+                    }
+                }
+
+                // Mark lines containing verified data with green shield
+                if (verifiedIds.size > 0) {
+                    const lines = responseContent.split('\n');
+                    const markedLines = lines.map(line => {
+                        const hasVerifiedData = [...verifiedIds].some(id => line.includes(id));
+                        if (hasVerifiedData && !line.includes('tc-verified')) {
+                            return line + ' <span class="tc-verified" style="color:#34d399;font-size:11px" title="TrustChain Verified">🛡✓</span>';
+                        }
+                        return line;
+                    });
+                    responseContent = markedLines.join('\n');
+                }
+
+                // Strip any LLM-generated TrustChain shields from response to avoid duplication
+                responseContent = responseContent.replace(/^>?\s*[🛡🔐].*TrustChain.*(?:Ed25519|data point|Verified).*\n*/gm, '');
+                responseContent = responseContent.replace(/^\n+/, ''); // Remove leading empty lines
+
+                // Single consolidated TrustChain header
+                const allSigs = signedResults.map(sr => sr.signature).filter(Boolean);
+                const fullSig = allSigs[0] || '';
+                const sigShort = fullSig.substring(0, 12) + '…';
+                responseContent = `> <span style="color:#34d399;font-weight:bold" title="${fullSig}">🛡 TrustChain Verified</span> — ${totalDataPoints} data points · ${signedResults.length} tool calls · Ed25519: \`${sigShort}\`\n\n${responseContent}`;
+            }
+
             const assistantMsg: Message = {
                 id: `m_${Date.now() + 1}`, role: 'assistant',
-                content: result?.text || 'Агент обработал запрос.',
+                content: responseContent,
                 timestamp: new Date(),
                 ...(createdArtifactIds.length > 0 && { artifactIds: createdArtifactIds }),
-                executionSteps: events.map((ev: any) => {
-                    if (ev.type === 'thinking') return { id: ev.id, type: 'planning' as const, label: ev.title || 'Reasoning', detail: ev.content, latencyMs: 0 };
-                    if (ev.type === 'tool_call') return { id: ev.id, type: 'tool' as const, label: ev.name, toolName: ev.name, args: ev.arguments, detail: `Executing ${ev.name}`, latencyMs: 0, signed: false };
-                    return { id: ev.id, type: 'tool' as const, label: 'Result', detail: typeof ev.result === 'string' ? ev.result?.substring(0, 150) : JSON.stringify(ev.result)?.substring(0, 150), latencyMs: 0 };
-                }),
+                executionSteps: (() => {
+                    const steps: ExecutionStep[] = [];
+                    const toolCallMap = new Map<string, number>();  // tool_call id → index in steps
+
+                    for (const ev of events as any[]) {
+                        if (ev.type === 'thinking') {
+                            steps.push({ id: ev.id || `plan_${steps.length}`, type: 'planning', label: ev.title || ev.message || 'Размышляю...', detail: ev.content, latencyMs: 0 });
+                        } else if (ev.type === 'tool_call') {
+                            const idx = steps.length;
+                            steps.push({
+                                id: ev.id || `tool_${idx}`,
+                                type: 'tool', label: ev.name, toolName: ev.name,
+                                args: ev.arguments || ev.args || {},
+                                detail: `Вызов ${ev.name}`, latencyMs: 0, signed: false
+                            });
+                            if (ev.id) toolCallMap.set(ev.id, idx);
+                        } else if (ev.type === 'tool_result') {
+                            // Merge result+signature into the matching tool_call step
+                            const parentIdx = ev.toolCallId ? toolCallMap.get(ev.toolCallId) : undefined;
+                            if (parentIdx !== undefined && steps[parentIdx]) {
+                                const resultStr = typeof ev.result === 'string' ? ev.result : JSON.stringify(ev.result);
+                                steps[parentIdx].result = resultStr?.substring(0, 2000);
+                                const sig = ev.signature || (typeof ev.certificate === 'string' ? ev.certificate : undefined);
+                                steps[parentIdx].signature = sig;
+                                steps[parentIdx].signed = !!sig;
+                            }
+                        } else if (ev.type === 'reasoning_step') {
+                            steps.push({ id: ev.id || `reason_${steps.length}`, type: 'planning', label: ev.message || 'Анализирую...', detail: ev.reasoning_text || ev.detail || '', latencyMs: 0 });
+                        }
+                    }
+                    // Include the final model response in the trace
+                    const responseText = result?.text;
+                    if (responseText) {
+                        steps.push({ id: `response_${Date.now()}`, type: 'planning', label: 'Ответ модели', detail: responseText.substring(0, 3000), latencyMs: 0 });
+                    }
+                    return steps;
+                })(),
             };
             setMessages(prev => [...prev, assistantMsg]);
             setIsTyping(false);
@@ -928,9 +1002,16 @@ const PanelApp: React.FC = () => {
 
     const handleInput = useCallback((e: React.ChangeEvent<HTMLTextAreaElement>) => {
         setInputValue(e.target.value);
-        e.target.style.height = 'auto';
-        e.target.style.height = Math.min(e.target.scrollHeight, 120) + 'px';
     }, []);
+
+    // Auto-resize textarea whenever inputValue changes (handles typing, paste, programmatic set)
+    useEffect(() => {
+        const el = inputRef.current;
+        if (el) {
+            el.style.height = 'auto';
+            el.style.height = el.scrollHeight + 'px';
+        }
+    }, [inputValue]);
 
     const handleSkillClick = useCallback((prompt: string) => {
         if (!prompt) return;
@@ -1064,15 +1145,15 @@ const PanelApp: React.FC = () => {
                         </button>
                     </div>
                 )}
-                <div style={{ position: 'relative' }}>
+                <div style={{ position: 'relative', display: 'flex', alignItems: 'flex-end' }}>
                     <textarea
                         ref={inputRef} value={inputValue} onChange={handleInput} onKeyDown={handleKeyDown}
                         placeholder="Введите запрос..." rows={1}
                         style={{
-                            width: '100%', padding: '10px 40px 10px 12px',
+                            width: '100%', padding: '10px 44px 10px 12px',
                             background: '#1e293b', border: '1px solid #334155',
                             borderRadius: 12, color: '#e2e8f0', fontSize: 12,
-                            resize: 'none', outline: 'none', maxHeight: 120,
+                            resize: 'none', outline: 'none',
                             fontFamily: 'inherit', lineHeight: 1.4,
                             transition: 'border-color 0.2s', boxSizing: 'border-box',
                         }}
@@ -1084,10 +1165,10 @@ const PanelApp: React.FC = () => {
                         onClick={handleSend}
                         disabled={!inputValue.trim() || isTyping}
                         style={{
-                            position: 'absolute', right: 6, bottom: 6,
-                            width: 28, height: 28, borderRadius: 8,
+                            position: 'absolute', right: 8, bottom: 8,
+                            width: 26, height: 26, borderRadius: 8,
                             display: 'flex', alignItems: 'center', justifyContent: 'center',
-                            border: 'none',
+                            border: 'none', flexShrink: 0,
                             cursor: inputValue.trim() && !isTyping ? 'pointer' : 'default',
                             background: inputValue.trim() && !isTyping ? 'linear-gradient(135deg, #6366f1, #8b5cf6)' : '#334155',
                             color: inputValue.trim() && !isTyping ? '#fff' : '#64748b',

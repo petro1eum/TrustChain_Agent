@@ -89,10 +89,17 @@ function extractFactsFromResult(result: any): string[] {
     // Собираем все item-ы из разных форматов ответов
     const allItems: any[] = [];
 
-    // 1. Прямые массивы items/products
-    const directItems = data.items || data.products || (Array.isArray(data) ? data : null);
-    if (directItems && Array.isArray(directItems)) {
-        allItems.push(...directItems);
+    // 1. Прямые массивы items/products и domain-specific collections
+    const arrayFields = ['items', 'products', 'tasks', 'documents', 'contracts',
+        'meetings', 'vacancies', 'employees', 'organizations',
+        'hits', 'results'];
+    for (const field of arrayFields) {
+        if (Array.isArray(data[field])) {
+            allItems.push(...data[field]);
+        }
+    }
+    if (Array.isArray(data)) {
+        allItems.push(...data);
     }
 
     // 2. match_results_preview — результат match_specification_to_catalog
@@ -114,44 +121,44 @@ function extractFactsFromResult(result: any): string[] {
     for (const item of allItems) {
         if (!item || typeof item !== 'object') continue;
 
-        // Артикул (разные варианты названий полей)
-        if (item.article) {
-            facts.push(item.article);
-        }
-        if (item.art) {
-            facts.push(item.art);
-        }
-        // Vendor code / SKU
-        if (item.vendor_code) {
-            facts.push(item.vendor_code);
-        }
-        if (item.sku) {
-            facts.push(item.sku);
-        }
-        // Название товара
-        if (item.name && item.name.length > 3) {
-            facts.push(item.name);
-        }
-        if (item.title && item.title.length > 3) {
-            facts.push(item.title);
-        }
-        // Бренд
-        if (item.brand && item.brand.length > 2) {
-            facts.push(item.brand);
-        }
-        // Категория
-        if (item.category && item.category.length > 3) {
-            facts.push(item.category);
-        }
+        // === Product catalog fields ===
+        if (item.article) facts.push(item.article);
+        if (item.art) facts.push(item.art);
+        if (item.vendor_code) facts.push(item.vendor_code);
+        if (item.sku) facts.push(item.sku);
+        if (item.brand && item.brand.length > 2) facts.push(item.brand);
+        if (item.category && item.category.length > 3) facts.push(item.category);
+
+        // === Common entity fields (OnaiDocs: tasks, documents, contracts, etc.) ===
+        if (item.name && item.name.length > 3) facts.push(item.name);
+        if (item.title && item.title.length > 3) facts.push(item.title);
+        if (item.number) facts.push(item.number);
+        if (item.reg_number) facts.push(item.reg_number);
+        if (item.doc_id) facts.push(item.doc_id);
+
+        // === People fields ===
+        if (item.assignee_name) facts.push(item.assignee_name);
+        if (item.author_name) facts.push(item.author_name);
+        if (item.org_name && item.org_name.length > 3) facts.push(item.org_name);
+
+        // === Status / priority ===
+        if (item.status && item.status.length > 2) facts.push(item.status);
+        if (item.priority && item.priority.length > 2) facts.push(item.priority);
     }
 
-    // Если результат - строка, ищем паттерны артикулов
+    // Если результат - строка, ищем паттерны артикулов и номеров
     if (typeof data === 'string') {
         // Паттерн артикулов: XXX-XXXX
         const articlePattern = /\b\d{3}-\d{4}\b/g;
         const matches = data.match(articlePattern);
         if (matches) {
             facts.push(...matches);
+        }
+        // Task/doc numbers: 01-125, 02-32
+        const taskNumberPattern = /\b\d{2,3}-\d{2,4}\b/g;
+        const taskMatches = data.match(taskNumberPattern);
+        if (taskMatches) {
+            facts.push(...taskMatches);
         }
     }
 
