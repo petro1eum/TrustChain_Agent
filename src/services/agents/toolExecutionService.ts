@@ -319,60 +319,25 @@ export class ToolExecutionService {
         result = await this.routeWebTool(toolName, args);
         break;
 
-      // === Инструменты обработки данных ===
+      // === Legacy data-processing/ETL инструменты вынесены в MCP плагины ===
       case 'text_processing':
-        result = await this.deps.toolHandlers.handleTextProcessing(args);
-        break;
-
       case 'semantic_analysis':
-        result = await this.deps.toolHandlers.handleSemanticAnalysis(args, context);
-        break;
-
       case 'handle_missing_data':
-        result = await this.deps.toolHandlers.handleMissingData(args, context);
-        break;
-
       case 'normalize_data':
-        result = await this.deps.toolHandlers.handleNormalizeData(args, context);
-        break;
-
       case 'handle_outliers':
-        result = await this.deps.toolHandlers.handleOutliers(args, context);
-        break;
-
       case 'execute_pandas_operation':
-        result = await this.deps.toolHandlers.handlePandasOperation(args, context);
-        break;
-
       case 'smart_lookup_and_merge':
-        result = await this.deps.toolHandlers.handleSmartLookup(args, context);
-        break;
-
       case 'analyze_data_quality':
-        result = await this.deps.toolHandlers.handleDataQualityAnalysis(args, context);
-        break;
-
-      // === Инструменты файловой системы ===
       case 'access_source_file':
-        result = await this.deps.toolHandlers.handleAccessSourceFile(args, context);
-        break;
-
       case 'add_to_workspace':
-        result = await this.deps.toolHandlers.handleAddToWorkspace(args, context);
-        break;
-
-      // === Инструменты для работы с данными проекта ===
       case 'get_transformation_data':
-        result = await this.deps.toolHandlers.handleGetTransformationData(args, context);
-        break;
-
       case 'search_transformation_data':
-        result = await this.deps.toolHandlers.handleSearchTransformationData(args, context);
-        break;
-
       case 'get_file_metadata':
-        result = await this.deps.toolHandlers.handleGetFileMetadata(args, context);
-        break;
+        return {
+          success: false,
+          error: `Tool "${toolName}" удален из универсального ядра. Подключите эквивалент через MCP plugin.`,
+          code: 'LEGACY_TOOL_REMOVED_FROM_CORE'
+        };
 
       case 'extract_table_to_excel':
         result = await this.deps.toolHandlers.handleExtractTableToExcel(args);

@@ -4,8 +4,22 @@
 
 import type { ProgressEvent } from '../../agents/types';
 import { chatHistoryService } from '../chatHistoryService';
+import OpenAI from 'openai';
+
+interface ConversationMemoryServiceDependencies {
+  openai?: OpenAI;
+  getApiParams?: (params: any) => any;
+}
+
+interface MemorySearchDecision {
+  shouldSearchMemory: boolean;
+  query: string;
+  reason: string;
+}
 
 export class ConversationMemoryService {
+  constructor(private deps: ConversationMemoryServiceDependencies = {}) {}
+
   async getConversationContext(
     instruction: string,
     progressCallback?: (event: ProgressEvent) => void
@@ -25,20 +39,21 @@ export class ConversationMemoryService {
         return '';
       }
 
-      const hasExplicitReference = /продолжи|обсуждали|говорил|помнишь|тот|та|то|наш|мой|как.*мы|что.*мы/i.test(instruction);
-      const hasPastTense = /предлагал|решили|сделали|создали|обсудили|упоминал|говорил/i.test(instruction);
-      const hasTemporalRef = /вчера|прошл|недавно|ранее|раньше/i.test(instruction);
-      const hasPronounWithoutAntecedent = /^(это|то|этот|тот|оно|она|он)\b/i.test(instruction.trim());
-      const hasAssumptiveQuestion = /(помнишь|упоминал|говорил|обсуждали|решали).*\?/i.test(instruction);
+      progressCallback?.({
+        type: 'reasoning_step',
+        message: 'Оцениваю, нужен ли контекст прошлых диалогов...',
+        reasoning_text: 'Использую лёгкую LLM-проверку для принятия решения'
+      });
 
-      const shouldSearchMemory = hasExplicitReference || hasPastTense || hasTemporalRef || hasPronounWithoutAntecedent || hasAssumptiveQuestion;
-      const keywords = this.extractSubstantiveKeywords(instruction);
+      const decision = await this.decideMemorySearch(instruction);
+      const shouldSearchMemory = decision.shouldSearchMemory;
+      const keywords = this.extractSubstantiveKeywords(decision.query || instruction);
 
       if (shouldSearchMemory && keywords.length > 0) {
         progressCallback?.({
           type: 'reasoning_step',
           message: 'Ищу контекст в предыдущих диалогах...',
-          reasoning_text: `Триггеры обнаружены, ключевые слова: ${keywords.join(', ')}`
+          reasoning_text: `Ключевые слова: ${keywords.join(', ')}. Причина: ${decision.reason || 'нет'}`
         });
 
         const relevantMessages = chatHistoryService.searchMessages(
@@ -75,7 +90,7 @@ export class ConversationMemoryService {
         }
       } else {
         if (!shouldSearchMemory) {
-          console.log('[ConversationMemory] No triggers detected, skipping memory search');
+          console.log('[ConversationMemory] Решение LLM: контекст прошлых диалогов не требуется');
         } else if (keywords.length === 0) {
           console.log('[ConversationMemory] No substantive keywords, skipping memory search');
         }
@@ -87,14 +102,86 @@ export class ConversationMemoryService {
     return conversationContext;
   }
 
-  private extractSubstantiveKeywords(text: string): string[] {
-    const genericWords = /\b(обсуждали|говорил|сделай|создай|покажи|найди|помоги|разговор|чат|вопрос|продолжи|помнишь|тот|та|то|наш|мой|как|мы|что|вчера|прошл|недавно|ранее|раньше|это|этот|оно|она|он|предлагал|решили|сделали|создали|обсудили|упоминал)\b/gi;
-    const cleaned = text.replace(genericWords, '');
+  private async decideMemorySearch(instruction: string): Promise<MemorySearchDecision> {
+    if (!this.deps.openai || !this.deps.getApiParams) {
+      return this.fallbackDecision(instruction);
+    }
 
-    const words = cleaned
-      .split(/\s+/)
+    const prompt = `Определи, нужно ли подключать контекст прошлых диалогов для запроса.
+
+Запрос пользователя:
+"${instruction}"
+
+Правила:
+1) shouldSearchMemory=true ТОЛЬКО если есть явная ссылка на прошлый диалог/решение
+   (например: "продолжи", "как мы обсуждали", "помнишь", "что ты предлагал").
+2) Для новых самостоятельных запросов всегда shouldSearchMemory=false.
+3) query должен содержать 2-4 ключевых слова для поиска по истории.
+4) Верни только JSON.
+
+Формат:
+{
+  "shouldSearchMemory": true/false,
+  "query": "строка для поиска",
+  "reason": "кратко почему"
+}`;
+
+    try {
+      const response = await this.deps.openai.chat.completions.create(
+        this.deps.getApiParams({
+          model: 'google/gemini-2.5-flash-lite',
+          messages: [{ role: 'user', content: prompt }],
+          temperature: 0.0,
+          maxTokens: 250,
+          responseFormat: { type: 'json_object' }
+        })
+      );
+
+      const raw = response.choices?.[0]?.message?.content || '{}';
+      const parsed = JSON.parse(raw);
+      const query = String(parsed.query || '').trim();
+
+      return {
+        shouldSearchMemory: Boolean(parsed.shouldSearchMemory),
+        query: query || instruction,
+        reason: String(parsed.reason || '').trim() || 'LLM-оценка',
+      };
+    } catch (error) {
+      console.warn('[ConversationMemory] Ошибка LLM-оценки, применяю fallback:', error);
+      return this.fallbackDecision(instruction);
+    }
+  }
+
+  private fallbackDecision(instruction: string): MemorySearchDecision {
+    const isExplicitReference =
+      /\b(продолжи|обсуждали|помнишь|как\s+мы|что\s+мы|упоминал)\b/i.test(instruction);
+
+    return {
+      shouldSearchMemory: isExplicitReference,
+      query: instruction,
+      reason: isExplicitReference ? 'Резервное правило: явная ссылка на прошлый диалог' : 'Резервное правило: новый запрос'
+    };
+  }
+
+  private extractSubstantiveKeywords(text: string): string[] {
+    const normalized = text
+      .toLowerCase()
+      .replace(/[^\p{L}\p{N}\s-]/gu, ' ')
+      .replace(/\s+/g, ' ')
+      .trim();
+
+    const stopWords = new Set([
+      'обсуждали', 'говорил', 'сделай', 'создай', 'покажи', 'найди', 'помоги',
+      'разговор', 'чат', 'вопрос', 'продолжи', 'помнишь', 'как', 'мы', 'что',
+      'вчера', 'недавно', 'ранее', 'раньше', 'это', 'этот', 'оно', 'она', 'он',
+      'предлагал', 'решили', 'сделали', 'создали', 'обсудили', 'упоминал',
+      'тот', 'та', 'то', 'наш', 'мой'
+    ]);
+
+    const words = normalized
+      .split(' ')
       .filter(w => w.length > 3)
-      .filter(w => !/^[а-яё]{1,3}$/i.test(w));
+      .filter(w => !stopWords.has(w));
 
     return words.slice(0, 3);
   }

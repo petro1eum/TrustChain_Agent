@@ -21,100 +21,54 @@ export class SkillsLoaderService {
   private static initialized = false;
 
   /**
-   * Предопределенный список путей к SKILL.md файлам
-   * Можно расширить или загрузить динамически через view
+   * Базовый production registry (универсальный, без domain-specific legacy).
    */
-  private static readonly SKILL_PATHS = [
-    // === Public skills (5) ===
+  private static readonly DEFAULT_PRODUCTION_SKILL_PATHS = [
     '/mnt/skills/public/docx/SKILL.md',
     '/mnt/skills/public/pdf/SKILL.md',
     '/mnt/skills/public/pptx/SKILL.md',
     '/mnt/skills/public/xlsx/SKILL.md',
     '/mnt/skills/public/product-self-knowledge/SKILL.md',
-
-    // === Category Management (14) ===
-    '/mnt/skills/kb-tools/category-management/test-category-search/SKILL.md',
-    '/mnt/skills/kb-tools/category-management/run-category-diagnostic/SKILL.md',
-    '/mnt/skills/kb-tools/category-management/get-category-config/SKILL.md',
-    '/mnt/skills/kb-tools/category-management/troubleshoot-search-problems/SKILL.md',
-    '/mnt/skills/kb-tools/category-management/follow-diagnostic-protocol/SKILL.md',
-    '/mnt/skills/kb-tools/category-management/manage-category-lifecycle/SKILL.md',
-    '/mnt/skills/kb-tools/category-management/add-new-category/SKILL.md',
-    '/mnt/skills/kb-tools/category-management/get-category-info/SKILL.md',
-    '/mnt/skills/kb-tools/category-management/get-category-backups/SKILL.md',
-    '/mnt/skills/kb-tools/category-management/validate-category-config/SKILL.md',
-    '/mnt/skills/kb-tools/category-management/get-category-param-coverage/SKILL.md',
-    '/mnt/skills/kb-tools/category-management/restore-category-backup/SKILL.md',
-    '/mnt/skills/kb-tools/category-management/save-category-config/SKILL.md',
-    '/mnt/skills/kb-tools/category-management/get-diagnostic-history/SKILL.md',
-
-    // === Computer Use (4) ===
     '/mnt/skills/kb-tools/computer-use/view/SKILL.md',
     '/mnt/skills/kb-tools/computer-use/bash-tool/SKILL.md',
     '/mnt/skills/kb-tools/computer-use/create-file/SKILL.md',
     '/mnt/skills/kb-tools/computer-use/str-replace/SKILL.md',
-
-    // === Code Execution (6) ===
-    '/mnt/skills/kb-tools/code-execution/execute-code/SKILL.md',
-    '/mnt/skills/kb-tools/code-execution/execute-bash/SKILL.md',
-    '/mnt/skills/kb-tools/code-execution/load-tool/SKILL.md',
-    '/mnt/skills/kb-tools/code-execution/list-tools/SKILL.md',
-    '/mnt/skills/kb-tools/code-execution/import-tool/SKILL.md',
-    '/mnt/skills/kb-tools/code-execution/save-tool/SKILL.md',
-
-    // === Web Tools (5) ===
     '/mnt/skills/kb-tools/web-tools/web-search/SKILL.md',
     '/mnt/skills/kb-tools/web-tools/web-fetch/SKILL.md',
-    '/mnt/skills/kb-tools/web-tools/read-project-file/SKILL.md',
-    '/mnt/skills/kb-tools/web-tools/get-synonyms-preview/SKILL.md',
-    '/mnt/skills/kb-tools/web-tools/search-files-by-name/SKILL.md',
+  ];
 
-    // === File Tools (1) ===
-    '/mnt/skills/kb-tools/file-tools/extract-table-to-excel/SKILL.md',
-
-    // === Data Processing (10) ===
-    '/mnt/skills/kb-tools/data-processing/missing-data/SKILL.md',
-    '/mnt/skills/kb-tools/data-processing/normalize-data/SKILL.md',
-    '/mnt/skills/kb-tools/data-processing/data-quality/SKILL.md',
-    '/mnt/skills/kb-tools/data-processing/access-source-file/SKILL.md',
-    '/mnt/skills/kb-tools/data-processing/add-to-workspace/SKILL.md',
-    '/mnt/skills/kb-tools/data-processing/smart-lookup/SKILL.md',
-    '/mnt/skills/kb-tools/data-processing/pandas-operation/SKILL.md',
-    '/mnt/skills/kb-tools/data-processing/outliers/SKILL.md',
-    '/mnt/skills/kb-tools/data-processing/semantic-analysis/SKILL.md',
-    '/mnt/skills/kb-tools/data-processing/text-processing/SKILL.md',
-
-    // === Frontend Navigation (11) ===
-    '/mnt/skills/kb-tools/frontend-navigation/navigate-to-tab/SKILL.md',
-    '/mnt/skills/kb-tools/frontend-navigation/navigate-to-subtab/SKILL.md',
-    '/mnt/skills/kb-tools/frontend-navigation/get-current-screen/SKILL.md',
-    '/mnt/skills/kb-tools/frontend-navigation/get-app-structure/SKILL.md',
-    '/mnt/skills/kb-tools/frontend-navigation/select-category/SKILL.md',
-    '/mnt/skills/kb-tools/frontend-navigation/select-product/SKILL.md',
-    '/mnt/skills/kb-tools/frontend-navigation/search-ui/SKILL.md',
-    '/mnt/skills/kb-tools/frontend-navigation/apply-filters/SKILL.md',
-    '/mnt/skills/kb-tools/frontend-navigation/get-screen-data/SKILL.md',
-    '/mnt/skills/kb-tools/frontend-navigation/get-selected-items/SKILL.md',
-    '/mnt/skills/kb-tools/frontend-navigation/click-element/SKILL.md',
-
-    // === Backend API (5) ===
-    '/mnt/skills/kb-tools/backend-api/backend-api-call/SKILL.md',
-    '/mnt/skills/kb-tools/backend-api/get-yaml-file/SKILL.md',
-    '/mnt/skills/kb-tools/backend-api/save-yaml-file/SKILL.md',
-    '/mnt/skills/kb-tools/backend-api/list-api-endpoints/SKILL.md',
-    '/mnt/skills/kb-tools/backend-api/list-data-files/SKILL.md',
-
-    // === Examples (9) ===
+  /**
+   * Опциональный demo registry.
+   */
+  private static readonly DEFAULT_DEMO_SKILL_PATHS = [
     '/mnt/skills/examples/skill-creator/SKILL.md',
     '/mnt/skills/examples/web-artifacts-builder/SKILL.md',
-    '/mnt/skills/examples/algorithmic-art/SKILL.md',
-    '/mnt/skills/examples/brand-guidelines/SKILL.md',
-    '/mnt/skills/examples/canvas-design/SKILL.md',
-    '/mnt/skills/examples/internal-comms/SKILL.md',
-    '/mnt/skills/examples/mcp-builder/SKILL.md',
-    '/mnt/skills/examples/slack-gif-creator/SKILL.md',
-    '/mnt/skills/examples/theme-factory/SKILL.md',
   ];
+
+  private static getSkillPaths(): string[] {
+    const envEnableDemo = (typeof import.meta !== 'undefined' && (import.meta as any).env?.VITE_ENABLE_DEMO_SKILLS)
+      ?? (typeof process !== 'undefined' ? process.env?.VITE_ENABLE_DEMO_SKILLS : undefined);
+    const includeDemoByDefault = String(envEnableDemo || 'false').toLowerCase() === 'true';
+
+    try {
+      if (typeof window !== 'undefined') {
+        const raw = window.localStorage.getItem('tc_skill_registry');
+        if (raw) {
+          const parsed = JSON.parse(raw);
+          const production = Array.isArray(parsed?.production) ? parsed.production : this.DEFAULT_PRODUCTION_SKILL_PATHS;
+          const demo = Array.isArray(parsed?.demo) ? parsed.demo : this.DEFAULT_DEMO_SKILL_PATHS;
+          const includeDemo = parsed?.includeDemo === true || includeDemoByDefault;
+          return includeDemo ? [...production, ...demo] : production;
+        }
+      }
+    } catch {
+      // ignore registry parse errors, fallback to defaults
+    }
+
+    return includeDemoByDefault
+      ? [...this.DEFAULT_PRODUCTION_SKILL_PATHS, ...this.DEFAULT_DEMO_SKILL_PATHS]
+      : this.DEFAULT_PRODUCTION_SKILL_PATHS;
+  }
 
   /**
    * Проверяет, инициализирован ли сервис
@@ -166,8 +120,10 @@ export class SkillsLoaderService {
       return skills;
     }
 
+    const skillPaths = this.getSkillPaths();
+
     // Загружаем метаданные каждого skill через view
-    for (const containerPath of this.SKILL_PATHS) {
+    for (const containerPath of skillPaths) {
       try {
         const metadata = await this.loadSkillMetadataFromView(containerPath);
         if (metadata) {

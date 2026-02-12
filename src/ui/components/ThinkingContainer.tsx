@@ -2,6 +2,7 @@ import React, { useState, useCallback } from 'react';
 import { Zap, ChevronRight, Sparkles, FileText, CheckCircle, Download } from 'lucide-react';
 import type { ExecutionStep, Artifact } from './types';
 import { ARTIFACT_META, TierBadge } from './constants';
+import { normalizeTrustChainMarkup, renderInline } from './MarkdownRenderer';
 
 /**
  * Downloads the execution trace as a JSON file for debugging.
@@ -140,7 +141,12 @@ const StepRow: React.FC<{
                     {step.latencyMs != null && step.latencyMs > 0 && <span className="text-[10px] tc-text-muted">{step.latencyMs}ms</span>}
                 </div>
                 {step.detail && (
-                    <div className="ml-10 mt-1 text-[11px] tc-text-secondary font-mono" style={{ wordBreak: 'break-word' }}>{step.detail}</div>
+                    <div
+                        className="ml-10 mt-1 text-[11px] tc-text-secondary font-mono"
+                        style={{ wordBreak: 'break-word', whiteSpace: 'pre-wrap' }}
+                    >
+                        {renderInline(normalizeTrustChainMarkup(step.detail))}
+                    </div>
                 )}
             </div>
         );

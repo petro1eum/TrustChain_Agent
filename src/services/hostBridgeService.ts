@@ -26,9 +26,11 @@ export interface PageState {
 export interface BridgeResponse {
     requestId: string;
     method: string;
+    version?: number;
+    source?: string;
     success: boolean;
     data: any;
-    error?: string;
+    error?: string | { code?: string; message?: string; details?: any };
 }
 
 type PendingRequest = {
@@ -41,6 +43,9 @@ export class HostBridgeService {
     private pending = new Map<string, PendingRequest>();
     private static instance: HostBridgeService | null = null;
     private listenerAttached = false;
+    private targetOrigin: string = '*';
+    private protocolVersion = 2;
+    private source = 'trustchain-panel';
 
     static getInstance(): HostBridgeService {
         if (!HostBridgeService.instance) {
@@ -49,12 +54,19 @@ export class HostBridgeService {
         return HostBridgeService.instance;
     }
 
+    configure(opts: { targetOrigin?: string; version?: number; source?: string }): void {
+        if (opts.targetOrigin) this.targetOrigin = opts.targetOrigin;
+        if (opts.version) this.protocolVersion = opts.version;
+        if (opts.source) this.source = opts.source;
+    }
+
     /**
      * Attach the response listener. Must be called once from PanelApp.
      */
     attachListener(): void {
         if (this.listenerAttached) return;
         window.addEventListener('message', (e: MessageEvent) => {
+            if (this.targetOrigin !== '*' && e.origin !== this.targetOrigin) return;
             if (e.data?.type === 'trustchain:bridge_result') {
                 this.handleResponse(e.data as BridgeResponse);
             }
@@ -102,9 +114,14 @@ export class HostBridgeService {
                 resolve({
                     requestId,
                     method,
+                    version: this.protocolVersion,
+                    source: this.source,
                     success: false,
                     data: null,
-                    error: `Host did not respond within ${timeoutMs}ms. The host app may not support the bridge protocol.`
+                    error: {
+                        code: 'BRIDGE_TIMEOUT',
+                        message: `Host did not respond within ${timeoutMs}ms. The host app may not support the bridge protocol.`,
+                    }
                 });
             }, timeoutMs);
 
@@ -113,10 +130,13 @@ export class HostBridgeService {
             try {
                 window.parent.postMessage({
                     type: 'trustchain:bridge',
+                    version: this.protocolVersion,
+                    source: this.source,
+                    timestamp: new Date().toISOString(),
                     requestId,
                     method,
                     params,
-                }, '*');
+                }, this.targetOrigin);
                 console.log('[HostBridge] Sent request:', method, params);
             } catch (err) {
                 clearTimeout(timer);
@@ -124,9 +144,14 @@ export class HostBridgeService {
                 resolve({
                     requestId,
                     method,
+                    version: this.protocolVersion,
+                    source: this.source,
                     success: false,
                     data: null,
-                    error: `Failed to send postMessage: ${err}`
+                    error: {
+                        code: 'POSTMESSAGE_FAILED',
+                        message: `Failed to send postMessage: ${err}`
+                    }
                 });
             }
         });

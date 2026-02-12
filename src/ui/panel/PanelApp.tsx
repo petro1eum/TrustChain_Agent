@@ -12,8 +12,9 @@ import { useChatState } from '../../hooks/useChatState';
 import { chatHistoryService } from '../../services/chatHistoryService';
 import { agentCallbacksService } from '../../services/agents/agentCallbacksService';
 import { setAgentContext } from '../../services/agentContext';
+import { trustchainService } from '../../services/trustchainService';
 import type { Message, Artifact, ExecutionStep } from '../components/types';
-import { renderFullMarkdown } from '../components/MarkdownRenderer';
+import { normalizeTrustChainMarkup, renderFullMarkdown } from '../components/MarkdownRenderer';
 import '../theme.ts';
 
 // ─── URL Parameter Parsing ───
@@ -52,8 +53,12 @@ function getPanelParams() {
         context: params.get('context') || null,   // page context: "risk_tree", "contracts", "documents", etc.
         title: params.get('title') || null,        // custom panel title
         hostUrl: params.get('hostUrl') || null,    // URL of the host app page (for Playwright navigation)
+        hostOrigin: params.get('hostOrigin') || null,
     };
 }
+
+const TRUSTCHAIN_PROTOCOL_VERSION = 2;
+const PANEL_SOURCE = 'trustchain-panel';
 
 // ─── localStorage Namespace ───
 
@@ -62,6 +67,27 @@ const NS = `tc_panel_${panelParams.instance}`;
 
 function nsGet(key: string): string | null {
     return localStorage.getItem(`${NS}_${key}`);
+}
+
+function resolveHostOrigin(params: ReturnType<typeof getPanelParams>): string {
+    if (params.hostOrigin && /^https?:\/\//.test(params.hostOrigin)) {
+        return params.hostOrigin;
+    }
+    if (params.hostUrl) {
+        try {
+            return new URL(params.hostUrl).origin;
+        } catch {
+            // ignore parse errors
+        }
+    }
+    if (typeof document !== 'undefined' && document.referrer) {
+        try {
+            return new URL(document.referrer).origin;
+        } catch {
+            // ignore parse errors
+        }
+    }
+    return '*';
 }
 
 // ─── Context-Aware Skill Suggestions ───
@@ -75,6 +101,61 @@ interface ContextSkill {
     prompt: string;
     color: string;
 }
+
+interface HostWorkflow {
+    id: string;
+    label: string;
+    description?: string;
+    prompt?: string;
+    color?: string;
+    documentMode?: string;
+    requiredTools?: string[];
+    policyChecks?: string[];
+    verifiableOutput?: string;
+    steps?: string[];
+}
+
+interface DocumentModeConfig {
+    mode: 'level1' | 'level2';
+    label: string;
+    shortLabel?: string;
+    description?: string;
+    allowedTools?: string[];
+    blockedTools?: string[];
+}
+
+const contextToWorkflowScope = (context: string | null): string => {
+    const key = (context || '').toLowerCase();
+    if (!key || key === 'dashboard') return 'dashboard';
+    if (key === 'documents') return 'Документы';
+    if (key === 'tasks') return 'Задачи';
+    if (key === 'contracts') return 'Договоры';
+    if (key === 'meetings') return 'Совещания';
+    if (key === 'hr') return 'Кадры';
+    if (key === 'project') return 'Проект';
+    return 'dashboard';
+};
+
+const buildWorkflowPrompt = (wf: HostWorkflow): string => {
+    if (wf.prompt && wf.prompt.trim()) return wf.prompt.trim();
+    const sections: string[] = [];
+    sections.push(`Выполни workflow "${wf.label}".`);
+    if (wf.description) sections.push(`Описание: ${wf.description}`);
+    if (wf.requiredTools?.length) sections.push(`Обязательные инструменты: ${wf.requiredTools.join(', ')}`);
+    if (wf.policyChecks?.length) sections.push(`Проверки политики: ${wf.policyChecks.join(', ')}`);
+    if (wf.verifiableOutput) sections.push(`Ожидаемый верифицируемый результат: ${wf.verifiableOutput}`);
+    if (wf.steps?.length) {
+        sections.push('');
+        sections.push('Шаги:');
+        wf.steps.forEach((step, idx) => sections.push(`${idx + 1}. ${step}`));
+    }
+    sections.push('');
+    sections.push('Требования:');
+    sections.push('- Используй только реальные данные из MCP tools.');
+    sections.push('- Для каждой ключевой цифры укажи источник (tool call + подпись).');
+    sections.push('- Заверши ответ секцией "Рекомендация".');
+    return sections.join('\n');
+};
 
 function getContextSkills(context: string | null, mcpTools: Array<{ name: string; description: string }>): ContextSkill[] {
     // 1. If MCP tools are available, use them as primary skills
@@ -159,6 +240,39 @@ const formatTime = (d: Date | undefined): string => {
     if (!d) return '';
     const date = d instanceof Date ? d : new Date(d);
     return date.toLocaleTimeString('ru', { hour: '2-digit', minute: '2-digit' });
+};
+
+type VerificationMarker = { toolName: string; signature: string };
+
+const normalizeSignature = (value: unknown): string => {
+    if (typeof value !== 'string') return '';
+    return value.trim();
+};
+
+const shortSignature = (signature: string): string => {
+    if (!signature) return 'без подписи';
+    if (signature.length <= 24) return signature;
+    return `${signature.slice(0, 12)}…${signature.slice(-8)}`;
+};
+
+const escapeHtmlAttr = (value: string): string => value
+    .replace(/&/g, '&amp;')
+    .replace(/"/g, '&quot;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;');
+
+const buildVerificationTooltip = (markers: VerificationMarker[]): string => {
+    if (!markers.length) return 'TrustChain: цифровая верификация';
+    const unique = Array.from(new Map(
+        markers.map(m => [`${m.toolName}::${m.signature}`, m])
+    ).values());
+    const shown = unique.slice(0, 5);
+    const lines = shown.map((m, idx) =>
+        `${idx + 1}. ${m.toolName || 'tool'} · ${shortSignature(m.signature)}`
+    );
+    if (unique.length > shown.length) lines.push(`+${unique.length - shown.length} ещё`);
+    // IMPORTANT: avoid "|" because it breaks markdown table rows.
+    return `TrustChain: цифровая верификация; ${lines.join('; ')}`;
 };
 
 // ─── Progress Steps (Harmonization pattern) ───
@@ -343,6 +457,7 @@ const PanelMessage: React.FC<{
 }> = ({ message, allArtifacts, onOpenArtifact }) => {
     const isUser = message.role === 'user';
     const timeStr = formatTime(message.timestamp);
+    const normalizedContent = normalizeTrustChainMarkup(message.content || '');
 
     if (isUser) {
         return (
@@ -402,7 +517,7 @@ const PanelMessage: React.FC<{
                 background: '#1e293b', border: '1px solid #293548',
                 borderRadius: 10, padding: '12px 14px', fontSize: 12, color: '#cbd5e1',
             }}>
-                <div className="tc-markdown" style={{ lineHeight: 1.65 }}>{renderFullMarkdown(message.content)}</div>
+                <div className="tc-markdown" style={{ lineHeight: 1.65 }}>{renderFullMarkdown(normalizedContent)}</div>
             </div>
 
             {/* Artifacts */}
@@ -444,9 +559,12 @@ const WelcomeContent: React.FC<{
     agentReady: boolean;
     mcpStatus: string;
     skills: ContextSkill[];
+    workflows: HostWorkflow[];
+    documentMode: DocumentModeConfig | null;
     toolCount: number;
     onSkillClick: (prompt: string) => void;
-}> = ({ context, agentReady, mcpStatus, skills, toolCount, onSkillClick }) => {
+    onWorkflowClick: (workflow: HostWorkflow) => void;
+}> = ({ context, agentReady, mcpStatus, skills, workflows, documentMode, toolCount, onSkillClick, onWorkflowClick }) => {
     const greeting = getContextGreeting(context);
 
     return (
@@ -460,7 +578,7 @@ const WelcomeContent: React.FC<{
                     boxShadow: '0 8px 24px rgba(139,92,246,0.25)',
                     marginBottom: 12,
                 }}>
-                    <Shield size={22} color="#fff" />
+                    <Bot size={22} color="#fff" />
                 </div>
                 <div style={{ fontSize: 16, fontWeight: 600, color: '#e2e8f0', marginBottom: 4 }}>{greeting.title}</div>
                 <div style={{ fontSize: 12, color: '#64748b', maxWidth: 240, margin: '0 auto' }}>{greeting.subtitle}</div>
@@ -496,7 +614,56 @@ const WelcomeContent: React.FC<{
                         <Wrench size={10} /> {toolCount}
                     </div>
                 )}
+                {documentMode && (
+                    <div style={{
+                        display: 'flex', alignItems: 'center', gap: 4,
+                        background: documentMode.mode === 'level1' ? 'rgba(20,184,166,0.10)' : 'rgba(99,102,241,0.10)',
+                        border: `1px solid ${documentMode.mode === 'level1' ? 'rgba(20,184,166,0.35)' : 'rgba(99,102,241,0.35)'}`,
+                        borderRadius: 12, padding: '4px 10px', fontSize: 10,
+                        color: documentMode.mode === 'level1' ? '#5eead4' : '#a5b4fc',
+                    }}
+                        title={documentMode.description || documentMode.label}
+                    >
+                        <Eye size={10} /> {documentMode.shortLabel || documentMode.mode.toUpperCase()}
+                    </div>
+                )}
             </div>
+
+            {/* ── Workflow Cards (host-provided) ── */}
+            {workflows.length > 0 && (
+                <div style={{ width: '100%', maxWidth: 320, marginBottom: 10 }}>
+                    <div style={{ fontSize: 10, color: '#64748b', textTransform: 'uppercase', letterSpacing: 0.6, marginBottom: 6 }}>
+                        Исполняемые сценарии
+                    </div>
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+                        {workflows.slice(0, 4).map((wf) => (
+                            <button
+                                key={wf.id || wf.label}
+                                onClick={() => onWorkflowClick(wf)}
+                                style={{
+                                    width: '100%', textAlign: 'left',
+                                    background: '#1e293b', border: `1px solid ${wf.color || '#334155'}`,
+                                    borderRadius: 10, padding: '9px 11px',
+                                    cursor: 'pointer', transition: 'all 0.2s',
+                                    color: '#cbd5e1', fontSize: 11,
+                                }}
+                                title={wf.description || wf.label}
+                            >
+                                <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                                    <Sparkles size={12} style={{ color: wf.color || '#34d399', flexShrink: 0 }} />
+                                    <span style={{ flex: 1 }}>{wf.label}</span>
+                                    <ChevronRight size={12} style={{ color: '#475569', flexShrink: 0 }} />
+                                </div>
+                                {wf.description && (
+                                    <div style={{ marginTop: 4, color: '#94a3b8', fontSize: 10, lineHeight: 1.35 }}>
+                                        {wf.description}
+                                    </div>
+                                )}
+                            </button>
+                        ))}
+                    </div>
+                </div>
+            )}
 
             {/* ── Contextual Skills ── */}
             {skills.length > 0 && skills[0].prompt !== '' && (
@@ -548,6 +715,7 @@ const WelcomeContent: React.FC<{
 
 const PanelApp: React.FC = () => {
     const params = useMemo(() => getPanelParams(), []);
+    const hostTargetOrigin = useMemo(() => resolveHostOrigin(params), [params]);
 
     // Initialize agent context singleton so internal services know the platform
     useEffect(() => {
@@ -568,18 +736,45 @@ const PanelApp: React.FC = () => {
     const [mcpTools, setMcpTools] = useState<Array<{ name: string; description: string }>>([]);
     const [viewingArtifact, setViewingArtifact] = useState<Artifact | null>(null);
     const [hostSkills, setHostSkills] = useState<ContextSkill[]>([]);
+    const [hostWorkflows, setHostWorkflows] = useState<Record<string, HostWorkflow[]>>({});
+    const [documentModeConfig, setDocumentModeConfig] = useState<DocumentModeConfig | null>(null);
+    const [hostProtocolReady, setHostProtocolReady] = useState(false);
 
     // ── Initialize Host Bridge (for page_observe/read/interact tools) ──
     useEffect(() => {
         import('../../services/hostBridgeService').then(({ HostBridgeService }) => {
-            HostBridgeService.getInstance().attachListener();
+            const bridge = HostBridgeService.getInstance();
+            bridge.configure({
+                targetOrigin: hostTargetOrigin,
+                version: TRUSTCHAIN_PROTOCOL_VERSION,
+                source: PANEL_SOURCE,
+            });
+            bridge.attachListener();
         });
-    }, []);
+    }, [hostTargetOrigin]);
 
     // ── Listen for postMessage from host page ──
     useEffect(() => {
         const handleMessage = (e: MessageEvent) => {
             if (!e.data || typeof e.data !== 'object') return;
+            if (hostTargetOrigin !== '*' && e.origin !== hostTargetOrigin) {
+                return;
+            }
+            const incomingVersion = Number((e.data as any).version || 1);
+            if (incomingVersion > TRUSTCHAIN_PROTOCOL_VERSION) {
+                try {
+                    window.parent.postMessage({
+                        type: 'trustchain:error',
+                        version: TRUSTCHAIN_PROTOCOL_VERSION,
+                        source: PANEL_SOURCE,
+                        code: 'UNSUPPORTED_PROTOCOL_VERSION',
+                        message: `Panel supports up to v${TRUSTCHAIN_PROTOCOL_VERSION}, got v${incomingVersion}`,
+                    }, hostTargetOrigin);
+                } catch {
+                    // ignore
+                }
+                return;
+            }
 
             // Host can send context-specific skills
             if (e.data.type === 'trustchain:skills') {
@@ -590,6 +785,55 @@ const PanelApp: React.FC = () => {
                     color: s.color || '#818cf8',
                 }));
                 setHostSkills(skills);
+            }
+
+            if (e.data.type === 'trustchain:workflows' && e.data.workflows && typeof e.data.workflows === 'object') {
+                const incoming = e.data.workflows as Record<string, any[]>;
+                const normalized: Record<string, HostWorkflow[]> = {};
+                Object.entries(incoming).forEach(([scope, workflows]) => {
+                    if (!Array.isArray(workflows)) return;
+                    normalized[scope] = workflows
+                        .filter(Boolean)
+                        .map((wf: any) => ({
+                            id: String(wf.id || wf.label || Math.random()),
+                            label: String(wf.label || 'Workflow'),
+                            description: wf.description ? String(wf.description) : undefined,
+                            prompt: wf.prompt ? String(wf.prompt) : undefined,
+                            color: wf.color ? String(wf.color) : undefined,
+                            documentMode: wf.documentMode ? String(wf.documentMode) : undefined,
+                            requiredTools: Array.isArray(wf.requiredTools) ? wf.requiredTools.map((t: any) => String(t)) : undefined,
+                            policyChecks: Array.isArray(wf.policyChecks) ? wf.policyChecks.map((p: any) => String(p)) : undefined,
+                            verifiableOutput: wf.verifiableOutput ? String(wf.verifiableOutput) : undefined,
+                            steps: Array.isArray(wf.steps) ? wf.steps.map((s: any) => String(s)) : undefined,
+                        }));
+                });
+                setHostWorkflows(prev => ({ ...prev, ...normalized }));
+            }
+
+            if (e.data.type === 'trustchain:document_mode' && e.data.mode) {
+                const normalized: DocumentModeConfig = {
+                    mode: e.data.mode === 'level1' ? 'level1' : 'level2',
+                    label: String(e.data.label || (e.data.mode === 'level1' ? 'Level 1' : 'Level 2')),
+                    shortLabel: e.data.shortLabel ? String(e.data.shortLabel) : undefined,
+                    description: e.data.description ? String(e.data.description) : undefined,
+                    allowedTools: Array.isArray(e.data.allowedTools) ? e.data.allowedTools.map((t: any) => String(t)) : undefined,
+                    blockedTools: Array.isArray(e.data.blockedTools) ? e.data.blockedTools.map((t: any) => String(t)) : undefined,
+                };
+                setDocumentModeConfig(normalized);
+                (window as any).__trustchain_document_mode = normalized;
+                trustchainService.setExecutionContext({
+                    instance: params.instance,
+                    context: params.context || undefined,
+                    document_mode: normalized.mode,
+                });
+            }
+
+            if (e.data.type === 'trustchain:config') {
+                setHostProtocolReady(true);
+                const ctx = e.data?.decision_context;
+                if (ctx && typeof ctx === 'object') {
+                    trustchainService.setDecisionContext(ctx);
+                }
             }
 
             // Host can send a pre-filled query
@@ -657,13 +901,42 @@ const PanelApp: React.FC = () => {
         };
         window.addEventListener('message', handleMessage);
         return () => window.removeEventListener('message', handleMessage);
-    }, []); // eslint-disable-line react-hooks/exhaustive-deps
+    }, [hostTargetOrigin, params.instance, params.context]); // eslint-disable-line react-hooks/exhaustive-deps
+
+    useEffect(() => {
+        try {
+            window.parent.postMessage({
+                type: 'trustchain:ready',
+                version: TRUSTCHAIN_PROTOCOL_VERSION,
+                source: PANEL_SOURCE,
+                instance: params.instance,
+                context: params.context || 'dashboard',
+                capabilities: [
+                    'trustchain:skills',
+                    'trustchain:workflows',
+                    'trustchain:document_mode',
+                    'trustchain:register_actions',
+                    'trustchain:call_action',
+                    'trustchain:bridge',
+                ],
+            }, hostTargetOrigin);
+        } catch {
+            // ignore
+        }
+    }, [hostTargetOrigin, params.instance, params.context]);
 
     // ── Derive current skills (host > MCP > context fallback) ──
     const currentSkills = useMemo(() => {
         if (hostSkills.length > 0) return hostSkills;
         return getContextSkills(params.context, mcpTools);
     }, [hostSkills, params.context, mcpTools]);
+
+    const currentWorkflows = useMemo(() => {
+        const scope = contextToWorkflowScope(params.context);
+        const workflows = hostWorkflows[scope] || hostWorkflows.dashboard || [];
+        if (scope !== 'Документы' || !documentModeConfig?.mode) return workflows;
+        return workflows.filter((wf) => !wf.documentMode || wf.documentMode === documentModeConfig.mode);
+    }, [hostWorkflows, params.context, documentModeConfig]);
 
     // ── Auto-initialize agent ──
     useEffect(() => {
@@ -694,7 +967,10 @@ const PanelApp: React.FC = () => {
                 filtered.push(mcpConfig);
                 localStorage.setItem('kb_agent_mcp_servers', JSON.stringify(filtered));
 
-                const response = await fetch(`${params.mcpUrl}/tools`, { signal: AbortSignal.timeout(5000) });
+                const modeQuery = params.context === 'documents'
+                    ? `?document_mode=${encodeURIComponent(documentModeConfig?.mode || 'level2')}`
+                    : '';
+                const response = await fetch(`${params.mcpUrl}/tools${modeQuery}`, { signal: AbortSignal.timeout(5000) });
                 if (response.ok) {
                     const data = await response.json();
                     const tools = data.tools || data || [];
@@ -711,7 +987,7 @@ const PanelApp: React.FC = () => {
             }
         };
         connectMCP();
-    }, [params.mcpUrl, params.instance]);
+    }, [params.mcpUrl, params.instance, params.context, documentModeConfig?.mode]);
 
     // ── Callbacks ──
     useEffect(() => {
@@ -755,12 +1031,14 @@ const PanelApp: React.FC = () => {
         try {
             window.parent.postMessage({
                 type: 'trustchain:action',
+                version: TRUSTCHAIN_PROTOCOL_VERSION,
+                source: PANEL_SOURCE,
                 action,
                 payload,
-            }, '*');
+            }, hostTargetOrigin);
             console.log('[TC Panel] Sent page action:', action, payload);
         } catch { /* iframe security */ }
-    }, []);
+    }, [hostTargetOrigin]);
 
     // ── Send message ──
     const handleSend = useCallback(async () => {
@@ -778,8 +1056,15 @@ const PanelApp: React.FC = () => {
             // Use host-provided system prompt (URL ?system=base64) if available,
             // otherwise fall back to hardcoded context prompts (ЛОМ, kb-catalog, etc.)
             const systemPrompt = params.systemPrompt || getContextSystemPrompt(params.context);
+            const documentModePrompt = documentModeConfig
+                ? `РЕЖИМ ДОКУМЕНТОВ: ${documentModeConfig.label}. ${documentModeConfig.description || ''}\n` +
+                `Ограничения режима: ${documentModeConfig.mode === 'level2'
+                    ? 'запрещено использовать инструменты доступа к содержимому документов (drive_read_content, drive_search).'
+                    : 'доступ к содержимому документов разрешён при необходимости анализа.'}`
+                : null;
             const chatHistory = [
                 { role: 'system' as const, content: systemPrompt },
+                ...(documentModePrompt ? [{ role: 'system' as const, content: documentModePrompt }] : []),
                 ...messages.filter(m => (m.role as string) !== 'assistant_temp').map(m => ({ role: m.role, content: m.content })),
             ];
 
@@ -793,9 +1078,11 @@ const PanelApp: React.FC = () => {
             for (const ev of events as any[]) {
                 if (ev.type === 'tool_result' && (ev.signature || ev.certificate)) {
                     const resultStr = typeof ev.result === 'string' ? ev.result : JSON.stringify(ev.result);
+                    const signature = normalizeSignature(ev.signature) || normalizeSignature(ev.certificate);
+                    if (!signature) continue;
                     signedResults.push({
                         result: resultStr || '',
-                        signature: ev.signature || ev.certificate || '',
+                        signature,
                         toolName: ev.toolName || '',
                     });
                 }
@@ -804,11 +1091,30 @@ const PanelApp: React.FC = () => {
             let responseContent = result?.text || 'Агент обработал запрос.';
 
             if (signedResults.length > 0 && responseContent.length > 20) {
+                const headerTooltip = buildVerificationTooltip(
+                    signedResults.map(sr => ({ toolName: sr.toolName || 'tool', signature: sr.signature }))
+                );
                 // ── Universal data point extraction from signed tool results ──
                 let totalDataPoints = 0;
                 const verifiedIds = new Set<string>();
+                const verificationById = new Map<string, VerificationMarker[]>();
+
+                const bindVerifiedId = (rawId: unknown, marker: VerificationMarker) => {
+                    const id = typeof rawId === 'string' ? rawId.trim() : String(rawId || '').trim();
+                    if (!id) return;
+                    verifiedIds.add(id);
+                    const existing = verificationById.get(id) || [];
+                    if (!existing.some(e => e.toolName === marker.toolName && e.signature === marker.signature)) {
+                        existing.push(marker);
+                        verificationById.set(id, existing);
+                    }
+                };
 
                 for (const sr of signedResults) {
+                    const marker: VerificationMarker = {
+                        toolName: sr.toolName || 'tool',
+                        signature: sr.signature,
+                    };
                     // Try to parse the result as JSON — handle nested formats
                     let parsed: any = null;
                     try {
@@ -846,14 +1152,14 @@ const PanelApp: React.FC = () => {
                                     seenItemIds.add(itemKey);
                                     totalDataPoints++;
                                     // Extract identifying values for line marking
-                                    if (item.number) verifiedIds.add(item.number);
-                                    if (item.reg_number) verifiedIds.add(item.reg_number);
-                                    if (item.name && item.name.length > 3) verifiedIds.add(item.name);
-                                    if (item.assignee_name) verifiedIds.add(item.assignee_name);
-                                    if (item.author_name) verifiedIds.add(item.author_name);
-                                    if (item.doc_id) verifiedIds.add(item.doc_id);
-                                    if (item.article) verifiedIds.add(item.article);
-                                    if (item.id) verifiedIds.add(String(item.id));
+                                    if (item.number) bindVerifiedId(item.number, marker);
+                                    if (item.reg_number) bindVerifiedId(item.reg_number, marker);
+                                    if (item.name && item.name.length > 3) bindVerifiedId(item.name, marker);
+                                    if (item.assignee_name) bindVerifiedId(item.assignee_name, marker);
+                                    if (item.author_name) bindVerifiedId(item.author_name, marker);
+                                    if (item.doc_id) bindVerifiedId(item.doc_id, marker);
+                                    if (item.article) bindVerifiedId(item.article, marker);
+                                    if (item.id) bindVerifiedId(String(item.id), marker);
                                 }
                             }
                         }
@@ -866,8 +1172,8 @@ const PanelApp: React.FC = () => {
                             if (Array.isArray(parsed[field])) {
                                 totalDataPoints += parsed[field].length;
                                 for (const entry of parsed[field]) {
-                                    if (entry.status) verifiedIds.add(entry.status);
-                                    if (entry.priority) verifiedIds.add(entry.priority);
+                                    if (entry.status) bindVerifiedId(entry.status, marker);
+                                    if (entry.priority) bindVerifiedId(entry.priority, marker);
                                 }
                             }
                         }
@@ -882,7 +1188,7 @@ const PanelApp: React.FC = () => {
                         for (const pat of idPatterns) {
                             const matches = text.match(pat);
                             if (matches) {
-                                matches.forEach(m => verifiedIds.add(m));
+                                matches.forEach(m => bindVerifiedId(m, marker));
                                 totalDataPoints += matches.length;
                             }
                         }
@@ -893,9 +1199,17 @@ const PanelApp: React.FC = () => {
                 if (verifiedIds.size > 0) {
                     const lines = responseContent.split('\n');
                     const markedLines = lines.map(line => {
-                        const hasVerifiedData = [...verifiedIds].some(id => line.includes(id));
-                        if (hasVerifiedData && !line.includes('tc-verified')) {
-                            return line + ' <span class="tc-verified" style="color:#34d399;font-size:11px" title="TrustChain Verified">🛡✓</span>';
+                        const matchedMarkers = new Map<string, VerificationMarker>();
+                        for (const id of verifiedIds) {
+                            if (!line.includes(id)) continue;
+                            const markers = verificationById.get(id) || [];
+                            for (const m of markers) {
+                                matchedMarkers.set(`${m.toolName}::${m.signature}`, m);
+                            }
+                        }
+                        if (matchedMarkers.size > 0 && !line.includes('tc-verified-shield')) {
+                            const tooltip = buildVerificationTooltip(Array.from(matchedMarkers.values()));
+                            return `${line} <span class="tc-verified-shield" title="${escapeHtmlAttr(tooltip)}">✓</span>`;
                         }
                         return line;
                     });
@@ -904,19 +1218,43 @@ const PanelApp: React.FC = () => {
 
                 // Strip any LLM-generated TrustChain shields from response to avoid duplication
                 responseContent = responseContent.replace(/^>?\s*[🛡🔐].*TrustChain.*(?:Ed25519|data point|Verified).*\n*/gm, '');
+                responseContent = normalizeTrustChainMarkup(responseContent, { tooltip: headerTooltip });
                 responseContent = responseContent.replace(/^\n+/, ''); // Remove leading empty lines
 
                 // Single consolidated TrustChain header
-                const allSigs = signedResults.map(sr => sr.signature).filter(Boolean);
-                const fullSig = allSigs[0] || '';
-                const sigShort = fullSig.substring(0, 12) + '…';
-                responseContent = `> <span style="color:#34d399;font-weight:bold" title="${fullSig}">🛡 TrustChain Verified</span> — ${totalDataPoints} data points · ${signedResults.length} tool calls · Ed25519: \`${sigShort}\`\n\n${responseContent}`;
+                const fullSig = signedResults[0]?.signature || '';
+                const sigShort = shortSignature(fullSig);
+                responseContent = `> <span class="tc-verified-label" title="${escapeHtmlAttr(headerTooltip)}">TrustChain Verified</span> — ${totalDataPoints} data points · ${signedResults.length} tool calls · Ed25519: \`${sigShort}\`\n\n${responseContent}`;
+            }
+
+            let finalResponseProof: { signature: string; sequence: number; key_id: string; response_hash: string; tool_signatures_hash: string } | null = null;
+            try {
+                const proof = await trustchainService.signFinalResponse(
+                    responseContent,
+                    signedResults.map((sr) => sr.signature),
+                    {
+                        context: params.context || 'dashboard',
+                        has_artifacts: createdArtifactIds.length > 0,
+                    }
+                );
+                finalResponseProof = {
+                    signature: proof.envelope.signature,
+                    sequence: proof.envelope.sequence,
+                    key_id: proof.envelope.key_id,
+                    response_hash: proof.response_hash,
+                    tool_signatures_hash: proof.tool_signatures_hash,
+                };
+                responseContent += `\n\n> <span class="tc-verified-label" title="Signed final response">Final Response Signed</span> · key: \`${proof.envelope.key_id}\` · seq: \`${proof.envelope.sequence}\``;
+            } catch (proofError) {
+                console.warn('[TrustChain] Failed to sign final response:', proofError);
             }
 
             const assistantMsg: Message = {
                 id: `m_${Date.now() + 1}`, role: 'assistant',
                 content: responseContent,
                 timestamp: new Date(),
+                signature: finalResponseProof?.signature,
+                verified: !!finalResponseProof,
                 ...(createdArtifactIds.length > 0 && { artifactIds: createdArtifactIds }),
                 executionSteps: (() => {
                     const steps: ExecutionStep[] = [];
@@ -964,9 +1302,13 @@ const PanelApp: React.FC = () => {
             try {
                 window.parent.postMessage({
                     type: 'trustchain:response',
+                    version: TRUSTCHAIN_PROTOCOL_VERSION,
+                    source: PANEL_SOURCE,
                     text: assistantMsg.content,
                     hasArtifacts: createdArtifactIds.length > 0,
-                }, '*');
+                    protocol_ready: hostProtocolReady,
+                    final_response_proof: finalResponseProof,
+                }, hostTargetOrigin);
             } catch { /* iframe security */ }
 
             // ── Agent→Page Bridge: intercept page actions from tool results ──
@@ -1019,6 +1361,12 @@ const PanelApp: React.FC = () => {
         inputRef.current?.focus();
     }, []);
 
+    const handleWorkflowClick = useCallback((workflow: HostWorkflow) => {
+        if (!workflow) return;
+        setInputValue(buildWorkflowPrompt(workflow));
+        inputRef.current?.focus();
+    }, []);
+
     const handleOpenArtifact = useCallback((id: string) => {
         const art = dynamicArtifacts[id];
         if (art) setViewingArtifact(art);
@@ -1058,6 +1406,19 @@ const PanelApp: React.FC = () => {
                     </div>
                 </div>
                 <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                    {documentModeConfig && (
+                        <div style={{
+                            display: 'flex', alignItems: 'center', gap: 4,
+                            background: documentModeConfig.mode === 'level1' ? 'rgba(20,184,166,0.12)' : 'rgba(99,102,241,0.12)',
+                            border: `1px solid ${documentModeConfig.mode === 'level1' ? 'rgba(20,184,166,0.35)' : 'rgba(99,102,241,0.35)'}`,
+                            borderRadius: 12, padding: '3px 8px', fontSize: 10,
+                            color: documentModeConfig.mode === 'level1' ? '#5eead4' : '#a5b4fc',
+                        }}
+                            title={documentModeConfig.description || documentModeConfig.label}
+                        >
+                            <Eye size={10} /> {documentModeConfig.shortLabel || documentModeConfig.mode.toUpperCase()}
+                        </div>
+                    )}
                     <div style={{
                         display: 'flex', alignItems: 'center', gap: 4,
                         background: agent.isInitialized ? 'rgba(52,211,153,0.12)' : 'rgba(239,68,68,0.12)',
@@ -1086,8 +1447,11 @@ const PanelApp: React.FC = () => {
                         agentReady={agent.isInitialized}
                         mcpStatus={mcpStatus}
                         skills={currentSkills}
+                        workflows={currentWorkflows}
+                        documentMode={documentModeConfig}
                         toolCount={agent.tools.length}
                         onSkillClick={handleSkillClick}
+                        onWorkflowClick={handleWorkflowClick}
                     />
                 ) : (
                     <div>

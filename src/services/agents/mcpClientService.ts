@@ -56,6 +56,16 @@ export interface MCPServerConnection {
     sessionId?: string;  // For streamable-http MCP protocol
 }
 
+export interface MCPTrustRecord {
+    serverId: string;
+    issuer: string;
+    fingerprint: string;
+    validFrom?: string;
+    validTo?: string;
+    revoked?: boolean;
+    tier?: 'sandbox' | 'trusted' | 'critical';
+}
+
 // ─── Константы ───
 
 const DEFAULT_TIMEOUT = 15000;
@@ -73,6 +83,58 @@ export class MCPClientService {
     private connections: Map<string, MCPServerConnection> = new Map();
     private toolCache: Map<string, { tools: any[]; timestamp: number }> = new Map();
     private sessionIds: Map<string, string> = new Map();  // serverId → mcp-session-id
+    private trustRegistry: Map<string, MCPTrustRecord> = new Map();
+
+    private isMutatingTool(toolName: string): boolean {
+        const lower = String(toolName || '').toLowerCase();
+        return /^(create|update|delete|upsert|write|apply|set|run|execute)_/.test(lower)
+            || lower.includes('approve')
+            || lower.includes('block')
+            || lower.includes('revoke');
+    }
+
+    private loadTrustRegistry(): void {
+        try {
+            if (typeof window === 'undefined') return;
+            const raw = window.localStorage.getItem('trustchain_mcp_registry');
+            if (!raw) return;
+            const parsed = JSON.parse(raw);
+            const records: MCPTrustRecord[] = Array.isArray(parsed) ? parsed : (parsed?.records || []);
+            this.trustRegistry.clear();
+            for (const record of records) {
+                if (record?.serverId) this.trustRegistry.set(record.serverId, record);
+            }
+        } catch {
+            // ignore registry parsing errors
+        }
+    }
+
+    private evaluateTrust(config: MCPServerConfig, toolName?: string): { allowed: boolean; reason?: string } {
+        const isLocal = /localhost|127\.0\.0\.1/.test(config.url);
+        const allowLocalUnsigned = ((typeof import.meta !== 'undefined' && (import.meta as any).env?.VITE_TRUSTCHAIN_ALLOW_LOCAL_UNSIGNED_MCP) || 'false') === 'true';
+        const record = this.trustRegistry.get(config.id);
+        const isHighRiskCall = !!toolName && this.isMutatingTool(toolName);
+
+        if (record?.revoked) {
+            return { allowed: false, reason: `MCP certificate revoked for ${config.id}` };
+        }
+        if (record && record.validTo && Date.parse(record.validTo) < Date.now()) {
+            return { allowed: false, reason: `MCP certificate expired for ${config.id}` };
+        }
+        if (record) {
+            const status = String((record as any).status || (record.revoked ? 'revoked' : 'active')).toLowerCase();
+            const trustTier = String((record.tier || (record as any).trust_tier || 'sandbox')).toLowerCase();
+            if (status !== 'active') {
+                return { allowed: false, reason: `MCP certificate is not active for ${config.id}` };
+            }
+            if (isHighRiskCall && !['trusted', 'critical'].includes(trustTier)) {
+                return { allowed: false, reason: `MCP tier "${trustTier}" is insufficient for high-risk tool ${toolName}` };
+            }
+            return { allowed: true };
+        }
+        if (isLocal && allowLocalUnsigned) return { allowed: true };
+        return { allowed: false, reason: `Untrusted MCP server ${config.id}. Add certificate to trustchain_mcp_registry.` };
+    }
 
     // ──────────────────────────────────────────────
     // Connection Management
@@ -83,6 +145,20 @@ export class MCPClientService {
      */
     async connect(config: MCPServerConfig): Promise<MCPServerConnection> {
         console.log(`[MCP] Connecting to ${config.name} at ${config.url} (transport: ${config.transport})...`);
+        this.loadTrustRegistry();
+        const trustDecision = this.evaluateTrust(config);
+        if (!trustDecision.allowed) {
+            const denied: MCPServerConnection = {
+                config,
+                tools: [],
+                resources: [],
+                status: 'error',
+                lastError: trustDecision.reason || 'trust policy denied'
+            };
+            this.connections.set(config.id, denied);
+            console.error(`[MCP] Trust policy denied ${config.name}: ${denied.lastError}`);
+            return denied;
+        }
 
         try {
             // For streamable-http: initialize the session first
@@ -443,6 +519,10 @@ export class MCPClientService {
         if (!connection || connection.status !== 'connected') {
             throw new Error(`MCP server ${serverId} is not connected`);
         }
+        const trustDecision = this.evaluateTrust(connection.config, toolName);
+        if (!trustDecision.allowed) {
+            throw new Error(`[MCP][Trust] ${trustDecision.reason || 'server not trusted'}`);
+        }
 
         const config = connection.config;
         const timeout = config.timeout || DEFAULT_TIMEOUT;
@@ -453,7 +533,20 @@ export class MCPClientService {
             tcEnvelope = await trustchainService.sign(toolName, args);
         } catch (e) {
             console.warn('[MCP] TrustChain signing skipped:', (e as Error).message);
+            if (this.isMutatingTool(toolName)) {
+                throw new Error(`[MCP][TrustChain] Fail-closed: мутационный tool "${toolName}" запрещен без подписи`);
+            }
         }
+        const documentMode = (typeof window !== 'undefined')
+            ? (window as any).__trustchain_document_mode?.mode
+            : undefined;
+        const tcPayload = tcEnvelope
+            ? {
+                ...tcEnvelope,
+                mcp_server_id: serverId,
+                ...(documentMode ? { document_mode: documentMode } : {}),
+            }
+            : undefined;
 
         // Helper: attach TrustChain metadata to raw result
         const attachSignature = (rawResult: any) => {
@@ -485,9 +578,14 @@ export class MCPClientService {
         if (config.transport === 'streamable-http') {
             const result = await this.streamableHTTPCall(config, 'tools/call', {
                 name: toolName,
-                arguments: args
+                arguments: args,
+                ...(tcPayload ? { trustchain: tcPayload } : {})
             });
-            return attachSignature(result?.content || result);
+            const normalized = result?.content || result;
+            if (normalized?.action === 'deny' || normalized?.success === false && normalized?.policy) {
+                throw new Error(`[MCP][Policy] ${normalized?.code || 'DENY'}: ${normalized?.message || 'Tool denied'}`);
+            }
+            return attachSignature(normalized);
         }
 
         if (config.transport === 'http' || config.transport === 'sse') {
@@ -506,7 +604,7 @@ export class MCPClientService {
                         method: 'tools/call',
                         params: { name: toolName, arguments: args },
                         // TrustChain: cryptographic signature of this call
-                        ...(tcEnvelope ? { trustchain: tcEnvelope } : {}),
+                        ...(tcPayload ? { trustchain: tcPayload } : {}),
                         id: Date.now()
                     }),
                     signal: controller.signal
@@ -520,6 +618,17 @@ export class MCPClientService {
 
                 const data = await response.json();
                 const rawResult = data.result?.content || data.result || data;
+                const asText = Array.isArray(rawResult) && rawResult[0]?.text ? rawResult[0].text : null;
+                if (asText) {
+                    try {
+                        const parsed = JSON.parse(asText);
+                        if (parsed?.action === 'deny' || parsed?.policy) {
+                            throw new Error(`[MCP][Policy] ${parsed?.code || 'DENY'}: ${parsed?.message || 'Tool denied'}`);
+                        }
+                    } catch {
+                        // ignore non-json text
+                    }
+                }
                 return attachSignature(rawResult);
             } catch (error: any) {
                 clearTimeout(timeoutId);
@@ -533,7 +642,7 @@ export class MCPClientService {
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({
                 serverId: config.id, toolName, args,
-                ...(tcEnvelope ? { trustchain: tcEnvelope } : {})
+                ...(tcPayload ? { trustchain: tcPayload } : {})
             })
         });
 

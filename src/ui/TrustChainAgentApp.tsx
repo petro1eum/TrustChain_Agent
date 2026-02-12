@@ -24,6 +24,7 @@ import { useTaskQueue } from '../hooks/useTaskQueue';
 
 // Services
 import { agentCallbacksService } from '../services/agents/agentCallbacksService';
+import { trustchainService } from '../services/trustchainService';
 
 // Extracted components
 import type { ThemeMode, Tier, Artifact, Message, Conversation } from './components/types';
@@ -412,7 +413,107 @@ const DEMO_MESSAGES: Message[] = [
    Main App
    ═══════════════════════════════════════════ */
 
+const HostSimulatorMode: React.FC = () => {
+    const iframeRef = useRef<HTMLIFrameElement | null>(null);
+    const [ready, setReady] = useState(false);
+    const [documentMode, setDocumentMode] = useState<'level1' | 'level2'>('level2');
+
+    useEffect(() => {
+        const handler = (e: any) => {
+            if (!e.data || typeof e.data !== 'object') return;
+            if (e.data.type !== 'trustchain:ready') return;
+            setReady(true);
+        };
+        window.addEventListener('message', handler);
+        return () => window.removeEventListener('message', handler);
+    }, []);
+
+    const postToPanel = useCallback((payload: Record<string, any>) => {
+        iframeRef.current?.contentWindow?.postMessage({
+            version: 2,
+            source: 'standalone-host-simulator',
+            timestamp: new Date().toISOString(),
+            ...payload,
+        }, window.location.origin);
+    }, []);
+
+    useEffect(() => {
+        if (!ready) return;
+        postToPanel({
+            type: 'trustchain:config',
+            targetOrigin: window.location.origin,
+            instance: 'standalone-simulator',
+            context: 'dashboard',
+        });
+        postToPanel({
+            type: 'trustchain:skills',
+            skills: [
+                { label: 'Сводка рисков', prompt: 'Покажи сводку рисков по верифицированным данным', color: '#06b6d4' },
+                { label: 'Проверка цепочки', prompt: 'Проверь целостность TrustChain audit trail', color: '#34d399' },
+            ],
+        });
+        postToPanel({
+            type: 'trustchain:workflows',
+            workflows: {
+                dashboard: [
+                    {
+                        id: 'simulated_audit',
+                        label: 'Симуляция аудита',
+                        description: 'Проверка подписей, replay-защиты и хэш-цепочки',
+                        requiredTools: ['get_audit_trail', 'verify_audit_proof'],
+                    },
+                ],
+            },
+        });
+        postToPanel({
+            type: 'trustchain:document_mode',
+            mode: documentMode,
+            label: documentMode === 'level1' ? 'Level 1 (RAG + контент)' : 'Level 2 (Blind Architect)',
+            shortLabel: documentMode === 'level1' ? 'L1' : 'L2',
+            description: documentMode === 'level1'
+                ? 'Доступ к контенту документов разрешен'
+                : 'Контент документов заблокирован',
+            allowedTools: documentMode === 'level1' ? ['drive_read_content', 'drive_search'] : ['list_documents'],
+            blockedTools: documentMode === 'level1' ? [] : ['drive_read_content', 'drive_search'],
+        });
+    }, [ready, documentMode, postToPanel]);
+
+    return (
+        <div className="w-full h-screen bg-slate-950 flex flex-col">
+            <div className="px-4 py-3 border-b border-slate-800 flex items-center justify-between">
+                <div className="text-sm text-slate-100 font-medium">Standalone Host Simulator</div>
+                <div className="flex items-center gap-2">
+                    <button
+                        className={`px-2 py-1 rounded text-xs ${documentMode === 'level1' ? 'bg-teal-600 text-white' : 'bg-slate-800 text-slate-300'}`}
+                        onClick={() => setDocumentMode('level1')}
+                    >
+                        L1
+                    </button>
+                    <button
+                        className={`px-2 py-1 rounded text-xs ${documentMode === 'level2' ? 'bg-indigo-600 text-white' : 'bg-slate-800 text-slate-300'}`}
+                        onClick={() => setDocumentMode('level2')}
+                    >
+                        L2
+                    </button>
+                </div>
+            </div>
+            <iframe
+                ref={iframeRef}
+                src={`${window.location.origin}/panel?instance=standalone-simulator&context=dashboard&hostOrigin=${encodeURIComponent(window.location.origin)}`}
+                className="flex-1 w-full border-0"
+                title="TrustChain Panel Simulator"
+            />
+        </div>
+    );
+};
+
 const TrustChainAgentApp: React.FC = () => {
+    const isHostSimulatorMode = typeof window !== 'undefined'
+        && new URLSearchParams(window.location.search).get('host_simulator') === 'true';
+    if (isHostSimulatorMode) {
+        return <HostSimulatorMode />;
+    }
+
     // ── Chat state (from useChatState hook) ──
     const {
         messages, setMessages,
@@ -614,18 +715,34 @@ const TrustChainAgentApp: React.FC = () => {
                     if (Object.keys(newArtifacts).length > 0) {
                         setDynamicArtifacts(prev => ({ ...prev, ...newArtifacts }));
                     }
-                    const assistantMsg: Message = {
-                        id: `m_${Date.now() + 1}`,
-                        role: 'assistant',
-                        content: result?.text || 'Agent processed the request.',
-                        timestamp: new Date(),
-                        ...(createdArtifactIds.length > 0 && { artifactIds: createdArtifactIds }),
-                    };
-                    setMessages(prev => [...prev, assistantMsg]);
-                    setIsTyping(false);
-                    if (createdArtifactIds.length > 0) {
-                        setActiveArtifactId(createdArtifactIds[0]);
-                    }
+                    (async () => {
+                        let finalText = result?.text || 'Agent processed the request.';
+                        let finalSignature: string | undefined;
+                        try {
+                            const toolSigs = events
+                                .filter((ev: any) => ev.type === 'tool_result' && (ev as any).signature)
+                                .map((ev: any) => (ev as any).signature);
+                            const proof = await trustchainService.signFinalResponse(finalText, toolSigs, { mode: 'standalone' });
+                            finalSignature = proof.envelope.signature;
+                            finalText += `\n\n> ✅ Final Response Signed · key: \`${proof.envelope.key_id}\` · seq: \`${proof.envelope.sequence}\``;
+                        } catch {
+                            // ignore signing failures
+                        }
+                        const assistantMsg: Message = {
+                            id: `m_${Date.now() + 1}`,
+                            role: 'assistant',
+                            content: finalText,
+                            timestamp: new Date(),
+                            signature: finalSignature,
+                            verified: !!finalSignature,
+                            ...(createdArtifactIds.length > 0 && { artifactIds: createdArtifactIds }),
+                        };
+                        setMessages(prev => [...prev, assistantMsg]);
+                        setIsTyping(false);
+                        if (createdArtifactIds.length > 0) {
+                            setActiveArtifactId(createdArtifactIds[0]);
+                        }
+                    })();
                 });
             } else {
                 setIsTyping(false);
@@ -673,11 +790,26 @@ const TrustChainAgentApp: React.FC = () => {
                 setDynamicArtifacts(prev => ({ ...prev, ...newArtifacts }));
             }
 
+            let finalText = result?.text || 'Агент обработал запрос, но не вернул текстовый ответ.';
+            let finalSignature: string | undefined;
+            try {
+                const toolSigs = events
+                    .filter((ev: any) => ev.type === 'tool_result' && (ev as any).signature)
+                    .map((ev: any) => (ev as any).signature);
+                const proof = await trustchainService.signFinalResponse(finalText, toolSigs, { mode: 'standalone' });
+                finalSignature = proof.envelope.signature;
+                finalText += `\n\n> ✅ Final Response Signed · key: \`${proof.envelope.key_id}\` · seq: \`${proof.envelope.sequence}\``;
+            } catch {
+                // do not block response if signing failed
+            }
+
             const assistantMsg: Message = {
                 id: `m_${Date.now() + 1}`,
                 role: 'assistant',
-                content: result?.text || 'Агент обработал запрос, но не вернул текстовый ответ.',
+                content: finalText,
                 timestamp: new Date(),
+                signature: finalSignature,
+                verified: !!finalSignature,
                 ...(createdArtifactIds.length > 0 && { artifactIds: createdArtifactIds }),
                 executionSteps: events.map((ev, idx) => {
                     if (ev.type === 'thinking') {

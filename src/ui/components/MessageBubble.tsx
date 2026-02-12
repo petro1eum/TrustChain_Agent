@@ -1,11 +1,11 @@
 import React, { useState } from 'react';
 import {
-    User, Bot, Clock, Copy, Zap, CheckCircle, ChevronRight, Shield
+    User, Bot, Clock, Copy, Zap, CheckCircle, ChevronRight, Shield, AlertTriangle
 } from 'lucide-react';
 import type { Message, Artifact, ToolCall } from './types';
 import { ThinkingContainer } from './ThinkingContainer';
 import { ArtifactCard } from './ArtifactCard';
-import { renderInline, renderFullMarkdown } from './MarkdownRenderer';
+import { normalizeTrustChainMarkup, renderInline, renderFullMarkdown } from './MarkdownRenderer';
 
 /**
  * MessageBubble — Renders a single chat message with optional execution steps,
@@ -19,6 +19,7 @@ export const MessageBubble: React.FC<{
 }> = ({ message, activeArtifactId, onOpenArtifact, allArtifacts }) => {
     const isUser = message.role === 'user';
     const artifact = message.artifactId ? allArtifacts[message.artifactId] : null;
+    const normalizedContent = normalizeTrustChainMarkup(message.content || '');
 
     return (
         <div className={`flex gap-3 ${isUser ? 'flex-row-reverse' : ''} group`}>
@@ -60,7 +61,7 @@ export const MessageBubble: React.FC<{
 
                     {/* Message content */}
                     <div className={isUser ? 'whitespace-pre-wrap break-words' : 'break-words tc-markdown'}>
-                        {isUser ? renderInline(message.content) : renderFullMarkdown(message.content)}
+                        {isUser ? renderInline(message.content) : renderFullMarkdown(normalizedContent)}
                     </div>
                 </div>
 
@@ -114,7 +115,7 @@ export const MessageBubble: React.FC<{
 const SignatureBadge: React.FC<{ signature: string; verified: boolean }> = ({ signature, verified }) => (
     <div className={`inline-flex items-center gap-1.5 text-[11px] px-2.5 py-1 rounded-full border
         ${verified ? 'tc-verified' : 'tc-unverified'}`}>
-        {verified ? <CheckCircle size={12} /> : <Shield size={12} />}
+        {verified ? <Shield size={12} /> : <AlertTriangle size={12} />}
         <span className="font-mono">{signature.substring(0, 12)}…</span>
         <span className="opacity-60">·</span>
         <span>{verified ? 'Verified' : 'Unverified'}</span>

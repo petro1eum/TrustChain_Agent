@@ -240,12 +240,12 @@ ${contextInfo}
             id: 'direct_answer',
             thought: 'Отвечаю на основе доступных данных',
             action: {
-              tool: 'get_file_metadata',
-              args: { fileName: 'Cable.mdb' },
-              reasoning: 'Получаю структуру из уже загруженного файла'
+              tool: 'describe_current_page',
+              args: {},
+              reasoning: 'Получаю нейтральный контекст страницы без доменной привязки'
             },
             dependencies: [],
-            expectedResult: 'Список таблиц и полей из доступного файла',
+            expectedResult: 'Актуальный контекст страницы и доступных сущностей',
             alternativeApproaches: [],
             executed: false
           }],
@@ -418,9 +418,9 @@ ${fullPlanContent}
             id: 'fallback_step',
             thought: 'Выполняю базовый план из-за ошибки парсинга',
             action: {
-              tool: 'get_file_metadata',
+              tool: 'describe_platform',
               args: {},
-              reasoning: 'Fallback действие'
+              reasoning: 'Fallback: запрашиваю универсальное описание платформы'
             },
             dependencies: [],
             expectedResult: 'Результат выполнения',
@@ -451,9 +451,9 @@ ${fullPlanContent}
           id: 'error_fallback',
           thought: 'Создаю упрощенный план из-за ошибки',
           action: {
-            tool: 'get_file_metadata',
+            tool: 'describe_platform',
             args: {},
-            reasoning: 'Базовое действие при ошибке планирования'
+            reasoning: 'Базовое универсальное действие при ошибке планирования'
           },
           dependencies: [],
           expectedResult: 'Результат выполнения',

@@ -3,6 +3,7 @@ import {
     Brain, ChevronDown, ChevronUp, CheckCircle2, Loader2,
     AlertCircle, Clock, Wrench, XCircle, Zap
 } from 'lucide-react';
+import { normalizeTrustChainMarkup, renderInline } from './MarkdownRenderer';
 
 /**
  * LiveThinkingAccordion — Shows agent execution steps as a collapsible accordion.
@@ -196,9 +197,12 @@ export const LiveThinkingAccordion: React.FC<LiveThinkingAccordionProps> = ({
                                 </button>
                                 {isStepExpanded && details && (
                                     <div className="px-4 py-2 tc-surface border-t tc-border-light">
-                                        <pre className="text-[10px] tc-text-secondary whitespace-pre-wrap break-words max-h-[150px] overflow-y-auto font-mono">
-                                            {typeof details === 'string' ? details.substring(0, 800) : JSON.stringify(details, null, 2)?.substring(0, 800)}
-                                        </pre>
+                                        <div className="text-[10px] tc-text-secondary whitespace-pre-wrap break-words max-h-[150px] overflow-y-auto font-mono">
+                                            {renderInline(normalizeTrustChainMarkup(
+                                                (typeof details === 'string' ? details : JSON.stringify(details, null, 2) || '')
+                                                    .substring(0, 800)
+                                            ))}
+                                        </div>
                                     </div>
                                 )}
                             </div>

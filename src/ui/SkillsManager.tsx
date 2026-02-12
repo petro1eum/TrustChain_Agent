@@ -11,7 +11,7 @@
  * - "Ask Agent" button → prefills chat with a request to use/explain the skill
  */
 
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useEffect } from 'react';
 import {
     Search, X, ChevronRight, ChevronLeft,
     Sparkles, BookOpen, Code, Globe,
@@ -19,8 +19,9 @@ import {
     Terminal, FileText, Layers, Puzzle,
     Wand2, MessageSquare, ExternalLink, Brain,
 } from 'lucide-react';
+import { SkillsLoaderService } from '../services/skills';
 
-// ── Skill data (static from SkillsLoaderService paths) ──
+// ── Skill data (registry-driven from SkillsLoaderService) ──
 
 interface SkillInfo {
     name: string;
@@ -30,99 +31,22 @@ interface SkillInfo {
     subcategory?: string;
 }
 
-// Build skills list from the known SKILL_PATHS in SkillsLoaderService
-// We include readable names/descriptions derived from path structure
-const ALL_SKILLS: SkillInfo[] = [
-    // === Public (5) ===
+const FALLBACK_SKILLS: SkillInfo[] = [
     { name: 'DOCX Generator', description: 'Create and format Microsoft Word documents', path: '/mnt/skills/public/docx/SKILL.md', category: 'public' },
     { name: 'PDF Generator', description: 'Create and format PDF documents', path: '/mnt/skills/public/pdf/SKILL.md', category: 'public' },
-    { name: 'PPTX Generator', description: 'Create PowerPoint presentations', path: '/mnt/skills/public/pptx/SKILL.md', category: 'public' },
-    { name: 'XLSX Generator', description: 'Create Excel spreadsheets with data', path: '/mnt/skills/public/xlsx/SKILL.md', category: 'public' },
-    { name: 'Product Self-Knowledge', description: 'Agent self-awareness and product knowledge base', path: '/mnt/skills/public/product-self-knowledge/SKILL.md', category: 'public' },
-
-    // === Category Management (14) ===
-    { name: 'Test Category Search', description: 'Test search functionality for a category', path: '/mnt/skills/kb-tools/category-management/test-category-search/SKILL.md', category: 'kb-tools', subcategory: 'category-management' },
-    { name: 'Run Category Diagnostic', description: 'Run diagnostic checks on category configuration', path: '/mnt/skills/kb-tools/category-management/run-category-diagnostic/SKILL.md', category: 'kb-tools', subcategory: 'category-management' },
-    { name: 'Get Category Config', description: 'Retrieve current category configuration', path: '/mnt/skills/kb-tools/category-management/get-category-config/SKILL.md', category: 'kb-tools', subcategory: 'category-management' },
-    { name: 'Troubleshoot Search', description: 'Troubleshoot search problems in categories', path: '/mnt/skills/kb-tools/category-management/troubleshoot-search-problems/SKILL.md', category: 'kb-tools', subcategory: 'category-management' },
-    { name: 'Follow Diagnostic Protocol', description: 'Follow structured diagnostic protocol', path: '/mnt/skills/kb-tools/category-management/follow-diagnostic-protocol/SKILL.md', category: 'kb-tools', subcategory: 'category-management' },
-    { name: 'Manage Category Lifecycle', description: 'Manage full lifecycle of a category', path: '/mnt/skills/kb-tools/category-management/manage-category-lifecycle/SKILL.md', category: 'kb-tools', subcategory: 'category-management' },
-    { name: 'Add New Category', description: 'Create and configure a new category', path: '/mnt/skills/kb-tools/category-management/add-new-category/SKILL.md', category: 'kb-tools', subcategory: 'category-management' },
-    { name: 'Get Category Info', description: 'Get detailed information about a category', path: '/mnt/skills/kb-tools/category-management/get-category-info/SKILL.md', category: 'kb-tools', subcategory: 'category-management' },
-    { name: 'Get Category Backups', description: 'List available backups for a category', path: '/mnt/skills/kb-tools/category-management/get-category-backups/SKILL.md', category: 'kb-tools', subcategory: 'category-management' },
-    { name: 'Validate Category Config', description: 'Validate category configuration for errors', path: '/mnt/skills/kb-tools/category-management/validate-category-config/SKILL.md', category: 'kb-tools', subcategory: 'category-management' },
-    { name: 'Get Param Coverage', description: 'Get parameter coverage statistics for a category', path: '/mnt/skills/kb-tools/category-management/get-category-param-coverage/SKILL.md', category: 'kb-tools', subcategory: 'category-management' },
-    { name: 'Restore Backup', description: 'Restore a category from backup', path: '/mnt/skills/kb-tools/category-management/restore-category-backup/SKILL.md', category: 'kb-tools', subcategory: 'category-management' },
-    { name: 'Save Category Config', description: 'Save changes to category configuration', path: '/mnt/skills/kb-tools/category-management/save-category-config/SKILL.md', category: 'kb-tools', subcategory: 'category-management' },
-    { name: 'Get Diagnostic History', description: 'View history of diagnostic runs', path: '/mnt/skills/kb-tools/category-management/get-diagnostic-history/SKILL.md', category: 'kb-tools', subcategory: 'category-management' },
-
-    // === Computer Use (4) ===
-    { name: 'View File', description: 'View contents of files in the workspace', path: '/mnt/skills/kb-tools/computer-use/view/SKILL.md', category: 'kb-tools', subcategory: 'computer-use' },
+    { name: 'Web Search', description: 'Search the web and collect sources', path: '/mnt/skills/kb-tools/web-tools/web-search/SKILL.md', category: 'kb-tools', subcategory: 'web-tools' },
     { name: 'Bash Tool', description: 'Execute bash commands in sandbox', path: '/mnt/skills/kb-tools/computer-use/bash-tool/SKILL.md', category: 'kb-tools', subcategory: 'computer-use' },
-    { name: 'Create File', description: 'Create new files in the workspace', path: '/mnt/skills/kb-tools/computer-use/create-file/SKILL.md', category: 'kb-tools', subcategory: 'computer-use' },
-    { name: 'String Replace', description: 'Search and replace text in files', path: '/mnt/skills/kb-tools/computer-use/str-replace/SKILL.md', category: 'kb-tools', subcategory: 'computer-use' },
-
-    // === Code Execution (6) ===
-    { name: 'Execute Code', description: 'Run code snippets in sandboxed environment', path: '/mnt/skills/kb-tools/code-execution/execute-code/SKILL.md', category: 'kb-tools', subcategory: 'code-execution' },
-    { name: 'Execute Bash', description: 'Execute bash scripts with output capture', path: '/mnt/skills/kb-tools/code-execution/execute-bash/SKILL.md', category: 'kb-tools', subcategory: 'code-execution' },
-    { name: 'Load Tool', description: 'Load a saved tool for use', path: '/mnt/skills/kb-tools/code-execution/load-tool/SKILL.md', category: 'kb-tools', subcategory: 'code-execution' },
-    { name: 'List Tools', description: 'List all available saved tools', path: '/mnt/skills/kb-tools/code-execution/list-tools/SKILL.md', category: 'kb-tools', subcategory: 'code-execution' },
-    { name: 'Import Tool', description: 'Import external tool into the workspace', path: '/mnt/skills/kb-tools/code-execution/import-tool/SKILL.md', category: 'kb-tools', subcategory: 'code-execution' },
-    { name: 'Save Tool', description: 'Save a tool for future use', path: '/mnt/skills/kb-tools/code-execution/save-tool/SKILL.md', category: 'kb-tools', subcategory: 'code-execution' },
-
-    // === Web Tools (5) ===
-    { name: 'Web Search', description: 'Search the web via DuckDuckGo/Jina', path: '/mnt/skills/kb-tools/web-tools/web-search/SKILL.md', category: 'kb-tools', subcategory: 'web-tools' },
-    { name: 'Web Fetch', description: 'Fetch and extract content from URLs', path: '/mnt/skills/kb-tools/web-tools/web-fetch/SKILL.md', category: 'kb-tools', subcategory: 'web-tools' },
-    { name: 'Read Project File', description: 'Read files from the project directory', path: '/mnt/skills/kb-tools/web-tools/read-project-file/SKILL.md', category: 'kb-tools', subcategory: 'web-tools' },
-    { name: 'Synonyms Preview', description: 'Preview synonyms for search terms', path: '/mnt/skills/kb-tools/web-tools/get-synonyms-preview/SKILL.md', category: 'kb-tools', subcategory: 'web-tools' },
-    { name: 'Search Files by Name', description: 'Find files by name pattern in workspace', path: '/mnt/skills/kb-tools/web-tools/search-files-by-name/SKILL.md', category: 'kb-tools', subcategory: 'web-tools' },
-
-    // === File Tools (1) ===
-    { name: 'Extract Table to Excel', description: 'Extract tables from documents to Excel format', path: '/mnt/skills/kb-tools/file-tools/extract-table-to-excel/SKILL.md', category: 'kb-tools', subcategory: 'file-tools' },
-
-    // === Data Processing (10) ===
-    { name: 'Missing Data', description: 'Detect and handle missing data', path: '/mnt/skills/kb-tools/data-processing/missing-data/SKILL.md', category: 'kb-tools', subcategory: 'data-processing' },
-    { name: 'Normalize Data', description: 'Normalize and standardize data values', path: '/mnt/skills/kb-tools/data-processing/normalize-data/SKILL.md', category: 'kb-tools', subcategory: 'data-processing' },
-    { name: 'Data Quality', description: 'Assess and improve data quality', path: '/mnt/skills/kb-tools/data-processing/data-quality/SKILL.md', category: 'kb-tools', subcategory: 'data-processing' },
-    { name: 'Access Source File', description: 'Access source data files', path: '/mnt/skills/kb-tools/data-processing/access-source-file/SKILL.md', category: 'kb-tools', subcategory: 'data-processing' },
-    { name: 'Add to Workspace', description: 'Add new data to workspace', path: '/mnt/skills/kb-tools/data-processing/add-to-workspace/SKILL.md', category: 'kb-tools', subcategory: 'data-processing' },
-    { name: 'Smart Lookup', description: 'Intelligent data lookup and matching', path: '/mnt/skills/kb-tools/data-processing/smart-lookup/SKILL.md', category: 'kb-tools', subcategory: 'data-processing' },
-    { name: 'Pandas Operation', description: 'Execute pandas DataFrame operations', path: '/mnt/skills/kb-tools/data-processing/pandas-operation/SKILL.md', category: 'kb-tools', subcategory: 'data-processing' },
-    { name: 'Outliers', description: 'Detect and handle outliers in data', path: '/mnt/skills/kb-tools/data-processing/outliers/SKILL.md', category: 'kb-tools', subcategory: 'data-processing' },
-    { name: 'Semantic Analysis', description: 'Semantic analysis of text data', path: '/mnt/skills/kb-tools/data-processing/semantic-analysis/SKILL.md', category: 'kb-tools', subcategory: 'data-processing' },
-    { name: 'Text Processing', description: 'Process and transform text data', path: '/mnt/skills/kb-tools/data-processing/text-processing/SKILL.md', category: 'kb-tools', subcategory: 'data-processing' },
-
-    // === Frontend Navigation (11) ===
-    { name: 'Navigate to Tab', description: 'Navigate to a specific tab in the UI', path: '/mnt/skills/kb-tools/frontend-navigation/navigate-to-tab/SKILL.md', category: 'kb-tools', subcategory: 'frontend-navigation' },
-    { name: 'Navigate to Subtab', description: 'Navigate to a subtab within a tab', path: '/mnt/skills/kb-tools/frontend-navigation/navigate-to-subtab/SKILL.md', category: 'kb-tools', subcategory: 'frontend-navigation' },
-    { name: 'Get Current Screen', description: 'Get information about the current screen', path: '/mnt/skills/kb-tools/frontend-navigation/get-current-screen/SKILL.md', category: 'kb-tools', subcategory: 'frontend-navigation' },
-    { name: 'Get App Structure', description: 'Get the navigation structure of the app', path: '/mnt/skills/kb-tools/frontend-navigation/get-app-structure/SKILL.md', category: 'kb-tools', subcategory: 'frontend-navigation' },
-    { name: 'Select Category', description: 'Select a category in the UI', path: '/mnt/skills/kb-tools/frontend-navigation/select-category/SKILL.md', category: 'kb-tools', subcategory: 'frontend-navigation' },
-    { name: 'Select Product', description: 'Select a product in the product list', path: '/mnt/skills/kb-tools/frontend-navigation/select-product/SKILL.md', category: 'kb-tools', subcategory: 'frontend-navigation' },
-    { name: 'Search UI', description: 'Perform search operations in the UI', path: '/mnt/skills/kb-tools/frontend-navigation/search-ui/SKILL.md', category: 'kb-tools', subcategory: 'frontend-navigation' },
-    { name: 'Apply Filters', description: 'Apply filters to data views', path: '/mnt/skills/kb-tools/frontend-navigation/apply-filters/SKILL.md', category: 'kb-tools', subcategory: 'frontend-navigation' },
-    { name: 'Get Screen Data', description: 'Extract data from the current screen', path: '/mnt/skills/kb-tools/frontend-navigation/get-screen-data/SKILL.md', category: 'kb-tools', subcategory: 'frontend-navigation' },
-    { name: 'Get Selected Items', description: 'Get currently selected items in the UI', path: '/mnt/skills/kb-tools/frontend-navigation/get-selected-items/SKILL.md', category: 'kb-tools', subcategory: 'frontend-navigation' },
-    { name: 'Click Element', description: 'Click on a UI element by selector', path: '/mnt/skills/kb-tools/frontend-navigation/click-element/SKILL.md', category: 'kb-tools', subcategory: 'frontend-navigation' },
-
-    // === Backend API (5) ===
-    { name: 'Backend API Call', description: 'Call backend REST API endpoints', path: '/mnt/skills/kb-tools/backend-api/backend-api-call/SKILL.md', category: 'kb-tools', subcategory: 'backend-api' },
-    { name: 'Get YAML File', description: 'Read YAML configuration files', path: '/mnt/skills/kb-tools/backend-api/get-yaml-file/SKILL.md', category: 'kb-tools', subcategory: 'backend-api' },
-    { name: 'Save YAML File', description: 'Write YAML configuration files', path: '/mnt/skills/kb-tools/backend-api/save-yaml-file/SKILL.md', category: 'kb-tools', subcategory: 'backend-api' },
-    { name: 'List API Endpoints', description: 'List all available API endpoints', path: '/mnt/skills/kb-tools/backend-api/list-api-endpoints/SKILL.md', category: 'kb-tools', subcategory: 'backend-api' },
-    { name: 'List Data Files', description: 'List available data files on server', path: '/mnt/skills/kb-tools/backend-api/list-data-files/SKILL.md', category: 'kb-tools', subcategory: 'backend-api' },
-
-    // === Examples (9) ===
-    { name: 'Skill Creator', description: 'Create new skills with SKILL.md templates', path: '/mnt/skills/examples/skill-creator/SKILL.md', category: 'examples' },
-    { name: 'Web Artifacts Builder', description: 'Build interactive web artifacts (HTML/JS/CSS)', path: '/mnt/skills/examples/web-artifacts-builder/SKILL.md', category: 'examples' },
-    { name: 'Algorithmic Art', description: 'Generate algorithmic art and visualizations', path: '/mnt/skills/examples/algorithmic-art/SKILL.md', category: 'examples' },
-    { name: 'Brand Guidelines', description: 'Create brand guideline documents', path: '/mnt/skills/examples/brand-guidelines/SKILL.md', category: 'examples' },
-    { name: 'Canvas Design', description: 'Design canvas-based visual content', path: '/mnt/skills/examples/canvas-design/SKILL.md', category: 'examples' },
-    { name: 'Internal Comms', description: 'Generate internal communications content', path: '/mnt/skills/examples/internal-comms/SKILL.md', category: 'examples' },
-    { name: 'MCP Builder', description: 'Build MCP (Model Context Protocol) servers', path: '/mnt/skills/examples/mcp-builder/SKILL.md', category: 'examples' },
-    { name: 'Slack GIF Creator', description: 'Create animated GIFs for Slack', path: '/mnt/skills/examples/slack-gif-creator/SKILL.md', category: 'examples' },
-    { name: 'Theme Factory', description: 'Create UI themes and color schemes', path: '/mnt/skills/examples/theme-factory/SKILL.md', category: 'examples' },
 ];
+
+function toSkillInfo(meta: any): SkillInfo {
+    return {
+        name: meta?.name || 'Unknown Skill',
+        description: meta?.description || '',
+        path: meta?.containerPath || meta?.path || '',
+        category: meta?.category || 'public',
+        subcategory: meta?.subcategory,
+    };
+}
 
 // ── Category Icons & Labels ──
 
@@ -289,11 +213,25 @@ const CategoryGroup: React.FC<{
 export const SkillsManager: React.FC<SkillsManagerProps> = ({ onAskAgent }) => {
     const [searchQuery, setSearchQuery] = useState('');
     const [selectedSkill, setSelectedSkill] = useState<SkillInfo | null>(null);
+    const [skills, setSkills] = useState<SkillInfo[]>(FALLBACK_SKILLS);
+
+    useEffect(() => {
+        let active = true;
+        SkillsLoaderService.loadAllSkillsMetadata()
+            .then((loaded) => {
+                if (!active || !Array.isArray(loaded) || loaded.length === 0) return;
+                setSkills(loaded.map(toSkillInfo));
+            })
+            .catch(() => {
+                // silent fallback
+            });
+        return () => { active = false; };
+    }, []);
 
     // Group by category key
     const grouped = useMemo(() => {
         const map = new Map<string, SkillInfo[]>();
-        for (const skill of ALL_SKILLS) {
+        for (const skill of skills) {
             const key = getCategoryKey(skill);
             const arr = map.get(key) || [];
             arr.push(skill);
@@ -306,7 +244,7 @@ export const SkillsManager: React.FC<SkillsManagerProps> = ({ onAskAgent }) => {
             const ib = order.indexOf(b);
             return (ia === -1 ? 999 : ia) - (ib === -1 ? 999 : ib);
         });
-    }, []);
+    }, [skills]);
 
     // Detail view
     if (selectedSkill) {
@@ -325,7 +263,7 @@ export const SkillsManager: React.FC<SkillsManagerProps> = ({ onAskAgent }) => {
             <div className="flex items-center justify-between px-1">
                 <div className="flex items-center gap-1.5">
                     <Sparkles size={14} className="text-violet-500" />
-                    <span className="text-xs font-semibold tc-text">{ALL_SKILLS.length} Skills Available</span>
+                    <span className="text-xs font-semibold tc-text">{skills.length} Skills Available</span>
                 </div>
                 {onAskAgent && (
                     <button
@@ -369,7 +307,7 @@ export const SkillsManager: React.FC<SkillsManagerProps> = ({ onAskAgent }) => {
             {/* Footer */}
             <div className="flex items-center justify-center gap-1.5 text-[9px] tc-text pt-1 border-t border-gray-200 dark:border-gray-700">
                 <Brain size={8} />
-                Skills are loaded from /mnt/skills/*.SKILL.md in Docker container
+                Skills are loaded from configurable registry (production/demo)
             </div>
         </div>
     );

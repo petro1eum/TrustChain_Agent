@@ -12,7 +12,12 @@
         "lint": "eslint .",
         "test": "vitest run",
         "test:watch": "vitest",
-        "typecheck": "tsc --noEmit"
+        "typecheck": "tsc --noEmit",
+        "trustchain:vault-key-info": "node scripts/vault-key-info.mjs",
+        "trustchain:vault-bridge": "node scripts/vault-signer-bridge.mjs",
+        "trustchain:validate-prod-env": "node scripts/validate-prod-env.mjs",
+        "trustchain:verify-proof": "node scripts/verify-trustchain-proof.mjs",
+        "trustchain:provenance-gate": "node scripts/provenance-gate.mjs"
     },
     "dependencies": {
         "framer-motion": "^11.11.17",

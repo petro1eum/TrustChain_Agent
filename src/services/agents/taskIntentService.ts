@@ -247,7 +247,7 @@ export class TaskIntentService {
         );
 
         const content = response.choices[0]?.message?.content || '{}';
-        const parsed = JSON.parse(content);
+        const parsed = this.parseJsonObject(content);
 
         if (!parsed.steps || !Array.isArray(parsed.steps) || parsed.steps.length === 0) {
             throw new Error('LLM returned no steps');
@@ -277,6 +277,36 @@ export class TaskIntentService {
             originalQuery: query,
             classifiedBy: 'llm'
         };
+    }
+
+    /**
+     * Устойчивый парсинг JSON-ответа от LLM:
+     * - поддержка ```json ... ```
+     * - извлечение первого валидного JSON-объекта из текста
+     */
+    private parseJsonObject(raw: string): any {
+        const normalized = (raw || '')
+            .trim()
+            .replace(/^```(?:json)?\s*/i, '')
+            .replace(/\s*```$/i, '')
+            .trim();
+
+        if (!normalized) {
+            throw new Error('Empty JSON payload');
+        }
+
+        try {
+            return JSON.parse(normalized);
+        } catch {
+            // Попытка извлечь JSON-объект из окружного текста
+            const firstBrace = normalized.indexOf('{');
+            const lastBrace = normalized.lastIndexOf('}');
+            if (firstBrace !== -1 && lastBrace !== -1 && lastBrace > firstBrace) {
+                const candidate = normalized.slice(firstBrace, lastBrace + 1);
+                return JSON.parse(candidate);
+            }
+            throw new Error(`Invalid JSON from classifier: ${normalized.slice(0, 160)}`);
+        }
     }
 
     /**

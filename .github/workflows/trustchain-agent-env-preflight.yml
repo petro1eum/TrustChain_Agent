@@ -1,0 +1,55 @@
+name: TrustChain Agent Env Preflight
+
+on:
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  env-preflight:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+          cache-dependency-path: package-lock.json
+
+      - name: Install dependencies
+        run: npm install
+
+      - name: Validate TrustChain env (CI baseline)
+        id: validate_ci_env
+        env:
+          VITE_TRUSTCHAIN_STRICT_MODE: "true"
+          VITE_TRUSTCHAIN_ALLOW_LOCAL_UNSIGNED_MCP: "false"
+          VITE_TRUSTCHAIN_EXTERNAL_SIGNER_CANARY: "false"
+          VITE_TRUSTCHAIN_EXTERNAL_SIGNER_TIMEOUT_MS: "5000"
+        run: npm run trustchain:validate-prod-env
+
+      - name: Validate TrustChain env (release secrets)
+        id: validate_release_env
+        if: ${{ github.event_name == 'workflow_dispatch' }}
+        env:
+          VITE_TRUSTCHAIN_STRICT_MODE: ${{ vars.TCA_TRUSTCHAIN_STRICT_MODE || 'true' }}
+          VITE_TRUSTCHAIN_ALLOW_LOCAL_UNSIGNED_MCP: ${{ vars.TCA_TRUSTCHAIN_ALLOW_LOCAL_UNSIGNED_MCP || 'false' }}
+          VITE_TRUSTCHAIN_EXTERNAL_SIGNER_CANARY: ${{ vars.TCA_TRUSTCHAIN_EXTERNAL_SIGNER_CANARY || 'true' }}
+          VITE_TRUSTCHAIN_EXTERNAL_SIGNER_URL: ${{ vars.TCA_TRUSTCHAIN_EXTERNAL_SIGNER_URL || '' }}
+          VITE_TRUSTCHAIN_EXTERNAL_SIGNER_TIMEOUT_MS: ${{ vars.TCA_TRUSTCHAIN_EXTERNAL_SIGNER_TIMEOUT_MS || '5000' }}
+          VITE_TRUSTCHAIN_EXTERNAL_SIGNER_KEY_ID: ${{ secrets.TCA_TRUSTCHAIN_EXTERNAL_SIGNER_KEY_ID }}
+          VITE_TRUSTCHAIN_EXTERNAL_SIGNER_PUBLIC_KEY: ${{ secrets.TCA_TRUSTCHAIN_EXTERNAL_SIGNER_PUBLIC_KEY }}
+          VITE_OPENAI_API_KEY: ${{ secrets.TCA_OPENAI_API_KEY }}
+          VITE_OPENAI_BASE_URL: ${{ vars.TCA_OPENAI_BASE_URL || 'https://openrouter.ai/api/v1' }}
+        run: npm run trustchain:validate-prod-env
+
+      - name: Publish env preflight summary
+        if: ${{ always() }}
+        run: |
+          echo "## TrustChain Env Preflight (Agent)" >> "$GITHUB_STEP_SUMMARY"
+          echo "- Event: \`${{ github.event_name }}\`" >> "$GITHUB_STEP_SUMMARY"
+          echo "- Baseline env check: \`${{ steps.validate_ci_env.outcome }}\`" >> "$GITHUB_STEP_SUMMARY"
+          echo "- Release env check: \`${{ steps.validate_release_env.outcome }}\`" >> "$GITHUB_STEP_SUMMARY"
+          echo "- Job status: \`${{ job.status }}\`" >> "$GITHUB_STEP_SUMMARY"

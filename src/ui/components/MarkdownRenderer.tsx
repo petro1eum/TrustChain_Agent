@@ -1,5 +1,51 @@
 import React from 'react';
 
+const DEFAULT_TRUSTCHAIN_TOOLTIP = 'TrustChain: цифровая верификация';
+
+const escapeHtmlAttr = (value: string): string => value
+    .replace(/&/g, '&amp;')
+    .replace(/"/g, '&quot;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;');
+
+const getTrustchainMarkerHtml = (tooltip: string): string =>
+    `<span class="tc-verified-shield" title="${escapeHtmlAttr(tooltip || DEFAULT_TRUSTCHAIN_TOOLTIP)}">✓</span>`;
+
+/**
+ * Normalizes legacy TrustChain badge markup so UI never displays raw
+ * <span ...> tags from older messages or model output.
+ */
+export function normalizeTrustChainMarkup(
+    text: string,
+    opts?: { tooltip?: string }
+): string {
+    if (!text) return '';
+    const markerHtml = getTrustchainMarkerHtml(opts?.tooltip || DEFAULT_TRUSTCHAIN_TOOLTIP);
+
+    return text
+        // Legacy emoji marker
+        .replace(/🛡✓/g, markerHtml)
+        // Escaped HTML from model output
+        .replace(
+            /&lt;span[\s\S]*?tc-verified(?!-shield)(?!-label)\b[\s\S]*?&gt;[\s\S]*?&lt;\/span&gt;/gi,
+            markerHtml
+        )
+        // Raw HTML with normal quotes
+        .replace(
+            /<span[\s\S]*?tc-verified(?!-shield)(?!-label)\b[\s\S]*?>[\s\S]*?<\/span>/gi,
+            markerHtml
+        )
+        // Raw HTML with escaped quotes: class=\"tc-verified\" or split attributes
+        .replace(
+            /<span[\s\S]*?class=\\?["']tc-verified(?!-shield)(?!-label)\b\\?["'][\s\S]*?>[\s\S]*?<\/span>/gi,
+            markerHtml
+        )
+        // Backward compatibility: titles from older versions used "|" and can break markdown tables.
+        .replace(/title="([^"]*)"/gi, (_m, title) => `title="${title.replace(/\|/g, ';')}"`)
+        .replace(/title=\\"([^"]*)\\"/gi, (_m, title) => `title=\\"${title.replace(/\|/g, ';')}\\"`)
+        .replace(/title=&quot;([^&]*)&quot;/gi, (_m, title) => `title=&quot;${title.replace(/\|/g, ';')}&quot;`);
+}
+
 /**
  * Full markdown renderer for TrustChain Agent responses.
  * Supports: headings, bold, italic, code, code blocks, tables,
