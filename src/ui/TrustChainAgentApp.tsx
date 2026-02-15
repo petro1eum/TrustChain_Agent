@@ -33,6 +33,7 @@ import {
 } from './components/constants';
 import { MessageBubble } from './components/MessageBubble';
 import { ArtifactsPanel } from './components/ArtifactsPanel';
+import ProSettingsPanel from './components/ProSettingsPanel';
 import { ChatSidebar } from './components/ChatSidebar';
 import { ChatHeader } from './components/ChatHeader';
 import { ChatArea } from './components/ChatArea';
@@ -533,7 +534,7 @@ const TrustChainAgentApp: React.FC = () => {
     const [activeSection, setActiveSection] = useState<'chats' | 'agent' | 'trust'>('chats');
     const [theme, setTheme] = useState<ThemeMode>('light');
     const [showSettings, setShowSettings] = useState(false);
-    const [settingsTab, setSettingsTab] = useState<'general' | 'tools' | 'mcp' | 'skills'>('general');
+    const [settingsTab, setSettingsTab] = useState<'general' | 'tools' | 'mcp' | 'skills' | 'pro'>('general');
     const [initialToolId, setInitialToolId] = useState<string | undefined>(undefined);
     const [apiKeyInput, setApiKeyInput] = useState(() => localStorage.getItem('tc_api_key') || '');
     const [modelInput, setModelInput] = useState(() => localStorage.getItem('tc_model') || 'google/gemini-2.5-flash');
@@ -966,7 +967,7 @@ const TrustChainAgentApp: React.FC = () => {
             {showSettings && (
                 <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm"
                     onClick={(e) => { if (e.target === e.currentTarget) setShowSettings(false); }}>
-                    <div className={`tc-surface border tc-border-light rounded-2xl shadow-2xl max-h-[80vh] overflow-auto transition-all duration-300 ${settingsTab === 'tools' || settingsTab === 'mcp' || settingsTab === 'skills' ? 'w-[600px]' : 'w-[460px]'}`}>
+                    <div className={`tc-surface border tc-border-light rounded-2xl shadow-2xl max-h-[80vh] overflow-auto transition-all duration-300 ${settingsTab === 'tools' || settingsTab === 'mcp' || settingsTab === 'skills' || settingsTab === 'pro' ? 'w-[600px]' : 'w-[460px]'}`}>
                         {/* Header */}
                         <div className="flex items-center justify-between p-5 border-b tc-border">
                             <div className="flex items-center gap-2">
@@ -1017,6 +1018,15 @@ const TrustChainAgentApp: React.FC = () => {
                             >
                                 Skills (70)
                             </button>
+                            <button
+                                onClick={() => setSettingsTab('pro')}
+                                className={`flex-1 px-4 py-2.5 text-xs font-semibold transition-colors
+                                    ${settingsTab === 'pro'
+                                        ? 'tc-text border-b-2 border-amber-500'
+                                        : 'tc-text-muted hover:tc-text'}`}
+                            >
+                                ⚡ Pro
+                            </button>
                         </div>
 
                         {/* Body */}
@@ -1035,6 +1045,8 @@ const TrustChainAgentApp: React.FC = () => {
                                 <MCPManager />
                             ) : settingsTab === 'skills' ? (
                                 <SkillsManager onAskAgent={handleAskAgent} />
+                            ) : settingsTab === 'pro' ? (
+                                <ProSettingsPanel />
                             ) : (
                                 <>
                                     {/* Status */}

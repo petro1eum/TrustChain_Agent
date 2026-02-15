@@ -39,15 +39,15 @@ export const frontendTools = [
         type: 'function',
         function: {
             name: 'select_category',
-            description: 'Select a product category',
+            description: 'Select a data category',
             parameters: { type: 'object', properties: { slug: { type: 'string' } }, required: ['slug'] },
         },
     },
     {
         type: 'function',
         function: {
-            name: 'select_product',
-            description: 'Select a specific product',
+            name: 'select_item',
+            description: 'Select a specific item',
             parameters: { type: 'object', properties: { id: { type: 'string' } }, required: ['id'] },
         },
     },

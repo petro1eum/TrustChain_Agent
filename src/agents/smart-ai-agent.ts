@@ -47,6 +47,20 @@ import { getLockedToolIds } from '../tools/toolRegistry';
 import { trustchainService } from '../services/trustchainService';
 import { getAgentContext, getAgentInstance } from '../services/agentContext';
 
+// ── Helpers to prevent UI freeze ──
+
+/** Yield to the browser event loop so React can re-render (spinner, streaming text, etc.) */
+const yieldToUI = (): Promise<void> => new Promise(r => setTimeout(r, 0));
+
+/** Race a promise against a timeout. Returns `fallback` on timeout (does NOT throw). */
+function withTimeout<T>(promise: Promise<T>, ms: number, fallback: T): Promise<T> {
+  let timer: ReturnType<typeof setTimeout>;
+  return Promise.race([
+    promise,
+    new Promise<T>(resolve => { timer = setTimeout(() => resolve(fallback), ms); })
+  ]).finally(() => clearTimeout(timer!));
+}
+
 export class SmartAIAgent extends AIAgent {
   // История последних вызовов инструментов для защиты от зацикливания
   private recentToolCalls: Map<string, Array<{ args: any; result: any; timestamp: number }>> = new Map();
@@ -365,9 +379,11 @@ export class SmartAIAgent extends AIAgent {
     try {
       // Ensure MCP tools are fully discovered before first LLM call
       if (this._mcpReadyPromise) {
-        await this._mcpReadyPromise;
+        await withTimeout(this._mcpReadyPromise, 5000, []);
         this._mcpReadyPromise = null; // Only wait once
       }
+      await yieldToUI(); // let React re-render the spinner
+
       // Skills Auto-Triggering: загружаем релевантные skills
       progressCallback?.({
         type: 'reasoning_step',
@@ -377,7 +393,7 @@ export class SmartAIAgent extends AIAgent {
 
       let relevantSkillsMetadata: any[] = [];
       try {
-        const allSkills = await SkillsLoaderService.loadAllSkillsMetadata();
+        const allSkills = await withTimeout(SkillsLoaderService.loadAllSkillsMetadata(), 3000, []);
         const matchResult = SkillsMatcher.findRelevantSkills(instruction, allSkills, 5);
         relevantSkillsMetadata = matchResult.skills;
 
@@ -392,11 +408,12 @@ export class SmartAIAgent extends AIAgent {
         // Игнорируем ошибки загрузки skills - не критично
         console.warn('Ошибка загрузки skills:', error);
       }
+      await yieldToUI();
 
-      const conversationContext = await this.conversationMemoryService.getConversationContext(
+      const conversationContext = await withTimeout(this.conversationMemoryService.getConversationContext(
         instruction,
         progressCallback
-      );
+      ), 5000, null);
 
       if (conversationContext) {
         instruction = `${conversationContext}\n\n=== ТЕКУЩИЙ ЗАПРОС ===\n${instruction}`;
@@ -404,7 +421,7 @@ export class SmartAIAgent extends AIAgent {
 
       // Gap A: Load persistent cross-session memory
       try {
-        await this.persistentMemoryService.loadMemory();
+        await withTimeout(this.persistentMemoryService.loadMemory(), 2000, undefined);
         const persistentContext = this.persistentMemoryService.formatMemoriesForPrompt(instruction);
         if (persistentContext) {
           instruction = `${persistentContext}\n\n${instruction}`;
@@ -412,6 +429,8 @@ export class SmartAIAgent extends AIAgent {
       } catch (memError) {
         console.warn('[PersistentMemory] Load error (non-critical):', memError);
       }
+
+      await yieldToUI();
 
       // Internal Reasoning: скрытый анализ перед основным запросом (если включен)
       let internalReasoningResult = null;
@@ -448,6 +467,8 @@ export class SmartAIAgent extends AIAgent {
         }
       }
 
+      await yieldToUI();
+
       // === ЭТАП 1: ПЛАНИРОВАНИЕ (Pre-flight check) ===
       // Используем PlanningService для первичного анализа и определения стратегии
       let planningThought: ThoughtProcess | null = null;
@@ -458,48 +479,51 @@ export class SmartAIAgent extends AIAgent {
           reasoning_text: 'Определяю оптимальную стратегию выполнения'
         });
 
-        planningThought = await this.planningService.think(
-          instruction,
-          [],
-          progressCallback
-        );
+        planningThought = await withTimeout(
+          this.planningService.think(instruction, [], progressCallback),
+          10000,
+          null
+        ) as ThoughtProcess | null;
 
-        // Если планировщик определил, что нужен расчёт (например, мощности радиатора)
-        if (planningThought.action?.toLowerCase().includes('расчёт') ||
-          planningThought.action?.toLowerCase().includes('рассчитать')) {
-          progressCallback?.({
-            type: 'reasoning_step',
-            message: 'Планирование: нужен предварительный расчёт',
-            reasoning_text: planningThought.reasoning || ''
-          });
-        }
+        // If planning timed out, planningThought will be null — skip
+        if (planningThought) {
+          // Если планировщик определил, что нужен предварительный расчёт
+          if (planningThought.action?.toLowerCase().includes('расчёт') ||
+            planningThought.action?.toLowerCase().includes('рассчитать')) {
+            progressCallback?.({
+              type: 'reasoning_step',
+              message: 'Планирование: нужен предварительный расчёт',
+              reasoning_text: planningThought.reasoning || ''
+            });
+          }
 
-        // Добавляем результаты планирования к instruction для ReAct
-        if (planningThought.reasoning && planningThought.confidence > 0.5) {
-          instruction = `${instruction}\n\n[Предварительный анализ: ${planningThought.observation}. Стратегия: ${planningThought.action}]`;
+          // Добавляем результаты планирования к instruction для ReAct
+          if (planningThought.reasoning && planningThought.confidence > 0.5) {
+            instruction = `${instruction}\n\n[Предварительный анализ: ${planningThought.observation}. Стратегия: ${planningThought.action}]`;
 
-          // Gap D: Explicit plan preview for multi-step tasks
-          try {
-            const minimalPlan: ExecutionPlan = {
-              goal: planningThought.action || planningThought.observation,
-              thoughts: [planningThought],
-              steps: [],
-              adaptations: [],
-              learnings: {}
-            };
-            const planPreview = this.planningService.createUserVisiblePlan(minimalPlan);
-            if (planPreview && planPreview.steps.length > 1) {
-              const stepsText = planPreview.steps
-                .map((s, i) => `${i + 1}. ${s.description}${s.tools.length > 0 ? ` (${s.tools.join(', ')})` : ''}`)
-                .join('\n');
-              progressCallback?.({
-                type: 'reasoning_step',
-                message: `📋 План выполнения (${planPreview.steps.length} шагов)`,
-                reasoning_text: `${planPreview.goal}\n\n${stepsText}\n\nОжидаемое время: ${planPreview.estimatedTotalTime}s`
-              });
+            // Gap D: Explicit plan preview for multi-step tasks
+            try {
+              const minimalPlan: ExecutionPlan = {
+                goal: planningThought.action || planningThought.observation,
+                thoughts: [planningThought],
+                steps: [],
+                adaptations: [],
+                learnings: {}
+              };
+              const planPreview = this.planningService.createUserVisiblePlan(minimalPlan);
+              if (planPreview && planPreview.steps.length > 1) {
+                const stepsText = planPreview.steps
+                  .map((s, i) => `${i + 1}. ${s.description}${s.tools.length > 0 ? ` (${s.tools.join(', ')})` : ''}`)
+                  .join('\n');
+                progressCallback?.({
+                  type: 'reasoning_step',
+                  message: `📋 План выполнения (${planPreview.steps.length} шагов)`,
+                  reasoning_text: `${planPreview.goal}\n\n${stepsText}\n\nОжидаемое время: ${planPreview.estimatedTotalTime}s`
+                });
+              }
+            } catch {
+              // Plan preview is optional — don't break the flow
             }
-          } catch {
-            // Plan preview is optional — don't break the flow
           }
         }
       } catch (planningError) {
@@ -537,6 +561,8 @@ export class SmartAIAgent extends AIAgent {
 
       // ReAct анализ - модель сама думает, выбирает инструменты и выполняет их
       // Передаем метаданные skills для включения в system prompt
+      await yieldToUI();
+
       const hasImageAttachments = !!attachments?.some(att => att.type === 'image' && att.dataUrl);
       const originalModel = this.config.defaultModel;
       if (hasImageAttachments) {
@@ -563,6 +589,8 @@ export class SmartAIAgent extends AIAgent {
           this.config.defaultModel = originalModel;
         }
       }
+
+      await yieldToUI();
 
       // === ЭТАП 3: ВАЛИДАЦИЯ ОТВЕТА (Post-flight check) ===
       // Проверяем, что ответ действительно отвечает на вопрос пользователя
@@ -603,7 +631,7 @@ export class SmartAIAgent extends AIAgent {
             // Добавляем сообщение о необходимости расчёта
             const calcMessage: ChatMessage = {
               role: 'assistant',
-              content: `⚠️ **Требуется уточнение**\n\n${validation.explanation}\n\nДля точного подбора оборудования мне нужно рассчитать требуемую мощность. Пожалуйста, уточните параметры помещения.`,
+              content: `⚠️ **Требуется уточнение**\n\n${validation.explanation}\n\nМне нужны дополнительные данные для расчёта. Пожалуйста, уточните параметры.`,
               timestamp: new Date()
             };
             result.messages.push(calcMessage);
@@ -858,6 +886,18 @@ export class SmartAIAgent extends AIAgent {
       }
     }
 
+    // Legacy fallback: model may output plain domain tool name (e.g. list_documents)
+    // even though platform tools are exposed as mcp_<serverId>_<tool>.
+    const mcpAlias = this.mcpClientService.resolveLegacyToolAlias(name);
+    if (mcpAlias) {
+      try {
+        return await this.mcpClientService.executeMCPTool(mcpAlias, args);
+      } catch (mcpAliasError: any) {
+        console.error(`[MCP] Alias tool ${name} -> ${mcpAlias} failed:`, mcpAliasError.message);
+        return { error: `MCP tool error: ${mcpAliasError.message}` };
+      }
+    }
+
     // ── Page Bridge Tools: route to HostBridgeService ──
     if (PAGE_TOOL_NAMES.has(name)) {
       try {
@@ -1085,6 +1125,9 @@ export class SmartAIAgent extends AIAgent {
       if (!name) return false;
       // MCP tools are trusted — they were discovered from project's MCP Server
       if (name.startsWith('mcp_')) return true;
+      // When platform MCP tools are available, hide internal dev-helper list_tools
+      // to prevent the model from wasting the first required tool call on it.
+      if (name === 'list_tools' && mcpTools.length > 0) return false;
       // Page tools are always allowed (universal frontend bridge)
       if (PAGE_TOOL_NAMES.has(name)) return true;
       // Universal tools checked against whitelist
@@ -1103,7 +1146,10 @@ export class SmartAIAgent extends AIAgent {
     // Apply user-managed toggles
     const finalTools = filtered.filter(t => {
       const name = t.function?.name;
-      return name ? isToolEnabled(name) : true;
+      if (!name) return true;
+      // MCP tools are dynamically discovered platform capabilities and must stay enabled.
+      if (name.startsWith('mcp_')) return true;
+      return isToolEnabled(name);
     });
 
     console.log('[SmartAIAgent] Final tools:', {
@@ -1140,8 +1186,9 @@ export class SmartAIAgent extends AIAgent {
   private checkModelSupportsNativeWebSearch(): boolean {
     const currentModel = this.config.defaultModel;
 
-    // OpenRouter поддерживает :online для всех основных провайдеров
-    const nativeSearchProviders = ['openai/', 'google/', 'anthropic/'];
+    // Должно совпадать с getModelWithWebSearch() в config/apiParams.ts
+    // Google/Gemini через OpenRouter не имеет native :online search.
+    const nativeSearchProviders = ['openai/', 'anthropic/', 'perplexity/', 'x-ai/'];
     const supportsNativeSearch = nativeSearchProviders.some(provider => currentModel.startsWith(provider));
 
     if (supportsNativeSearch) {

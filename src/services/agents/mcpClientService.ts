@@ -76,6 +76,9 @@ const _proc = typeof process !== 'undefined' ? process.env : {} as Record<string
 const BACKEND_URL = (typeof import.meta !== 'undefined' && import.meta.env?.VITE_BACKEND_URL)
     || _proc.VITE_BACKEND_URL
     || '';  // No default — skip backend calls when not configured
+const MCP_URL = (typeof import.meta !== 'undefined' && import.meta.env?.VITE_MCP_URL)
+    || _proc.VITE_MCP_URL
+    || '';
 
 // ─── Сервис ───
 
@@ -91,6 +94,27 @@ export class MCPClientService {
             || lower.includes('approve')
             || lower.includes('block')
             || lower.includes('revoke');
+    }
+
+    private shouldAllowUnsignedReadFallback(
+        config: MCPServerConfig,
+        toolName: string,
+        denyCode?: string,
+        denyMessage?: string
+    ): boolean {
+        if (this.isMutatingTool(toolName)) return false;
+        if (!this.isLocalUrl(config.url)) return false;
+        const flagRaw = ((typeof import.meta !== 'undefined' && (import.meta as any).env?.VITE_TRUSTCHAIN_UNSIGNED_READ_FALLBACK)
+            || _proc.VITE_TRUSTCHAIN_UNSIGNED_READ_FALLBACK
+            || 'true');
+        const enabled = String(flagRaw).toLowerCase() === 'true';
+        if (!enabled) return false;
+        const code = String(denyCode || '').toUpperCase();
+        if (['INVALID_SIGNATURE', 'VERIFY_ERROR', 'MISSING_TRUSTCHAIN_FIELDS', 'NO_TRUSTCHAIN'].includes(code)) {
+            return true;
+        }
+        const msg = String(denyMessage || '').toLowerCase();
+        return msg.includes('invalid signature') || msg.includes('verify') || msg.includes('подпись');
     }
 
     private loadTrustRegistry(): void {
@@ -109,10 +133,134 @@ export class MCPClientService {
         }
     }
 
+    private persistTrustRegistry(): void {
+        try {
+            if (typeof window === 'undefined') return;
+            const records = Array.from(this.trustRegistry.values());
+            window.localStorage.setItem('trustchain_mcp_registry', JSON.stringify(records));
+        } catch {
+            // ignore persistence errors
+        }
+    }
+
+    private normalizeServerId(serverId: string): string {
+        const raw = String(serverId || '').trim().toLowerCase();
+        return raw
+            .replace(/^panel_/, '')
+            .replace(/^mcp_/, '')
+            .replace(/[-\s]+/g, '_');
+    }
+
+    private getTrustRecord(serverId: string): MCPTrustRecord | undefined {
+        const exact = this.trustRegistry.get(serverId);
+        if (exact) return exact;
+        const normalized = this.normalizeServerId(serverId);
+        if (!normalized) return undefined;
+        for (const [id, record] of this.trustRegistry.entries()) {
+            if (this.normalizeServerId(id) === normalized) return record;
+            if (record?.serverId && this.normalizeServerId(record.serverId) === normalized) return record;
+        }
+        return undefined;
+    }
+
+    private isLocalUrl(url: string): boolean {
+        try {
+            const parsed = new URL(url);
+            return /^(localhost|127\.0\.0\.1)$/i.test(parsed.hostname);
+        } catch {
+            return /localhost|127\.0\.0\.1/.test(String(url || ''));
+        }
+    }
+
+    private shouldAutoTrustLocal(): boolean {
+        const raw = ((typeof import.meta !== 'undefined' && (import.meta as any).env?.VITE_TRUSTCHAIN_AUTO_TRUST_LOCAL_MCP)
+            || _proc.VITE_TRUSTCHAIN_AUTO_TRUST_LOCAL_MCP
+            || '');
+        if (String(raw).trim()) return String(raw).toLowerCase() === 'true';
+        if (typeof window === 'undefined') return false;
+        return /^(localhost|127\.0\.0\.1)$/i.test(window.location.hostname);
+    }
+
+    private upsertTrustRecord(record: MCPTrustRecord): void {
+        if (!record?.serverId) return;
+        this.trustRegistry.set(record.serverId, record);
+    }
+
+    private async syncTrustRegistryFromMcp(configs: MCPServerConfig[]): Promise<void> {
+        const candidates: string[] = [];
+        if (MCP_URL) candidates.push(MCP_URL);
+        for (const cfg of configs) {
+            if (!cfg?.url) continue;
+            if (this.isLocalUrl(cfg.url)) candidates.push(cfg.url);
+        }
+
+        const visited = new Set<string>();
+        for (const base of candidates) {
+            const normalized = String(base || '').replace(/\/+$/, '');
+            if (!normalized || visited.has(normalized)) continue;
+            visited.add(normalized);
+            try {
+                const response = await fetch(`${normalized}/api/mcp-trust/servers`, {
+                    method: 'GET',
+                    headers: { 'Content-Type': 'application/json' },
+                    signal: AbortSignal.timeout(3000),
+                });
+                if (!response.ok) continue;
+                const data = await response.json();
+                const rows = Array.isArray(data?.servers) ? data.servers : [];
+                for (const row of rows) {
+                    const serverId = String(row?.server_id || row?.serverId || '').trim();
+                    if (!serverId) continue;
+                    this.upsertTrustRecord({
+                        serverId,
+                        issuer: String(row?.issuer || 'local-ca'),
+                        fingerprint: String(row?.fingerprint || row?.certificate_id || ''),
+                        validFrom: row?.valid_from || row?.validFrom || undefined,
+                        validTo: row?.valid_to || row?.validTo || undefined,
+                        revoked: String(row?.status || '').toLowerCase() === 'revoked' || !!row?.revoked,
+                        tier: (row?.trust_tier || row?.tier || 'sandbox') as MCPTrustRecord['tier'],
+                        // keep backend status for evaluateTrust
+                        ...(row?.status ? { status: String(row.status) } as any : {}),
+                    });
+                }
+                this.persistTrustRegistry();
+                return;
+            } catch {
+                // try next candidate
+            }
+        }
+    }
+
+    private bootstrapLocalTrust(configs: MCPServerConfig[]): void {
+        if (!this.shouldAutoTrustLocal()) return;
+        const now = Date.now();
+        const validTo = new Date(now + 1000 * 60 * 60 * 24 * 30).toISOString(); // 30d
+
+        for (const cfg of configs) {
+            if (!cfg?.id || !this.isLocalUrl(cfg.url)) continue;
+            if (this.getTrustRecord(cfg.id)) continue;
+
+            const normalized = this.normalizeServerId(cfg.id);
+            if (!['onaidocs', 'playwright'].includes(normalized)) continue;
+
+            this.upsertTrustRecord({
+                serverId: cfg.id,
+                issuer: 'local-dev-bootstrap',
+                fingerprint: `dev:${normalized}`,
+                validFrom: new Date(now).toISOString(),
+                validTo,
+                revoked: false,
+                tier: normalized === 'onaidocs' ? 'trusted' : 'sandbox',
+            });
+            console.warn(`[MCP][Trust] Auto-trusted local MCP "${cfg.id}" for dev profile.`);
+        }
+        this.persistTrustRegistry();
+    }
+
     private evaluateTrust(config: MCPServerConfig, toolName?: string): { allowed: boolean; reason?: string } {
-        const isLocal = /localhost|127\.0\.0\.1/.test(config.url);
+        const isLocal = this.isLocalUrl(config.url);
         const allowLocalUnsigned = ((typeof import.meta !== 'undefined' && (import.meta as any).env?.VITE_TRUSTCHAIN_ALLOW_LOCAL_UNSIGNED_MCP) || 'false') === 'true';
-        const record = this.trustRegistry.get(config.id);
+        const record = this.getTrustRecord(config.id);
         const isHighRiskCall = !!toolName && this.isMutatingTool(toolName);
 
         if (record?.revoked) {
@@ -283,6 +431,10 @@ export class MCPClientService {
             }
         }
 
+        this.loadTrustRegistry();
+        await this.syncTrustRegistryFromMcp(configs);
+        this.bootstrapLocalTrust(configs);
+
         for (const config of configs.filter(c => c.enabled)) {
             const conn = await this.connect(config);
             results.push(conn);
@@ -312,6 +464,56 @@ export class MCPClientService {
         // Try plain JSON
         try { return JSON.parse(text); } catch { /* nope */ }
         throw new Error(`Cannot parse SSE response: ${text.slice(0, 200)}`);
+    }
+
+    private tryParseJson(text: string): any | null {
+        try {
+            return JSON.parse(text);
+        } catch {
+            return null;
+        }
+    }
+
+    private extractPolicyDeny(raw: any): { code?: string; message?: string; policy?: string } | null {
+        const seen = new Set<any>();
+        const stack: any[] = [raw];
+
+        while (stack.length > 0) {
+            const cur = stack.pop();
+            if (cur == null || seen.has(cur)) continue;
+            if (typeof cur === 'object') seen.add(cur);
+
+            if (typeof cur === 'string') {
+                const parsed = this.tryParseJson(cur);
+                if (parsed) stack.push(parsed);
+                continue;
+            }
+
+            if (Array.isArray(cur)) {
+                for (const item of cur) stack.push(item);
+                continue;
+            }
+
+            if (typeof cur === 'object') {
+                const action = String((cur as any).action || '').toLowerCase();
+                const hasPolicy = typeof (cur as any).policy === 'string' && !!(cur as any).policy;
+                const successFalse = (cur as any).success === false;
+                if (action === 'deny' || hasPolicy || successFalse) {
+                    return {
+                        code: (cur as any).code,
+                        message: (cur as any).message || (cur as any).error,
+                        policy: (cur as any).policy,
+                    };
+                }
+
+                // common wrappers
+                if ((cur as any).text) stack.push((cur as any).text);
+                if ((cur as any).content) stack.push((cur as any).content);
+                if ((cur as any).result) stack.push((cur as any).result);
+                if ((cur as any).data) stack.push((cur as any).data);
+            }
+        }
+        return null;
     }
 
     /**
@@ -582,8 +784,20 @@ export class MCPClientService {
                 ...(tcPayload ? { trustchain: tcPayload } : {})
             });
             const normalized = result?.content || result;
-            if (normalized?.action === 'deny' || normalized?.success === false && normalized?.policy) {
-                throw new Error(`[MCP][Policy] ${normalized?.code || 'DENY'}: ${normalized?.message || 'Tool denied'}`);
+            const deny = this.extractPolicyDeny(normalized);
+            if (deny) {
+                if (this.shouldAllowUnsignedReadFallback(config, toolName, deny.code, deny.message)) {
+                    console.warn(`[MCP][Trust] Unsigned read fallback for ${toolName}: ${deny.code || 'DENY'}`);
+                    const retry = await this.streamableHTTPCall(config, 'tools/call', {
+                        name: toolName,
+                        arguments: args,
+                    });
+                    const retryNormalized = retry?.content || retry;
+                    return (retryNormalized && typeof retryNormalized === 'object')
+                        ? { ...retryNormalized, trustchain_fallback_unsigned: true }
+                        : { result: retryNormalized, trustchain_fallback_unsigned: true };
+                }
+                throw new Error(`[MCP][Policy] ${deny.code || 'DENY'}: ${deny.message || 'Tool denied'}`);
             }
             return attachSignature(normalized);
         }
@@ -618,16 +832,39 @@ export class MCPClientService {
 
                 const data = await response.json();
                 const rawResult = data.result?.content || data.result || data;
-                const asText = Array.isArray(rawResult) && rawResult[0]?.text ? rawResult[0].text : null;
-                if (asText) {
-                    try {
-                        const parsed = JSON.parse(asText);
-                        if (parsed?.action === 'deny' || parsed?.policy) {
-                            throw new Error(`[MCP][Policy] ${parsed?.code || 'DENY'}: ${parsed?.message || 'Tool denied'}`);
+                const deny = this.extractPolicyDeny(rawResult);
+                if (deny) {
+                    if (this.shouldAllowUnsignedReadFallback(config, toolName, deny.code, deny.message)) {
+                        console.warn(`[MCP][Trust] Unsigned read fallback for ${toolName}: ${deny.code || 'DENY'}`);
+                        const retryResponse = await fetch(`${config.url}/tools/call`, {
+                            method: 'POST',
+                            headers: {
+                                'Content-Type': 'application/json',
+                                ...(config.apiKey ? { 'Authorization': `Bearer ${config.apiKey}` } : {})
+                            },
+                            body: JSON.stringify({
+                                jsonrpc: '2.0',
+                                method: 'tools/call',
+                                params: { name: toolName, arguments: args },
+                                id: Date.now()
+                            }),
+                            signal: controller.signal
+                        });
+                        if (!retryResponse.ok) {
+                            throw new Error(`MCP unsigned fallback failed: HTTP ${retryResponse.status}`);
                         }
-                    } catch {
-                        // ignore non-json text
+                        const retryData = await retryResponse.json();
+                        const retryRaw = retryData.result?.content || retryData.result || retryData;
+                        const retryDeny = this.extractPolicyDeny(retryRaw);
+                        if (retryDeny) {
+                            throw new Error(`[MCP][Policy] ${retryDeny.code || 'DENY'}: ${retryDeny.message || 'Tool denied'}`);
+                        }
+                        const attached = attachSignature(retryRaw);
+                        return (attached && typeof attached === 'object')
+                            ? { ...attached, trustchain_fallback_unsigned: true }
+                            : { result: attached, trustchain_fallback_unsigned: true };
                     }
+                    throw new Error(`[MCP][Policy] ${deny.code || 'DENY'}: ${deny.message || 'Tool denied'}`);
                 }
                 return attachSignature(rawResult);
             } catch (error: any) {
@@ -709,6 +946,22 @@ export class MCPClientService {
                     originalName: parts.slice(serverId.length + 1)
                 };
             }
+        }
+        return null;
+    }
+
+    /**
+     * Legacy alias fallback:
+     * when model emits a plain domain tool (e.g. list_documents),
+     * try to resolve it to an actual connected MCP tool name.
+     */
+    resolveLegacyToolAlias(toolName: string): string | null {
+        const raw = String(toolName || '').trim();
+        if (!raw || raw.startsWith('mcp_')) return null;
+        for (const [serverId, connection] of this.connections) {
+            if (connection.status !== 'connected') continue;
+            const match = connection.tools.find((t) => t?.name === raw);
+            if (match) return `mcp_${serverId}_${raw}`;
         }
         return null;
     }

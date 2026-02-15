@@ -199,6 +199,26 @@ export class TaskIntentService {
             return cached.intent;
         }
 
+        // Deterministic path for explicit workflow prompts:
+        // - "Обязательные инструменты: a, b, c"
+        // - numbered steps like "1. list_tasks(...)".
+        const explicitTools = this.extractExplicitToolSequence(query);
+        if (explicitTools.length > 0) {
+            const explicitIntent: TaskIntent = {
+                steps: explicitTools.map((tool) => ({
+                    action: this.inferActionFromTool(tool),
+                    keywords: [tool],
+                    requiredTools: [tool],
+                    reasoning: 'explicit workflow tool requirement from user prompt',
+                })),
+                isMultiStep: explicitTools.length > 1,
+                originalQuery: query,
+                classifiedBy: 'regex',
+            };
+            intentCache.set(cacheKey, { intent: explicitIntent, timestamp: Date.now() });
+            return explicitIntent;
+        }
+
         // Try LLM classification
         if (deps?.openai) {
             try {
@@ -214,6 +234,47 @@ export class TaskIntentService {
         const regexIntent = this.analyzeIntentRegex(query);
         intentCache.set(cacheKey, { intent: regexIntent, timestamp: Date.now() });
         return regexIntent;
+    }
+
+    private inferActionFromTool(toolName: string): TaskAction {
+        const n = String(toolName || '').toLowerCase();
+        if (/^(create_|update_|delete_|set_|apply_)/.test(n)) return 'create';
+        if (n.includes('stats') || n.includes('analy') || n.includes('report')) return 'analyze';
+        if (n.includes('navigate') || n.includes('page_')) return 'navigate';
+        if (n.includes('compare') || n.includes('match')) return 'compare';
+        return 'search';
+    }
+
+    private extractExplicitToolSequence(query: string): string[] {
+        const out: string[] = [];
+        const seen = new Set<string>();
+        const push = (value: string) => {
+            const tool = String(value || '').trim();
+            if (!tool) return;
+            if (!/^[a-z][a-z0-9_]*$/i.test(tool)) return;
+            // Deduplicate: if we already have a longer mcp_ variant, skip the short one.
+            // e.g. skip "list_tasks" if "mcp_panel_onaidocs_list_tasks" is already in.
+            if (seen.has(tool)) return;
+            // Check if a fully-qualified variant is already present
+            if (!tool.startsWith('mcp_') && [...seen].some(t => t.endsWith(`_${tool}`))) return;
+            seen.add(tool);
+            out.push(tool);
+        };
+
+        // 1) Header with required tools (these are usually fully-qualified mcp_ names)
+        const reqMatch = query.match(/обязательные\s+инструменты\s*:\s*([^\n]+)/i);
+        if (reqMatch?.[1]) {
+            reqMatch[1].split(',').forEach((part) => push(part));
+        }
+
+        // 2) Numbered steps with function-like calls (these are usually short names)
+        const stepRegex = /^\s*\d+\.\s*([a-z][a-z0-9_]*)\s*\(/gim;
+        let m: RegExpExecArray | null = null;
+        while ((m = stepRegex.exec(query)) !== null) {
+            push(m[1]);
+        }
+
+        return out;
     }
 
     /**
@@ -342,10 +403,19 @@ export class TaskIntentService {
     }
 
     /**
-     * Checks if a specific step's required tools were executed
+     * Checks if a specific step's required tools were executed.
+     * Handles prefix matching: if step requires "list_tasks",
+     * and "mcp_panel_onaidocs_list_tasks" was executed, that counts.
      */
     isStepCompleted(step: TaskStep, executedTools: string[]): boolean {
-        return step.requiredTools.some(tool => executedTools.includes(tool));
+        return step.requiredTools.some(requiredTool => {
+            if (executedTools.includes(requiredTool)) return true;
+            // Fuzzy match: short name matches if any executed tool ends with _<shortName>
+            if (!requiredTool.startsWith('mcp_')) {
+                return executedTools.some(t => t.endsWith(`_${requiredTool}`));
+            }
+            return false;
+        });
     }
 
     /**
@@ -366,7 +436,7 @@ export class TaskIntentService {
     generateContinuationPrompt(pendingStep: TaskStep, lastToolResult: any): string {
         const actionDescriptions: Record<TaskAction, string> = {
             extract: 'извлечь данные',
-            search: 'найти товары в каталоге',
+            search: 'найти данные через MCP-инструменты',
             calculate: 'выполнить расчёт',
             create: 'создать файл/отчёт',
             compare: 'сравнить данные',

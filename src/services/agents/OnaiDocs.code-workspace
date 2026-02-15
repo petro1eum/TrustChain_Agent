@@ -1,0 +1,17 @@
+{
+	"folders": [
+		{
+			"path": "../../../../OnaiDocs"
+		},
+		{
+			"path": "../../.."
+		},
+		{
+			"path": "../../../../trust_chain"
+		},
+		{
+			"path": "../../../../trust_chain_pro"
+		}
+	],
+	"settings": {}
+}

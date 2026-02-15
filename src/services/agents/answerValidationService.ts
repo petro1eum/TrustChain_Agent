@@ -90,19 +90,29 @@ export class AnswerValidationService {
         const completedSteps: TaskStep[] = [];
         const missingSteps: TaskStep[] = [];
 
-        // MCP tools fulfill any data-related intent step (the model chose the right tool)
-        const hasMcpToolExecution = executedTools.some(t => t.startsWith('mcp_'));
-        const hasAnyToolExecution = executedTools.length > 0;
-        const dataActions = new Set(['search', 'extract', 'analyze', 'compare', 'navigate', 'calculate', 'create']);
+        const normalizeToolName = (name: string): string => {
+            const raw = String(name || '');
+            return raw.startsWith('mcp_')
+                ? raw.replace(/^mcp_[^_]+_/, '')
+                : raw;
+        };
+        const normalizedExecuted = executedTools.map(normalizeToolName);
 
         for (const step of intent.steps) {
-            const exactMatch = step.requiredTools.some(tool => executedTools.includes(tool));
-            // MCP tools satisfy any data-related step — the model picked the right MCP tool
-            const mcpSatisfied = hasMcpToolExecution && dataActions.has(step.action);
-            // If any tool was executed and model already synthesized, don't force continuation
-            const implicitlyComplete = hasAnyToolExecution && dataActions.has(step.action);
+            const required = Array.isArray(step.requiredTools) ? step.requiredTools : [];
+            // Strict matching:
+            // 1) exact tool match, OR
+            // 2) legacy/domain name match against normalized MCP tool names
+            const matched = required.some((tool) => {
+                const req = String(tool || '');
+                if (!req) return false;
+                if (executedTools.includes(req)) return true;
+                return normalizedExecuted.includes(normalizeToolName(req));
+            });
 
-            if (exactMatch || mcpSatisfied || implicitlyComplete) {
+            // If classifier returned no required tools, treat step as incomplete
+            // until at least one tool call is explicitly mapped by continuation.
+            if (matched) {
                 completedSteps.push(step);
             } else {
                 missingSteps.push(step);
@@ -170,20 +180,23 @@ export class AnswerValidationService {
 
         if (hasSpecificDimensions || hasSpecificType) {
             issues.push('Запрос слишком специфичный (указаны конкретные размеры/тип)');
-            // Extract brand/category from original question
-            const brandMatch = originalQuestion.match(/керми|kermi|rifar|buderus|purmo/i);
-            const categoryMatch = originalQuestion.match(/радиатор|котел|насос/i);
-            retryQuery = `${categoryMatch?.[0] || ''} ${brandMatch?.[0] || ''}`.trim();
+            // Extract essential keywords from original question, dropping dimensions/types
+            const essentialWords = originalQuestion
+                .replace(/\d+[xх×]\d+|\d+мм|\d+mm|тип\s*\d+|type\s*\d+/gi, '')
+                .split(/\s+/)
+                .filter(w => w.length > 2)
+                .slice(0, 3);
+            retryQuery = essentialWords.join(' ').trim();
         }
 
         if (queryWordCount > 4) {
             issues.push('Слишком много критериев в одном запросе');
         }
 
-        // Check if calculation is needed (e.g., room size mentioned)
-        const hasRoomSize = /\d+\s*[xх×]\s*\d+\s*(м|m)?/i.test(originalQuestion);
-        if (hasRoomSize) {
-            issues.push('Нужен расчет мощности по размеру комнаты');
+        // Check if the question contains numeric dimensions that may require a calculation step
+        const hasDimensions = /\d+\s*[xх×]\s*\d+\s*(м|m)?/i.test(originalQuestion);
+        if (hasDimensions) {
+            issues.push('Запрос содержит размеры — возможно нужен предварительный расчёт');
             suggestedAction = 'calculate_first';
         }
 

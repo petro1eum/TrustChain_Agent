@@ -1,13 +1,15 @@
-import React, { useState, useCallback } from 'react';
+import React, { useState, useCallback, useEffect } from 'react';
 import { Zap, ChevronRight, Sparkles, FileText, CheckCircle, Download } from 'lucide-react';
 import type { ExecutionStep, Artifact } from './types';
 import { ARTIFACT_META, TierBadge } from './constants';
 import { normalizeTrustChainMarkup, renderInline } from './MarkdownRenderer';
 
 /**
- * Downloads the execution trace as a JSON file for debugging.
+ * Downloads the execution trace as a JSON file.
+ * MUST be synchronous and called directly from a click handler
+ * so the browser preserves the user-gesture context (critical for iframes).
  */
-function downloadTrace(steps: ExecutionStep[]) {
+function downloadTrace(steps: ExecutionStep[]): void {
     const trace = {
         exportedAt: new Date().toISOString(),
         totalSteps: steps.length,
@@ -30,21 +32,26 @@ function downloadTrace(steps: ExecutionStep[]) {
     const jsonStr = JSON.stringify(trace, null, 2);
     const filename = `agent-trace-${new Date().toISOString().replace(/[:.]/g, '-').slice(0, 19)}.json`;
 
-    // If running inside an iframe, send download request to parent window
-    // (blob downloads in iframes lose the filename attribute in some browsers)
+    // In a cross-origin iframe, Chrome blocks ALL download navigations
+    // (blob URLs, data URLs, a.click()) from the iframe document.
+    // Delegate to the parent window via postMessage.
     if (window.parent !== window) {
         try {
             window.parent.postMessage({
                 type: 'trustchain:download',
+                version: 1,
                 data: jsonStr,
                 filename,
                 mimeType: 'application/json',
+                requestId: `dl-${Date.now()}`,
             }, '*');
             return;
-        } catch { /* fall through to direct download */ }
+        } catch {
+            // postMessage failed — fall through to direct download
+        }
     }
 
-    // Direct download (non-iframe or fallback)
+    // Top-level context (not in iframe) — download directly
     const blob = new Blob([jsonStr], { type: 'application/json' });
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
@@ -53,10 +60,8 @@ function downloadTrace(steps: ExecutionStep[]) {
     a.style.display = 'none';
     document.body.appendChild(a);
     a.click();
-    setTimeout(() => {
-        document.body.removeChild(a);
-        URL.revokeObjectURL(url);
-    }, 100);
+    document.body.removeChild(a);
+    setTimeout(() => URL.revokeObjectURL(url), 200);
 }
 
 /**
@@ -68,10 +73,16 @@ export const ThinkingContainer: React.FC<{
     onOpenArtifact: (id: string) => void;
     allArtifacts?: Record<string, Artifact>;
 }> = ({ steps, onOpenArtifact, allArtifacts }) => {
-    const [expanded, setExpanded] = useState(false);
+    const [expanded, setExpanded] = useState(true);
     const totalMs = steps.reduce((s, st) => s + (st.latencyMs || 0), 0);
     const toolSteps = steps.filter(s => s.type === 'tool');
     const signedCount = toolSteps.filter(s => s.signed).length;
+    const traceHeadId = steps[0]?.id || '';
+
+    // Auto-expand for each new response trace so thoughts are visible by default.
+    useEffect(() => {
+        setExpanded(true);
+    }, [traceHeadId]);
 
     const handleDownload = useCallback((e: React.MouseEvent) => {
         e.stopPropagation(); // don't toggle accordion
@@ -81,30 +92,41 @@ export const ThinkingContainer: React.FC<{
     return (
         <div className="mb-2.5 tc-thinking-container rounded-xl border tc-border-light overflow-hidden">
             {/* Header */}
-            <button
+            <div
+                role="button"
+                tabIndex={0}
                 onClick={() => setExpanded(!expanded)}
-                className="w-full flex items-center gap-2 px-3 py-2 text-left tc-surface-hover transition-colors"
+                onKeyDown={(e) => {
+                    if (e.key === 'Enter' || e.key === ' ') {
+                        e.preventDefault();
+                        setExpanded(v => !v);
+                    }
+                }}
+                className="w-full flex items-center gap-2 px-3 py-2 tc-surface-hover transition-colors"
+                style={{ cursor: 'pointer' }}
             >
-                <div className="w-5 h-5 rounded-md bg-violet-500/10 flex items-center justify-center">
-                    <Zap size={11} className="text-violet-500" />
+                <div className="flex items-center gap-2 text-left flex-1 min-w-0">
+                    <div className="w-5 h-5 rounded-md bg-violet-500/10 flex items-center justify-center">
+                        <Zap size={11} className="text-violet-500" />
+                    </div>
+                    <span className="text-[11px] font-medium tc-text flex-1">
+                        Agent Execution
+                    </span>
+                    <span className="text-[10px] tc-text-muted">
+                        {steps.length} steps{totalMs > 0 ? ` · ${totalMs}ms` : ''} · {signedCount}/{toolSteps.length} signed
+                    </span>
+                    <ChevronRight size={12} className={`tc-text-muted transition-transform ${expanded ? 'rotate-90' : ''}`} />
                 </div>
-                <span className="text-[11px] font-medium tc-text flex-1">
-                    Agent Execution
-                </span>
-                <span className="text-[10px] tc-text-muted">
-                    {steps.length} steps{totalMs > 0 ? ` · ${totalMs}ms` : ''} · {signedCount}/{toolSteps.length} signed
-                </span>
-                <span
-                    role="button"
+                <button
+                    type="button"
                     title="Скачать trace (JSON)"
                     onClick={handleDownload}
-                    className="p-0.5 rounded hover:bg-white/10 transition-colors"
-                    style={{ cursor: 'pointer' }}
+                    className="p-1 rounded hover:bg-white/10 transition-colors"
+                    style={{ cursor: 'pointer', background: 'transparent', border: 'none' }}
                 >
                     <Download size={11} className="tc-text-muted" />
-                </span>
-                <ChevronRight size={12} className={`tc-text-muted transition-transform ${expanded ? 'rotate-90' : ''}`} />
-            </button>
+                </button>
+            </div>
 
             {/* Steps */}
             {expanded && (

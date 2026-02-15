@@ -4,7 +4,7 @@
  */
 
 export class FrontendNavigationService {
-    private currentState = { tab: 'home', subtab: '', category: '', product: '' };
+    private currentState = { tab: 'home', subtab: '', category: '', selectedItem: '' };
     private callbacks: Map<string, (...args: any[]) => any> = new Map();
 
     // ── Navigation ──
@@ -61,10 +61,10 @@ export class FrontendNavigationService {
         return { success: true, category: categoryId };
     }
 
-    selectProduct(productId: string): Record<string, any> {
-        this.currentState.product = productId;
-        this.invokeCallback('setSelectedProduct', productId);
-        return { success: true, product: productId };
+    selectItem(itemId: string): Record<string, any> {
+        this.currentState.selectedItem = itemId;
+        this.invokeCallback('setSelectedItem', itemId);
+        return { success: true, item: itemId };
     }
 
     async search(query: string): Promise<Record<string, any>> {
@@ -119,7 +119,7 @@ export class FrontendNavigationService {
     getSelectedItems(): any {
         const cb = this.callbacks.get('getSelectedItems');
         if (cb) return cb();
-        return { products: [], categories: [], other: {} };
+        return { items: [], categories: [], other: {} };
     }
 
     /** Click/activate an element by selector or ID */

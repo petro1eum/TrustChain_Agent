@@ -8,6 +8,8 @@ import { agentDebugService } from '../agentDebugService';
 import { webSearchService } from '../webSearchService';
 import { codeExecutionService } from '../codeExecutionService';
 import { bashExecutionService } from '../bashExecutionService';
+import { trustchainService } from '../trustchainService';
+import type { TrustChainEnvelope } from '../trustchainService';
 import type { MetricsService } from './metricsService';
 import type { ToolHandlersService } from './toolHandlersService';
 import type { AppActions, DataProcessingContext, ExecutionPlan } from '../../agents/types';
@@ -190,6 +192,20 @@ export class ToolExecutionService {
       }
 
       this.updatePendingFileRequestState(toolName, args, result);
+
+      // 🔐 TrustChain: подпись каждого tool call
+      let tcEnvelope: TrustChainEnvelope | undefined;
+      try {
+        tcEnvelope = await trustchainService.sign(toolName, args);
+      } catch (e) {
+        console.warn('[ToolExecution][TrustChain] Signing skipped:', (e as Error).message);
+      }
+
+      // Обогащаем результат подписью
+      if (tcEnvelope && result && typeof result === 'object') {
+        result.__tc_envelope = tcEnvelope;
+        result.__tc_signature = tcEnvelope.signature;
+      }
 
       // Кешируем результат (FIFO лимит 200)
       this.deps.toolExecutionCache.set(cacheKey, result);

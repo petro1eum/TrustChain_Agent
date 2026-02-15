@@ -121,7 +121,7 @@ export class ToolHandlersService {
           page_start: Math.min(pageStart, pageEnd),
           page_end: Math.max(pageStart, pageEnd),
           user_query: userQuery || undefined,
-          sheet_name: norm.sheetName || 'Товары'
+          sheet_name: norm.sheetName || 'Sheet1'
         })
       });
 

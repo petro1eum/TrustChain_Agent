@@ -361,33 +361,75 @@ class TrustChainService {
                 console.log(`[TrustChain] ✅ External signer configured | key_id=${this.keyId}`);
                 return;
             }
-            // Try Ed25519 first (Chrome 113+, Edge 113+, Safari 17+)
-            const keyPair = await crypto.subtle.generateKey(
-                { name: 'Ed25519' } as any,
-                true,  // extractable — needed to export public key
-                ['sign', 'verify']
-            );
+            // Try to restore persisted Ed25519 key from localStorage
+            let restoredFromStorage = false;
+            try {
+                const savedPrivJwk = localStorage.getItem('tc_ed25519_private_jwk');
+                const savedPub = localStorage.getItem('tc_ed25519_public');
+                if (savedPrivJwk && savedPub) {
+                    const jwk = JSON.parse(savedPrivJwk);
+                    this.privateKey = await crypto.subtle.importKey(
+                        'jwk', jwk,
+                        { name: 'Ed25519' } as any,
+                        true, ['sign']
+                    );
+                    // Derive public CryptoKey from raw bytes
+                    const pubBytes = base64ToBuffer(savedPub);
+                    this.publicKey = await crypto.subtle.importKey(
+                        'raw', pubBytes,
+                        { name: 'Ed25519' } as any,
+                        true, ['verify']
+                    );
+                    this.publicKeyBase64 = savedPub;
+                    this.algorithm = 'ed25519';
+                    this.keyId = (await sha256hex(this.publicKeyBase64)).slice(0, 24);
+                    restoredFromStorage = true;
+                    console.log(`[TrustChain] ✅ Ed25519 keypair restored from localStorage | key_id=${this.keyId}`);
+                }
+            } catch (restoreErr) {
+                console.warn('[TrustChain] Could not restore saved key, generating new one:', restoreErr);
+            }
 
-            this.privateKey = keyPair.privateKey;
-            this.publicKey = keyPair.publicKey;
-            this.algorithm = 'ed25519';
+            if (!restoredFromStorage) {
+                // Generate fresh Ed25519 keypair (Chrome 113+, Edge 113+, Safari 17+)
+                const keyPair = await crypto.subtle.generateKey(
+                    { name: 'Ed25519' } as any,
+                    true,  // extractable — needed to export public key
+                    ['sign', 'verify']
+                );
 
-            // Export public key as raw bytes → Base64
-            const rawPubKey = await crypto.subtle.exportKey('raw', this.publicKey);
-            this.publicKeyBase64 = bufferToBase64(rawPubKey);
-            this.keyId = (await sha256hex(this.publicKeyBase64)).slice(0, 24);
+                this.privateKey = keyPair.privateKey;
+                this.publicKey = keyPair.publicKey;
+                this.algorithm = 'ed25519';
+
+                // Export public key as raw bytes → Base64
+                const rawPubKey = await crypto.subtle.exportKey('raw', this.publicKey);
+                this.publicKeyBase64 = bufferToBase64(rawPubKey);
+                this.keyId = (await sha256hex(this.publicKeyBase64)).slice(0, 24);
+
+                // Persist key to localStorage for stable key_id across restarts
+                try {
+                    const privJwk = await crypto.subtle.exportKey('jwk', keyPair.privateKey);
+                    localStorage.setItem('tc_ed25519_private_jwk', JSON.stringify(privJwk));
+                    localStorage.setItem('tc_ed25519_public', this.publicKeyBase64);
+                    console.log(`[TrustChain] 💾 Ed25519 keypair saved to localStorage`);
+                } catch (saveErr) {
+                    console.warn('[TrustChain] Could not persist key to localStorage:', saveErr);
+                }
+
+                console.log(`[TrustChain] ✅ Ed25519 keypair generated | Agent: ${this.agentId}`);
+                console.log(`[TrustChain]    Public key: ${this.publicKeyBase64.substring(0, 20)}...`);
+            }
+
             this.externalSignerHealth = {
                 ...this.externalSignerHealth,
                 mode: 'local',
-                provider: 'local-webcrypto',
+                provider: restoredFromStorage ? 'local-webcrypto-persisted' : 'local-webcrypto',
                 status: 'healthy',
                 key_id: this.keyId,
                 last_checked_at: new Date().toISOString(),
                 last_error: null,
             };
-
-            console.log(`[TrustChain] ✅ Ed25519 keypair generated | Agent: ${this.agentId}`);
-            console.log(`[TrustChain]    Public key: ${this.publicKeyBase64.substring(0, 20)}...`);
 
         } catch (e) {
             // Fallback to HMAC-SHA256 for older browsers
@@ -420,6 +462,38 @@ class TrustChainService {
         }
 
         this.initialized = true;
+
+        // Auto-register key with MCP server (dev mode)
+        this.registerKeyWithMcp().catch(() => {/* non-fatal */ });
+    }
+
+    /**
+     * Register this agent's key_id + public_key with the MCP server
+     * so it accepts signed tool calls without manual .env allowlist edits.
+     */
+    private async registerKeyWithMcp(): Promise<void> {
+        const mcpUrl = this.getEnv('VITE_MCP_URL', '').trim()
+            || this.getEnv('VITE_MCP_SERVER_URL', '').trim()
+            || 'http://localhost:9323';
+        try {
+            const resp = await fetch(`${mcpUrl}/trustchain/register-key`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    key_id: this.keyId,
+                    public_key: this.publicKeyBase64,
+                    agent_id: this.agentId,
+                    algorithm: this.algorithm,
+                }),
+            });
+            if (resp.ok) {
+                console.log(`[TrustChain] 🔑 Key registered with MCP | key_id=${this.keyId}`);
+            } else {
+                console.warn(`[TrustChain] MCP key registration returned ${resp.status}`);
+            }
+        } catch (e) {
+            console.warn('[TrustChain] MCP key registration failed (non-fatal):', (e as Error)?.message);
+        }
     }
 
     /**
@@ -483,17 +557,21 @@ class TrustChainService {
         this.sequence++;
         const timestamp = new Date().toISOString();
 
-        // Canonical payload — must match verification on server side
-        const payload = canonicalStringify({
+        // Canonical payload — must match verification on server side.
+        // v1 schema must stay backward-compatible (no tenant_id in signed payload).
+        const payloadObj: Record<string, any> = {
             arguments: args,
             execution_context: this.executionContext,
             key_id: this.keyId,
             name: toolName,
             sequence: this.sequence,
             signature_schema_version: this.signatureSchemaVersion,
-            tenant_id: this.executionContext?.tenant_id || '',
             timestamp: timestamp,
-        });
+        };
+        if (this.signatureSchemaVersion >= 2) {
+            payloadObj.tenant_id = this.executionContext?.tenant_id || '';
+        }
+        const payload = canonicalStringify(payloadObj);
 
         // Sign
         let signatureStr: string;
@@ -616,16 +694,19 @@ class TrustChainService {
     async verify(envelope: TrustChainEnvelope, toolName: string, args: Record<string, any>): Promise<boolean> {
         await this.initialize();
 
-        const payload = canonicalStringify({
+        const payloadObj: Record<string, any> = {
             arguments: args,
             execution_context: envelope.execution_context || {},
             key_id: envelope.key_id,
             name: toolName,
             sequence: envelope.sequence,
             signature_schema_version: envelope.signature_schema_version,
-            tenant_id: envelope.tenant_id || '',
             timestamp: envelope.timestamp,
-        });
+        };
+        if (Number(envelope.signature_schema_version || 0) >= 2) {
+            payloadObj.tenant_id = envelope.tenant_id || '';
+        }
+        const payload = canonicalStringify(payloadObj);
         const encoded = new TextEncoder().encode(payload);
 
         try {

@@ -1,0 +1,290 @@
+# Dockerfile для AI Agent контейнера с gVisor изоляцией
+# Ubuntu 24.04 с необходимыми инструментами для работы агента
+# Соответствует спецификации из admin_app_backend/ai_studio/app/src/agent-tools/system-info/
+
+FROM ubuntu:24.04
+
+# Отключаем интерактивные запросы при установке пакетов
+ENV DEBIAN_FRONTEND=noninteractive
+
+# Установка базовых инструментов и зависимостей
+RUN apt-get update && apt-get install -y \
+    curl \
+    wget \
+    git \
+    vim \
+    nano \
+    build-essential \
+    ca-certificates \
+    gnupg \
+    lsb-release \
+    software-properties-common \
+    && rm -rf /var/lib/apt/lists/*
+
+# Установка Python 3.12 (Ubuntu 24.04 уже включает Python 3.12)
+RUN apt-get update && \
+    apt-get install -y \
+    python3.12 \
+    python3.12-dev \
+    python3.12-venv \
+    python3-pip \
+    && rm -rf /var/lib/apt/lists/*
+
+# Создание симлинков для python3 и pip3
+RUN update-alternatives --install /usr/bin/python3 python3 /usr/bin/python3.12 1 && \
+    update-alternatives --install /usr/bin/python python /usr/bin/python3.12 1
+
+# Обновление pip для Python 3.12 (используем --ignore-installed для пакетов из apt)
+RUN python3.12 -m pip install --break-system-packages --ignore-installed --upgrade pip setuptools
+
+# Установка Node.js v22.20.0 через NodeSource
+RUN curl -fsSL https://deb.nodesource.com/setup_22.x | bash - && \
+    apt-get install -y nodejs && \
+    rm -rf /var/lib/apt/lists/*
+
+# Установка системных пакетов из спецификации
+RUN apt-get update && apt-get install -y \
+    pandoc \
+    qpdf \
+    imagemagick \
+    poppler-utils \
+    libreoffice \
+    ffmpeg \
+    tesseract-ocr \
+    tesseract-ocr-rus \
+    graphviz \
+    default-jre-headless \
+    openjdk-21-jdk \
+    fonts-liberation \
+    fonts-dejavu \
+    fonts-noto-cjk \
+    fonts-noto-color-emoji \
+    pkg-config \
+    libcairo2-dev \
+    libgirepository1.0-dev \
+    libglib2.0-dev \
+    libgdk-pixbuf2.0-dev \
+    libpango1.0-dev \
+    libffi-dev \
+    libssl-dev \
+    libxml2-dev \
+    libxslt1-dev \
+    libjpeg-dev \
+    libpng-dev \
+    libtiff-dev \
+    libopenjp2-7-dev \
+    zlib1g-dev \
+    libdbus-1-dev \
+    && rm -rf /var/lib/apt/lists/*
+
+# Создание структуры директорий как в Claude Code
+RUN mkdir -p /home/kb \
+    && mkdir -p /mnt/user-data/uploads \
+    && mkdir -p /mnt/user-data/outputs \
+    && mkdir -p /mnt/skills \
+    && mkdir -p /mnt/transcripts \
+    && mkdir -p /opt/pw-browsers
+
+# Создание пользователя kb
+RUN useradd -m -u 1000 -s /bin/bash kb || true
+
+# Установка прав доступа
+RUN chown -R 1000:1000 /home/kb \
+    && chown -R 1000:1000 /mnt/user-data/outputs \
+    && chown -R 1000:1000 /opt/pw-browsers \
+    && chmod 755 /mnt/user-data/uploads \
+    && chmod 755 /mnt/skills \
+    && chmod 755 /mnt/transcripts
+
+# Рабочая директория
+WORKDIR /home/kb
+
+# Переменные окружения из спецификации
+ENV HOME=/home/kb
+ENV PATH="/home/kb/.npm-global/bin:/home/kb/.local/bin:/root/.local/bin:${PATH}"
+ENV PIP_ROOT_USER_ACTION=ignore
+ENV NODE_EXTRA_CA_CERTS=/etc/ssl/certs/ca-certificates.crt
+ENV RUST_BACKTRACE=1
+ENV PYTHONUNBUFFERED=1
+ENV SSL_CERT_FILE=/etc/ssl/certs/ca-certificates.crt
+ENV PLAYWRIGHT_BROWSERS_PATH=/opt/pw-browsers
+ENV ELECTRON_GET_USE_PROXY=1
+ENV JAVA_HOME=/usr/lib/jvm/java-21-openjdk-amd64
+ENV NODE_PATH=/usr/local/lib/node_modules_global
+ENV REQUESTS_CA_BUNDLE=/etc/ssl/certs/ca-certificates.crt
+ENV IS_SANDBOX=yes
+
+# Настройка npm для глобальной установки в /home/kb/.npm-global
+RUN mkdir -p /home/kb/.npm-global && \
+    npm config set prefix '/home/kb/.npm-global'
+
+# Установка Python пакетов из спецификации (pip-packages.txt)
+# Используем --ignore-installed для избежания конфликтов с системными пакетами
+RUN python3.12 -m pip install --break-system-packages --ignore-installed --no-cache-dir \
+    absl-py==2.3.1 \
+    argcomplete==3.1.4 \
+    attrs==25.4.0 \
+    babel==2.17.0 \
+    backrefs==5.9 \
+    beautifulsoup4==4.14.2 \
+    blinker==1.9.0 \
+    camelot-py==1.0.9 \
+    certifi==2025.10.5 \
+    cffi==2.0.0 \
+    chardet==5.2.0 \
+    charset-normalizer==3.4.3 \
+    click==8.3.0 \
+    colorama==0.4.6 \
+    coloredlogs==15.0.1 \
+    contourpy==1.3.3 \
+    cryptography==46.0.2 \
+    cycler==0.12.1 \
+    defusedxml==0.7.1 \
+    Deprecated==1.2.18 \
+    docopt==0.6.2 \
+    et_xmlfile==2.0.0 \
+    Flask==3.1.2 \
+    flatbuffers==25.9.23 \
+    fonttools==4.60.1 \
+    freetype-py==2.3.0 \
+    ghp-import==2.1.0 \
+    graphviz==0.21 \
+    greenlet==3.2.4 \
+    grip==4.6.2 \
+    humanfriendly==10.0 \
+    idna==3.11 \
+    imageio==2.37.0 \
+    imageio-ffmpeg==0.6.0 \
+    img2pdf==0.6.1 \
+    itsdangerous==2.2.0 \
+    jax==0.7.2 \
+    jaxlib==0.7.2 \
+    Jinja2==3.1.6 \
+    joblib==1.5.2 \
+    kiwisolver==1.4.9 \
+    lazy_loader==0.4 \
+    lxml==6.0.2 \
+    magika==0.6.2 \
+    Markdown==3.9 \
+    markdown-it-py==4.0.0 \
+    markdownify==1.2.0 \
+    markitdown==0.1.3 \
+    marko==2.2.1 \
+    MarkupSafe==3.0.3 \
+    matplotlib==3.10.7 \
+    mdurl==0.1.2 \
+    mediapipe==0.10.14 \
+    mergedeep==1.3.4 \
+    mistune==3.1.4 \
+    mkdocs==1.6.1 \
+    mkdocs-get-deps==0.2.0 \
+    mkdocs-material==9.6.21 \
+    mkdocs-material-extensions==1.3.1 \
+    ml_dtypes==0.5.3 \
+    mpmath==1.3.0 \
+    networkx==3.5 \
+    numpy==2.3.3 \
+    odfpy==1.4.1 \
+    onnxruntime==1.23.1 \
+    opencv-contrib-python==4.11.0.86 \
+    opencv-python==4.11.0.86 \
+    opencv-python-headless==4.11.0.86 \
+    openpyxl==3.1.5 \
+    opt_einsum==3.4.0 \
+    packaging==25.0 \
+    paginate==0.5.7 \
+    pandas==2.3.3 \
+    path-and-address==2.0.1 \
+    pathspec==0.12.1 \
+    pdf2image==1.17.0 \
+    pdfkit==1.0.0 \
+    pdfminer.six==20250506 \
+    pdfplumber==0.11.7 \
+    pikepdf==9.11.0 \
+    pillow==11.3.0 \
+    pipx==1.4.3 \
+    platformdirs==4.5.0 \
+    playwright==1.55.0 \
+    protobuf==4.25.8 \
+    psutil==7.1.0 \
+    pycairo==1.28.0 \
+    pycparser==2.23 \
+    pyee==13.0.0 \
+    PyGments==2.19.2 \
+    pymdown-extensions==10.16.1 \
+    pyoo==1.4 \
+    pyparsing==3.2.5 \
+    pypdf==5.9.0 \
+    pypdfium2==4.30.0 \
+    pytesseract==0.3.13 \
+    python-dateutil==2.9.0.post0 \
+    python-docx==1.2.0 \
+    python-dotenv==1.1.1 \
+    python-pptx==1.0.2 \
+    pytz==2025.2 \
+    PyYAML==6.0.3 \
+    pyyaml_env_tag==1.1 \
+    reportlab==4.4.4 \
+    requests==2.32.5 \
+    rlPyCairo==0.4.0 \
+    scikit-image==0.25.2 \
+    scikit-learn==1.7.2 \
+    scipy==1.16.2 \
+    seaborn==0.13.2 \
+    setuptools==68.1.2 \
+    six==1.17.0 \
+    sounddevice==0.5.2 \
+    soupsieve==2.8 \
+    sympy==1.14.0 \
+    tabula-py==2.10.0 \
+    tabulate==0.9.0 \
+    threadpoolctl==3.6.0 \
+    tifffile==2025.10.4 \
+    typing_extensions==4.15.0 \
+    tzdata==2025.2 \
+    unoserver==3.4 \
+    urllib3==2.5.0 \
+    userpath==1.9.1 \
+    Wand==0.6.13 \
+    watchdog==6.0.0 \
+    Werkzeug==3.1.3 \
+    wheel==0.42.0 \
+    wrapt==1.17.3 \
+    xlsxwriter==3.2.9
+
+# Установка npm пакетов из спецификации (npm-packages.txt)
+# markdown-pdf исключен - не поддерживает ARM64 (зависит от phantomjs-prebuilt)
+# Добавлен md-to-pdf как альтернатива (использует Puppeteer, поддерживает ARM64)
+RUN npm install -g \
+    @mermaid-js/mermaid-cli@11.12.0 \
+    docx@9.5.1 \
+    graphviz@0.0.9 \
+    md-to-pdf \
+    markdown-toc@1.2.0 \
+    markdownlint-cli@0.45.0 \
+    markdownlint-cli2@0.18.1 \
+    marked@16.4.0 \
+    pdf-lib@1.17.1 \
+    pdfjs-dist@5.4.296 \
+    playwright@1.56.0 \
+    pptxgenjs@4.0.1 \
+    react-dom@19.2.0 \
+    react-icons@5.5.0 \
+    react@19.2.0 \
+    remark-cli@12.0.1 \
+    remark-preset-lint-recommended@7.0.1 \
+    sharp@0.34.4 \
+    ts-node@10.9.2 \
+    tsx@4.20.6 \
+    typescript@5.9.3
+
+# Установка браузеров Playwright
+RUN playwright install --with-deps chromium firefox webkit
+
+# Проверка версий
+RUN python3 --version && \
+    node --version && \
+    npm --version
+
+# Команда по умолчанию - держим контейнер запущенным
+CMD ["tail", "-f", "/dev/null"]

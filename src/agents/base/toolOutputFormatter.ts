@@ -30,7 +30,7 @@ export function formatToolOutput(output: any): string {
       const arr = (data as any).items as any[];
       const formatted = arr.slice(0, 10).map((item, idx) => {
         if (item && typeof item === 'object') {
-          const name = item.name || item.title || item.id || `Товар ${idx + 1}`;
+          const name = item.name || item.title || item.id || `Элемент ${idx + 1}`;
           const article = item.article ? ` (арт. ${item.article})` : '';
           const vendor = item.vendor ? ` — ${item.vendor}` : '';
           return `• ${name}${article}${vendor}`;
@@ -38,7 +38,7 @@ export function formatToolOutput(output: any): string {
         return String(item);
       }).join('\n');
       const total = (data as any).total || arr.length;
-      const message = (data as any).message ? String((data as any).message) : `Найдено ${total} товаров`;
+      const message = (data as any).message ? String((data as any).message) : `Найдено ${total} элементов`;
       const suffix = arr.length > 10 ? '\nПоказаны первые 10.' : '';
       return `${message}\n${formatted}${suffix}`;
     }

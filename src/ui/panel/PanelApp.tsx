@@ -2,7 +2,7 @@ import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import '../agentTheme.css';
 import { ThinkingContainer } from '../components/ThinkingContainer';
 import {
-    Bot, X, Loader2, ArrowUp, Check, ChevronRight,
+    Bot, X, Loader2, ArrowUp, Check, ChevronRight, Settings,
     Search, FileText, BarChart3, Sparkles, Wrench, Zap, Shield,
     Terminal, Activity, AlertTriangle, CheckCircle, Database,
     TrendingUp, Lock, Eye, MessageSquare, Clock
@@ -14,6 +14,7 @@ import { agentCallbacksService } from '../../services/agents/agentCallbacksServi
 import { setAgentContext } from '../../services/agentContext';
 import { trustchainService } from '../../services/trustchainService';
 import type { Message, Artifact, ExecutionStep } from '../components/types';
+import ProSettingsPanel from '../components/ProSettingsPanel';
 import { normalizeTrustChainMarkup, renderFullMarkdown } from '../components/MarkdownRenderer';
 import '../theme.ts';
 
@@ -735,6 +736,7 @@ const PanelApp: React.FC = () => {
     const [mcpStatus, setMcpStatus] = useState<'connecting' | 'connected' | 'offline'>('offline');
     const [mcpTools, setMcpTools] = useState<Array<{ name: string; description: string }>>([]);
     const [viewingArtifact, setViewingArtifact] = useState<Artifact | null>(null);
+    const [showPanelSettings, setShowPanelSettings] = useState(false);
     const [hostSkills, setHostSkills] = useState<ContextSkill[]>([]);
     const [hostWorkflows, setHostWorkflows] = useState<Record<string, HostWorkflow[]>>({});
     const [documentModeConfig, setDocumentModeConfig] = useState<DocumentModeConfig | null>(null);
@@ -1054,7 +1056,7 @@ const PanelApp: React.FC = () => {
             if (messages.length === 0) chatHistoryService.startSession(`Panel (${params.instance})`, 'openai');
             chatHistoryService.addMessage({ role: 'user', content: text, timestamp: new Date() });
             // Use host-provided system prompt (URL ?system=base64) if available,
-            // otherwise fall back to hardcoded context prompts (ЛОМ, kb-catalog, etc.)
+            // otherwise fall back to the generic context prompt
             const systemPrompt = params.systemPrompt || getContextSystemPrompt(params.context);
             const documentModePrompt = documentModeConfig
                 ? `РЕЖИМ ДОКУМЕНТОВ: ${documentModeConfig.label}. ${documentModeConfig.description || ''}\n` +
@@ -1433,6 +1435,19 @@ const PanelApp: React.FC = () => {
                         }} />
                         {agent.isInitialized ? 'Online' : 'Offline'}
                     </div>
+                    <button
+                        onClick={() => setShowPanelSettings(true)}
+                        style={{
+                            background: 'none', border: 'none', cursor: 'pointer',
+                            color: '#64748b', padding: 2, display: 'flex', alignItems: 'center',
+                            transition: 'color 0.15s',
+                        }}
+                        onMouseEnter={e => e.currentTarget.style.color = '#a5b4fc'}
+                        onMouseLeave={e => e.currentTarget.style.color = '#64748b'}
+                        title="Pro/Enterprise Settings"
+                    >
+                        <Settings size={14} />
+                    </button>
                 </div>
             </div>
 
@@ -1489,6 +1504,30 @@ const PanelApp: React.FC = () => {
                     </div>
                     <div style={{ flex: 1, overflow: 'auto', padding: 12, fontSize: 12, color: '#cbd5e1' }} className="tc-markdown">
                         {renderFullMarkdown(viewingArtifact.content)}
+                    </div>
+                </div>
+            )}
+
+            {/* ── Pro/Enterprise Settings Overlay ── */}
+            {showPanelSettings && (
+                <div style={{ position: 'absolute', inset: 0, zIndex: 50, display: 'flex', flexDirection: 'column', background: '#0f172a' }}>
+                    <div style={{
+                        padding: '8px 12px', borderBottom: '1px solid #1e293b',
+                        display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+                    }}>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                            <Settings size={14} style={{ color: '#a5b4fc' }} />
+                            <span style={{ fontSize: 12, fontWeight: 600, color: '#e2e8f0' }}>Pro / Enterprise</span>
+                        </div>
+                        <button
+                            onClick={() => setShowPanelSettings(false)}
+                            style={{ color: '#94a3b8', cursor: 'pointer', background: 'none', border: 'none' }}
+                        >
+                            <X size={16} />
+                        </button>
+                    </div>
+                    <div style={{ flex: 1, overflow: 'auto', padding: 12 }}>
+                        <ProSettingsPanel compact />
                     </div>
                 </div>
             )}

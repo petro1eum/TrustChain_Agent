@@ -154,8 +154,9 @@ export class ResponseQualityEvaluator {
         let penalized = false;
         const tools = input.executedTools;
 
-        // Антипаттерн: вызов extract_table_to_excel после match_specification_to_catalog
-        const matchIdx = tools.indexOf('match_specification_to_catalog');
+        // Anti-pattern: calling extract_table_to_excel after a search/match tool
+        // (redundant extraction after results are already found)
+        const matchIdx = tools.findIndex(t => t.includes('match_') || t.includes('search'));
         const extractIdx = tools.indexOf('extract_table_to_excel');
         if (matchIdx !== -1 && extractIdx !== -1 && extractIdx > matchIdx) {
             penalized = true;

@@ -95,7 +95,7 @@ export class ReActService {
 
     // Build system prompt: context-aware
     // When PanelApp injects a context-specific system message (e.g., ЛОМ risk management),
-    // use it as the PRIMARY prompt — the default internal prompt (KB Catalog) is only a fallback.
+    // use it as the PRIMARY prompt — the default internal prompt is only a fallback.
     // This ensures the agent behaves according to its embedding context.
     let systemPrompt: string;
     if (contextSystemMessages.length > 0) {
@@ -121,7 +121,7 @@ export class ReActService {
 3. Отвечай на основе фактических результатов инструментов, не фантазируй
 4. Формат ответа: markdown с конкретными цифрами и данными из результатов tools
 
-Если пользователь спрашивает "что ты видишь" — используй describe_current_page или list_documents.`;
+Если пользователь спрашивает "что ты видишь" — используй describe_current_page или MCP-инструмент вида mcp_<server>_list_documents (если доступен).`;
 
 
 
@@ -209,6 +209,7 @@ export class ReActService {
       ];
 
       // Повторный вызов chatWithToolsLoop — переиспользуем dedup кэш
+      const dedupSizeBefore = sharedExecutedToolCalls.size;
       const continuation = await this.deps.chatWithToolsLoop(messagesForLLM, progressCallback, sharedExecutedToolCalls);
 
       // Объединяем результаты
@@ -216,6 +217,15 @@ export class ReActService {
       result = continuation.result;
 
       continuationAttempts++;
+
+      // If no NEW tool calls happened (all were dedup'd), stop looping.
+      // The model is just repeating itself and won't produce new data.
+      const newToolCalls = this.extractExecutedTools(continuation.messages);
+      const dedupSizeAfter = sharedExecutedToolCalls.size;
+      if (newToolCalls.length === 0 || dedupSizeAfter === dedupSizeBefore) {
+        console.log('[ReActService] No new tool calls in continuation — stopping loop');
+        break;
+      }
     }
 
     if (continuationAttempts >= this.MAX_CONTINUATION_ATTEMPTS) {

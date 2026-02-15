@@ -34,10 +34,10 @@ export function getAgentModes(): AgentModeConfig[] {
         {
             id: 'search',
             name: 'Поиск',
-            description: 'Поиск по каталогу и базе знаний',
+            description: 'Поиск по данным и базе знаний',
             icon: '🔍',
             color: '#f59e0b',
-            defaultTools: ['expert_search', 'match_specification_to_catalog'],
+            defaultTools: ['web_search', 'search_files_by_name'],
         },
         {
             id: 'trustchain',

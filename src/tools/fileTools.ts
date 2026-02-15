@@ -48,7 +48,7 @@ export const fileTools = [
     type: "function",
     function: {
       name: "extract_table_to_excel",
-      description: "Извлечь СЫРУЮ таблицу из PDF-страниц и сохранить «как есть» в Excel (БЕЗ поиска в каталоге). Используй ТОЛЬКО если пользователь просит скопировать/перенести таблицу из PDF в Excel. НЕ используй для поиска товаров — для этого есть match_specification_to_catalog.",
+      description: "Извлечь СЫРУЮ таблицу из PDF-страниц и сохранить «как есть» в Excel (БЕЗ поиска в каталоге). Используй ТОЛЬКО если пользователь просит скопировать/перенести таблицу из PDF в Excel. НЕ используй для полнотекстового поиска — для этого используй MCP search tools.",
       parameters: {
         type: "object",
         properties: {

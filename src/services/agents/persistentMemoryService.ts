@@ -73,6 +73,7 @@ export class PersistentMemoryService {
     /**
      * Загружает память при старте сессии.
      * Пробует backend API, fallback на localStorage.
+     * After loading, purges stale/irrelevant entries that may contaminate context.
      */
     async loadMemory(): Promise<void> {
         if (this.loaded) return;
@@ -90,6 +91,7 @@ export class PersistentMemoryService {
                     if (data && data.entries) {
                         this.store = data;
                         this.loaded = true;
+                        this.purgeStaleEntries();
                         console.log(`[PersistentMemory] Loaded ${this.store.entries.length} entries from backend`);
                         return;
                     }
@@ -104,6 +106,7 @@ export class PersistentMemoryService {
                 const raw = localStorage.getItem(MEMORY_STORAGE_KEY);
                 if (raw) {
                     this.store = JSON.parse(raw);
+                    this.purgeStaleEntries();
                     console.log(`[PersistentMemory] Loaded ${this.store.entries.length} entries from localStorage`);
                 }
             }
@@ -112,6 +115,43 @@ export class PersistentMemoryService {
         }
 
         this.loaded = true;
+    }
+
+    /**
+     * Remove stale entries that belong to other projects / are clearly irrelevant.
+     * This prevents cross-project memory pollution (e.g. "JDE коды", "товары"
+     * from a retail project leaking into a document-management context).
+     */
+    private purgeStaleEntries(): void {
+        const before = this.store.entries.length;
+
+        // Blocklist: keywords that indicate a completely different domain
+        // and should never appear in OnaiDocs / TrustChain context.
+        const TOXIC_KEYWORDS = [
+            'jde', 'товар', 'product', 'sku', 'артикул', 'номенклатур',
+            'цена', 'price', 'прайс', 'корзин', 'cart', 'checkout',
+            'каталог товар', 'характеристик товар', 'retail',
+        ];
+
+        this.store.entries = this.store.entries.filter(entry => {
+            const text = `${entry.key} ${entry.value}`.toLowerCase();
+            const isToxic = TOXIC_KEYWORDS.some(kw => text.includes(kw));
+            if (isToxic) return false;
+
+            // Also drop very old entries (>30 days) with low confidence
+            const ageMs = Date.now() - (entry.timestamp || 0);
+            const isOldAndWeak = ageMs > 30 * 24 * 60 * 60 * 1000 && entry.confidence < 0.5;
+            if (isOldAndWeak) return false;
+
+            return true;
+        });
+
+        const purged = before - this.store.entries.length;
+        if (purged > 0) {
+            console.log(`[PersistentMemory] Purged ${purged} stale/toxic entries`);
+            // Persist immediately so they don't come back
+            this.saveMemory().catch(() => {});
+        }
     }
 
     /**

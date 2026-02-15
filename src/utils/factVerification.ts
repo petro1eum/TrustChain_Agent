@@ -13,7 +13,7 @@ export interface VerifiedFactEntry {
 
 /**
  * Извлекает верифицированные факты из событий сообщения
- * Ищет артикулы, названия товаров и другие ключевые данные
+ * Извлекает идентификаторы, названия и другие ключевые данные
  */
 export function extractVerifiedFacts(events: MessageEvent[]): Map<string, VerificationInfo> {
     const factsMap = new Map<string, VerificationInfo>();
@@ -102,7 +102,7 @@ function extractFactsFromResult(result: any): string[] {
         allItems.push(...data);
     }
 
-    // 2. match_results_preview — результат match_specification_to_catalog
+    // 2. match_results_preview — результат match/specification tools
     // Формат: [{spec_row, spec_query, found_items: [{name, article, vendor, ...}], ...}]
     if (Array.isArray(data.match_results_preview)) {
         for (const row of data.match_results_preview) {
@@ -121,7 +121,7 @@ function extractFactsFromResult(result: any): string[] {
     for (const item of allItems) {
         if (!item || typeof item !== 'object') continue;
 
-        // === Product catalog fields ===
+        // === Identifiers & catalog fields ===
         if (item.article) facts.push(item.article);
         if (item.art) facts.push(item.art);
         if (item.vendor_code) facts.push(item.vendor_code);
@@ -146,9 +146,9 @@ function extractFactsFromResult(result: any): string[] {
         if (item.priority && item.priority.length > 2) facts.push(item.priority);
     }
 
-    // Если результат - строка, ищем паттерны артикулов и номеров
+    // Если результат - строка, ищем паттерны идентификаторов и номеров
     if (typeof data === 'string') {
-        // Паттерн артикулов: XXX-XXXX
+        // Паттерн идентификаторов: XXX-XXXX
         const articlePattern = /\b\d{3}-\d{4}\b/g;
         const matches = data.match(articlePattern);
         if (matches) {

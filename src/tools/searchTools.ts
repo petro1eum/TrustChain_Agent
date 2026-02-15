@@ -1,5 +1,5 @@
 /**
- * Search Tools — tool definitions for product search
+ * Search Tools — tool definitions for data search
  */
 
 export const searchTools = [

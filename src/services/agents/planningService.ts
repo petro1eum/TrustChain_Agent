@@ -159,10 +159,40 @@ ${contextInfo}
       let thought: any = {};
 
       try {
-        thought = JSON.parse(fullContent || '{}');
-      } catch (parseError) {
-        console.warn('Внимание: Ошибка парсинга JSON мышления, использую базовые значения. Контент:', fullContent.substring(0, 200));
-        thought = {};
+        let jsonContent = (fullContent || '{}').trim();
+        // Attempt to repair truncated JSON (stream cut off at maxThinkIterations)
+        if (!jsonContent.endsWith('}')) {
+          // Close any unclosed string value, then close the object
+          const lastQuote = jsonContent.lastIndexOf('"');
+          const lastColon = jsonContent.lastIndexOf(':');
+          if (lastColon > lastQuote) {
+            // Value was being written without opening quote (number/bool) — close object
+            jsonContent += '}';
+          } else {
+            // Likely inside a string value — close string then object
+            jsonContent += '"}';
+          }
+        }
+        if (!jsonContent.startsWith('{')) {
+          const idx = jsonContent.indexOf('{');
+          if (idx > 0) jsonContent = jsonContent.substring(idx);
+        }
+        thought = JSON.parse(jsonContent);
+      } catch {
+        // JSON still broken after repair — extract fields with regex
+        console.warn('Внимание: Ошибка парсинга JSON мышления, извлекаю поля вручную. Контент:', fullContent.substring(0, 200));
+        const extract = (key: string): string => {
+          const rx = new RegExp(`"${key}"\\s*:\\s*"((?:[^"\\\\]|\\\\.)*)`, 'i');
+          const m = fullContent.match(rx);
+          return m ? m[1] : '';
+        };
+        const confMatch = fullContent.match(/"confidence"\s*:\s*([\d.]+)/);
+        thought = {
+          observation: extract('observation') || 'Анализирую запрос пользователя',
+          reasoning: extract('reasoning') || 'Определяю последовательность действий',
+          action: extract('action') || 'Выполняю анализ',
+          confidence: confMatch ? parseFloat(confMatch[1]) : 0.7
+        };
       }
 
       if (!thought.observation || !thought.reasoning || !thought.action) {

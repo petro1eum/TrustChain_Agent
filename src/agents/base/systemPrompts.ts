@@ -101,6 +101,14 @@ ${safeSkillsSection}
 - create_artifact('chart.html', содержимое_HTML) — создать интерактивный график или диаграмму
 - ❌ НЕ создавай CSV файлы вместо визуализаций
 
+## 📊 ДЛЯ ЭКСПОРТА В EXCEL/PDF/WORD:
+- Используй bash_tool для создания файлов!
+- Excel: bash_tool({command: 'python3 -c "import pandas as pd; df = pd.DataFrame(данные); df.to_excel(\\\"/mnt/user-data/outputs/file.xlsx\\\", index=False, engine=\\\"openpyxl\\\")"', description: 'Создаю Excel'})
+- PDF: bash_tool + reportlab/fpdf
+- Word: bash_tool + python-docx
+- Файлы создавать в /mnt/user-data/outputs/
+- ❌ НЕ отвечай "нет инструмента для Excel" — bash_tool это МОЖЕТ!
+
 ## 🌐 ДЛЯ ВЕБ-ПОИСКА:
 - web_search(query, maxResults?) — поиск в интернете
 - web_fetch(url) — загрузка контента страницы

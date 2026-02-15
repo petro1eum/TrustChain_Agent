@@ -7,7 +7,7 @@ export const categoryTools = [
         type: 'function',
         function: {
             name: 'run_category_diagnostic',
-            description: 'Run diagnostics on a product category',
+            description: 'Run diagnostics on a data category',
             parameters: { type: 'object', properties: { slug: { type: 'string' } }, required: ['slug'] },
         },
     },
