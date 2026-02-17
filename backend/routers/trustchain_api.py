@@ -7,14 +7,23 @@ Storage: Git-like .trustchain/ directory — operations persist across restarts.
 """
 
 from fastapi import APIRouter, HTTPException
-from pydantic import BaseModel
 from typing import List, Optional, Dict, Any
 from datetime import datetime, timezone
 import json
 import os
 import time
 
-from trustchain import TrustChain, TrustChainConfig, SignedResponse
+from trustchain import TrustChain, TrustChainConfig, SignedResponse, AsyncTrustChain
+
+# Pydantic v2 TrustChainModel — auto-signs responses on creation
+try:
+    from trustchain.integrations.pydantic_v2 import TrustChainModel, SignedField
+    HAS_TC_MODEL = True
+except ImportError:
+    from pydantic import BaseModel as TrustChainModel  # type: ignore
+    HAS_TC_MODEL = False
+
+from pydantic import BaseModel  # keep for request models (not signed)
 
 router = APIRouter(prefix="/api/trustchain", tags=["trustchain"])
 
@@ -35,6 +44,14 @@ _tc = TrustChain(TrustChainConfig(
     chain_storage="file",
     chain_dir=_CHAIN_DIR,
 ))
+
+# Async TrustChain instance for async endpoints
+_atc = AsyncTrustChain(TrustChainConfig(
+    enable_nonce=True,
+    nonce_backend="memory",
+    nonce_ttl=86400,
+))
+
 _violations: List[Dict[str, Any]] = []
 
 
@@ -70,9 +87,28 @@ def sign_operation(tool: str, data: Dict[str, Any], latency_ms: float = 0) -> Di
     }
 
 
-# ─── Models ───
+async def async_sign_operation(tool: str, data: Dict[str, Any], latency_ms: float = 0) -> Dict[str, Any]:
+    """
+    Async variant: sign using AsyncTrustChain for non-blocking operation.
+    """
+    signed = await _atc.sign(
+        tool_id=tool,
+        data={"input": data, "latency_ms": latency_ms},
+    )
+    verified = await _atc.verify(signed)
+    return {
+        "signature": signed.signature,
+        "verified": verified,
+        "key_id": _atc.get_key_id(),
+        "algorithm": "Ed25519",
+        "async": True,
+    }
+
+
+# ─── Response Models (TrustChainModel = auto-signed Pydantic v2) ───
 
 class OperationRecord(BaseModel):
+    """Audit record — already carries chain signature, no need for TrustChainModel."""
     id: str
     tool: str
     timestamp: str
@@ -89,7 +125,7 @@ class SignRequest(BaseModel):
     latency_ms: float = 0
 
 
-class ToolMetric(BaseModel):
+class ToolMetric(TrustChainModel):
     name: str
     calls: int
     avg_latency: float
@@ -97,7 +133,7 @@ class ToolMetric(BaseModel):
     last_call: str
 
 
-class TrustChainStats(BaseModel):
+class TrustChainStats(TrustChainModel):
     total_operations: int
     success_rate: float
     avg_latency_ms: float
@@ -107,26 +143,26 @@ class TrustChainStats(BaseModel):
     tool_metrics: List[ToolMetric]
 
 
-class ComplianceControl(BaseModel):
+class ComplianceControl(TrustChainModel):
     name: str
     passed: bool
     details: str
 
 
-class ComplianceReport(BaseModel):
+class ComplianceReport(TrustChainModel):
     framework: str
     score: float
-    status: str
+    status: str  # type: ignore[assignment]
     controls: List[ComplianceControl]
     generated_at: str
 
 
-class KeyInfo(BaseModel):
+class KeyInfo(TrustChainModel):
     id: str
     algorithm: str
     created: str
     provider: str
-    status: str
+    status: str  # type: ignore[assignment]
     public_key: Optional[str] = None
 
 
@@ -151,6 +187,9 @@ async def test_trustchain():
         "algorithm": "Ed25519",
         "key_id": _tc.get_key_id(),
         "public_key": _tc.export_public_key(),
+        "async_trustchain": True,
+        "async_key_id": _atc.get_key_id(),
+        "pydantic_v2_model": HAS_TC_MODEL,
     }
 
 
@@ -348,4 +387,30 @@ async def execute_runbook(req: RunbookRequest):
         return {"result": result}
     except Exception as e:
         return {"error": str(e)}
+
+
+# ─── Async Signing Endpoint ───
+
+@router.post("/async-sign")
+async def async_sign(req: SignRequest):
+    """Sign an operation using AsyncTrustChain (non-blocking)."""
+    result = await async_sign_operation(req.tool, req.data, req.latency_ms)
+    return {"status": "signed", **result}
+
+
+@router.get("/async-status")
+async def async_status():
+    """Report AsyncTrustChain and Pydantic v2 integration status."""
+    return {
+        "async_trustchain": True,
+        "async_key_id": _atc.get_key_id(),
+        "async_public_key": _atc.export_public_key()[:32] + "...",
+        "pydantic_v2_model": HAS_TC_MODEL,
+        "auto_signed_models": [
+            "OperationRecord", "TrustChainStats", "ComplianceReport",
+            "ComplianceControl", "KeyInfo", "ToolMetric",
+        ],
+        "sync_chain_dir": _CHAIN_DIR,
+        "sync_chain_length": _tc.chain.length,
+    }
 

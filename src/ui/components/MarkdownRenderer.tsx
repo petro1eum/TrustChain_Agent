@@ -4,6 +4,7 @@ import remarkGfm from 'remark-gfm';
 import remarkMath from 'remark-math';
 import rehypeKatex from 'rehype-katex';
 import rehypeHighlight from 'rehype-highlight';
+import rehypeRaw from 'rehype-raw';
 
 const DEFAULT_TRUSTCHAIN_TOOLTIP = 'TrustChain: цифровая верификация';
 
@@ -48,7 +49,7 @@ export function normalizeTrustChainMarkup(
 
 /* ─────── react-markdown plugins ─────── */
 const remarkPlugins = [remarkGfm, remarkMath];
-const rehypePlugins = [rehypeKatex, rehypeHighlight];
+const rehypePlugins = [rehypeRaw, rehypeKatex, rehypeHighlight];
 
 /* ─────── Custom components for theme-aware rendering ─────── */
 const mdComponents: Record<string, React.FC<any>> = {

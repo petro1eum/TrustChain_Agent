@@ -102,6 +102,34 @@ export const ArtifactsPanel: React.FC<{
         return () => iframe.removeEventListener('load', handleLoad);
     }, [viewMode, artifact.content]);
 
+    const handleDownload = () => {
+        const ext = artifact.type === 'code' ? (artifact.language || 'txt') : 'md';
+        const filename = `${artifact.title.replace(/[^a-z0-9]/gi, '_').toLowerCase()}.${ext}`;
+
+        if (window.parent !== window) {
+            window.parent.postMessage({
+                type: 'trustchain:download',
+                version: 1,
+                data: artifact.content,
+                filename,
+                mimeType: artifact.type === 'code' ? 'text/plain' : 'text/markdown',
+                requestId: `art-dl-${Date.now()}`,
+            }, '*');
+        } else {
+            const blob = new Blob([artifact.content], { type: 'text/plain' });
+            const url = URL.createObjectURL(blob);
+            const a = document.createElement('a');
+            a.href = url;
+            a.download = filename;
+            a.click();
+            URL.revokeObjectURL(url);
+        }
+    };
+
+    const handleCopy = () => {
+        navigator.clipboard.writeText(artifact.content);
+    };
+
     return (
         <div className="h-full flex flex-col tc-artifact-panel border-l">
             {/* Panel header */}
@@ -125,8 +153,8 @@ export const ArtifactsPanel: React.FC<{
                             <button
                                 onClick={() => setViewMode('preview')}
                                 className={`flex items-center gap-1 px-2 py-1 text-[10px] font-medium transition-colors ${viewMode === 'preview'
-                                        ? 'bg-violet-500/20 text-violet-300'
-                                        : 'tc-text-muted hover:text-gray-300'
+                                    ? 'bg-violet-500/20 text-violet-300'
+                                    : 'tc-text-muted hover:text-gray-300'
                                     }`}
                                 title="Live Preview"
                             >
@@ -135,8 +163,8 @@ export const ArtifactsPanel: React.FC<{
                             <button
                                 onClick={() => setViewMode('code')}
                                 className={`flex items-center gap-1 px-2 py-1 text-[10px] font-medium transition-colors ${viewMode === 'code'
-                                        ? 'bg-violet-500/20 text-violet-300'
-                                        : 'tc-text-muted hover:text-gray-300'
+                                    ? 'bg-violet-500/20 text-violet-300'
+                                    : 'tc-text-muted hover:text-gray-300'
                                     }`}
                                 title="Source Code"
                             >
@@ -145,11 +173,15 @@ export const ArtifactsPanel: React.FC<{
                         </div>
                     )}
 
-                    <button className="tc-text-muted hover:tc-text p-1.5 rounded-lg tc-btn-hover transition-colors"
+                    <button
+                        onClick={handleDownload}
+                        className="tc-text-muted hover:tc-text p-1.5 rounded-lg tc-btn-hover transition-colors"
                         title="Download">
                         <Download size={14} />
                     </button>
-                    <button className="tc-text-muted hover:tc-text p-1.5 rounded-lg tc-btn-hover transition-colors"
+                    <button
+                        onClick={handleCopy}
+                        className="tc-text-muted hover:tc-text p-1.5 rounded-lg tc-btn-hover transition-colors"
                         title="Copy">
                         <Copy size={14} />
                     </button>

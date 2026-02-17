@@ -154,6 +154,39 @@ export function countDataPoints(signedResults: SignedResult[]): {
                     }
                 }
             }
+            // Flat key-value objects (health, stats endpoints)
+            // Walk all leaf values and register them as verifiable IDs
+            const walkFlat = (obj: any, depth = 0) => {
+                if (depth > 3 || !obj || typeof obj !== 'object') return;
+                for (const [key, val] of Object.entries(obj)) {
+                    if (Array.isArray(val)) continue; // already handled above
+                    if (val && typeof val === 'object') {
+                        walkFlat(val, depth + 1);
+                        totalDataPoints++;
+                    } else if (typeof val === 'string' && val.length > 2 && val.length < 60) {
+                        bindVerifiedId(val, marker);
+                        totalDataPoints++;
+                    } else if (typeof val === 'number') {
+                        // Bind the key name (e.g. "total_licenses") so lines mentioning it get a badge
+                        bindVerifiedId(key.replace(/_/g, '_'), marker);
+                        totalDataPoints++;
+                    } else if (typeof val === 'boolean') {
+                        bindVerifiedId(key.replace(/_/g, '_'), marker);
+                        totalDataPoints++;
+                    }
+                }
+            };
+            // Only walk flat if no array items were found
+            if (totalDataPoints === 0 || totalDataPoints <= 1) {
+                walkFlat(parsed);
+            }
+            // Also bind the tool name itself for source attribution
+            if (sr.toolName) {
+                const shortName = sr.toolName
+                    .replace(/^mcp_panel_trustchain[-_]platform_/, '')
+                    .replace(/_/g, '_');
+                bindVerifiedId(shortName, marker);
+            }
         } else {
             // String result — regex fallback for doc IDs / task numbers
             const text = sr.result || '';
@@ -175,7 +208,44 @@ export function countDataPoints(signedResults: SignedResult[]): {
     return { totalDataPoints, verifiedIds, verificationById };
 }
 
-// ── Step 3: Mark response lines containing verified data with green shield ──
+// ── Step 3: Mark response lines containing verified data with green shield + source ──
+
+/** Humanize MCP tool names for inline display */
+const humanizeToolName = (name: string): string => {
+    // Strip common prefixes
+    let short = name
+        .replace(/^mcp_panel_trustchain[-_]platform_/, '')
+        .replace(/^(get|list|describe|fetch|query)_/, '')
+        .replace(/_/g, ' ')
+        .trim();
+    // Map known tools to short labels
+    const map: Record<string, string> = {
+        'platform health': 'health',
+        'platform status': 'status',
+        'certificates': 'certs',
+        'certificate chain': 'chain',
+        'certificate details': 'cert',
+        'verify certificate': 'verify',
+        'issue certificate': 'issue',
+        'revoke certificate': 'revoke',
+        'agents': 'agents',
+        'agent details': 'agent',
+        'sub agents': 'sub-agents',
+        'register agent': 'register',
+        'licenses': 'licenses',
+        'license details': 'license',
+        'validate license': 'validate',
+        'audit log': 'audit',
+        'log entries': 'audit',
+        'merkle proof': 'proof',
+        'append log entry': 'log',
+        'current page': 'context',
+        'describe current page': 'context',
+        'describe platform': 'platform',
+        'crl': 'crl',
+    };
+    return map[short] || (short.length > 12 ? short.slice(0, 10) + '…' : short) || 'data';
+};
 
 export function markVerifiedLines(
     content: string,
@@ -196,7 +266,10 @@ export function markVerifiedLines(
         }
         if (matchedMarkers.size > 0 && !line.includes('tc-verified-shield')) {
             const tooltip = buildVerificationTooltip(Array.from(matchedMarkers.values()));
-            return `${line} <span class="tc-verified-shield" title="${escapeHtmlAttr(tooltip)}">✓</span>`;
+            // Pick the first source for the visible label
+            const firstMarker = Array.from(matchedMarkers.values())[0];
+            const sourceLabel = humanizeToolName(firstMarker?.toolName || 'data');
+            return `${line} <span class="tc-verified-shield" title="${escapeHtmlAttr(tooltip)}"><span class="tc-vs-check"></span><span class="tc-vs-source">${escapeHtmlAttr(sourceLabel)}</span></span>`;
         }
         return line;
     });

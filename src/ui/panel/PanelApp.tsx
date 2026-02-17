@@ -52,7 +52,7 @@ function getPanelParams() {
     return {
         instance,
         mcpUrl,
-        systemPrompt: params.get('system') ? atob(params.get('system')!) : null,
+        systemPrompt: params.get('system') ? (() => { try { return decodeURIComponent(escape(atob(params.get('system')!))); } catch { return null; } })() : null,
         theme: (params.get('theme') as 'dark' | 'light') || 'dark',
         lang: params.get('lang') || 'ru',
         context: params.get('context') || null,   // page context: "risk_tree", "contracts", "documents", etc.

@@ -370,36 +370,81 @@
     color: var(--tc-unverified-text);
 }
 
-/* Inline TrustChain marker: green check-circle icon */
+/* ── Inline TrustChain verification badge (pill with source label) ── */
 .tc-verified-shield {
-    position: relative;
+    display: inline-flex;
+    align-items: center;
+    gap: 3px;
+    margin-left: 6px;
+    padding: 1px 7px 1px 5px;
+    border-radius: 9px;
+    background: rgba(16, 185, 129, 0.12);
+    border: 1px solid rgba(16, 185, 129, 0.25);
+    font-size: 10px;
+    line-height: 16px;
+    color: #34d399;
+    cursor: help;
+    vertical-align: middle;
+    white-space: nowrap;
+    transition: background 0.15s, border-color 0.15s;
+    animation: tc-badge-in 0.3s ease-out;
+}
+
+.tc-verified-shield:hover {
+    background: rgba(16, 185, 129, 0.2);
+    border-color: rgba(16, 185, 129, 0.4);
+}
+
+/* Checkmark icon inside the pill */
+.tc-vs-check {
     display: inline-flex;
     align-items: center;
     justify-content: center;
     width: 12px;
     height: 12px;
-    margin-left: 5px;
-    vertical-align: -1px;
-    font-size: 0;
-    line-height: 1;
-    cursor: help;
-}
-
-.tc-verified-shield::before {
-    content: '';
-    position: absolute;
-    inset: 0;
     border-radius: 50%;
-    background-color: #10b981;
-    box-shadow: 0 0 0 1px rgba(6, 95, 70, 0.35), 0 1px 3px rgba(6, 95, 70, 0.3);
-    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 24 24' fill='none' stroke='%23ecfdf5' stroke-width='2.5' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='m9 12 2 2 4-4'/%3E%3C/svg%3E");
+    background: #10b981;
+    flex-shrink: 0;
+    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 24 24' fill='none' stroke='%23ecfdf5' stroke-width='3' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='m9 12 2 2 4-4'/%3E%3C/svg%3E");
     background-repeat: no-repeat;
     background-position: center;
     background-size: 9px 9px;
+    font-size: 0;
 }
 
-.tc-verified-shield::after {
-    content: '';
+/* Source label inside the pill */
+.tc-vs-source {
+    font-family: 'SF Mono', 'Fira Code', 'JetBrains Mono', monospace;
+    font-size: 9px;
+    font-weight: 500;
+    letter-spacing: 0.02em;
+    opacity: 0.9;
+}
+
+@keyframes tc-badge-in {
+    from {
+        opacity: 0;
+        transform: scale(0.85);
+    }
+
+    to {
+        opacity: 1;
+        transform: scale(1);
+    }
+}
+
+[data-theme="light"] .tc-verified-shield {
+    background: rgba(16, 185, 129, 0.08);
+    border-color: rgba(16, 185, 129, 0.2);
+    color: #059669;
+}
+
+[data-theme="light"] .tc-verified-shield:hover {
+    background: rgba(16, 185, 129, 0.15);
+}
+
+[data-theme="light"] .tc-vs-check {
+    background: #059669;
 }
 
 /* Header label with shield prefix */
@@ -569,22 +614,34 @@
    Markdown in Message Bubbles (tc-markdown)
    ═══════════════════════════════════════════ */
 
-.tc-markdown,
-.tc-markdown * {
-    overflow-wrap: anywhere;
-    word-break: break-all;
+.tc-markdown {
+    overflow-wrap: break-word;
+    word-break: normal;
+    line-height: 1.65;
 }
 
+.tc-markdown * {
+    overflow-wrap: break-word;
+}
+
+/* ── Tables ── */
 .tc-markdown table {
     border-collapse: collapse;
     width: 100%;
-    margin: 8px 0;
+    margin: 10px 0;
     font-size: 13px;
+    border: 1px solid var(--tc-prose-table-border, rgba(55, 65, 81, 0.5));
+    border-radius: 6px;
+    overflow: hidden;
+}
+
+.tc-markdown thead {
+    background: rgba(255, 255, 255, 0.03);
 }
 
 .tc-markdown th {
     text-align: left;
-    padding: 6px 10px;
+    padding: 8px 12px;
     font-size: 11px;
     font-weight: 600;
     text-transform: uppercase;
@@ -594,8 +651,8 @@
 }
 
 .tc-markdown td {
-    padding: 5px 10px;
-    border-bottom: 1px solid var(--tc-prose-td-border, rgba(128, 128, 128, 0.15));
+    padding: 6px 12px;
+    border-bottom: 1px solid var(--tc-prose-td-border, rgba(128, 128, 128, 0.12));
     font-size: 13px;
 }
 
@@ -603,67 +660,223 @@
     border-bottom: none;
 }
 
+.tc-markdown tr:hover td {
+    background: rgba(255, 255, 255, 0.02);
+}
+
+/* ── Code blocks ── */
 .tc-markdown pre {
     background: var(--tc-code-bg, rgba(0, 0, 0, 0.05));
+    border: 1px solid var(--tc-code-border, rgba(40, 40, 60, 0.5));
     border-radius: 8px;
-    padding: 12px 14px;
-    margin: 8px 0;
+    padding: 14px 16px;
+    margin: 10px 0;
     overflow-x: auto;
-    font-size: 12px;
-    line-height: 1.5;
+    font-size: 12.5px;
+    line-height: 1.55;
+    position: relative;
 }
 
 .tc-markdown pre code {
     color: var(--tc-code-text);
     background: transparent;
-    font-family: 'SF Mono', 'Fira Code', 'JetBrains Mono', monospace;
+    padding: 0;
+    border: none;
+    font-family: 'SF Mono', 'Fira Code', 'JetBrains Mono', 'Cascadia Code', monospace;
+    font-size: inherit;
+    word-break: normal;
 }
 
 .tc-markdown code {
     background: var(--tc-code-bg, rgba(0, 0, 0, 0.06));
-    padding: 1px 5px;
+    padding: 2px 6px;
     border-radius: 4px;
     font-size: 12px;
     font-family: 'SF Mono', 'Fira Code', monospace;
+    border: 1px solid var(--tc-code-border, rgba(40, 40, 60, 0.3));
+    word-break: normal;
 }
 
+/* ── Headings ── */
 .tc-markdown h1 {
     font-size: 18px;
     font-weight: 700;
-    margin: 12px 0 6px;
+    margin: 16px 0 8px;
+    color: var(--tc-prose-heading, #fff);
+    border-bottom: 1px solid var(--tc-prose-hr, rgba(128, 128, 128, 0.15));
+    padding-bottom: 6px;
 }
 
 .tc-markdown h2 {
     font-size: 16px;
     font-weight: 600;
-    margin: 10px 0 5px;
+    margin: 14px 0 6px;
+    color: var(--tc-prose-heading, #fff);
 }
 
 .tc-markdown h3 {
     font-size: 14px;
     font-weight: 600;
-    margin: 8px 0 4px;
+    margin: 10px 0 4px;
+    color: var(--tc-prose-heading, #e5e7eb);
 }
 
+.tc-markdown h4 {
+    font-size: 13px;
+    font-weight: 600;
+    margin: 8px 0 3px;
+    color: var(--tc-prose-heading, #d1d5db);
+}
+
+/* ── Paragraphs ── */
 .tc-markdown p {
-    margin: 4px 0;
-    line-height: 1.6;
+    margin: 6px 0;
+    line-height: 1.65;
 }
 
-.tc-markdown li {
+/* ── Lists ── */
+.tc-markdown ul {
+    margin: 6px 0;
+    padding-left: 20px;
+}
+
+.tc-markdown ol {
+    margin: 6px 0;
+    padding-left: 20px;
+    counter-reset: tc-ol;
+}
+
+.tc-markdown ul>li {
     list-style: disc;
-    margin-left: 18px;
-    margin-bottom: 2px;
+    margin-bottom: 3px;
+    line-height: 1.55;
 }
 
+.tc-markdown ol>li {
+    list-style: decimal;
+    margin-bottom: 3px;
+    line-height: 1.55;
+}
+
+.tc-markdown li>ul,
+.tc-markdown li>ol {
+    margin: 2px 0;
+}
+
+.tc-markdown li>ul>li {
+    list-style: circle;
+}
+
+.tc-markdown li>ul>li>ul>li {
+    list-style: square;
+}
+
+/* ── Blockquotes ── */
+.tc-markdown blockquote {
+    margin: 8px 0;
+    padding: 8px 14px;
+    border-left: 3px solid #34d399;
+    background: rgba(16, 185, 129, 0.06);
+    border-radius: 0 6px 6px 0;
+    color: var(--tc-text-secondary, #9ca3af);
+    font-style: italic;
+}
+
+.tc-markdown blockquote p {
+    margin: 2px 0;
+}
+
+/* ── Links ── */
+.tc-markdown a {
+    color: #67e8f9;
+    text-decoration: underline;
+    text-underline-offset: 2px;
+    text-decoration-thickness: 1px;
+    transition: color 0.15s;
+}
+
+.tc-markdown a:hover {
+    color: #22d3ee;
+}
+
+[data-theme="light"] .tc-markdown a {
+    color: #0891b2;
+}
+
+[data-theme="light"] .tc-markdown a:hover {
+    color: #0e7490;
+}
+
+/* ── Images ── */
+.tc-markdown img {
+    max-width: 100%;
+    border-radius: 8px;
+    margin: 8px 0;
+}
+
+/* ── Horizontal rule ── */
 .tc-markdown hr {
     border: none;
     border-top: 1px solid var(--tc-prose-hr, rgba(128, 128, 128, 0.2));
-    margin: 10px 0;
+    margin: 12px 0;
 }
 
+/* ── Bold / Italic ── */
 .tc-markdown strong {
     font-weight: 600;
+    color: var(--tc-prose-strong, #fff);
+}
+
+.tc-markdown em {
+    font-style: italic;
+    color: var(--tc-text-secondary, #9ca3af);
+}
+
+/* ── KaTeX math blocks ── */
+.tc-markdown .katex-display {
+    margin: 12px 0;
+    padding: 10px 16px;
+    background: rgba(255, 255, 255, 0.02);
+    border: 1px solid var(--tc-code-border, rgba(40, 40, 60, 0.3));
+    border-radius: 8px;
+    overflow-x: auto;
+}
+
+.tc-markdown .katex {
+    font-size: 1.05em;
+}
+
+.tc-markdown .katex-display>.katex {
+    font-size: 1.15em;
+}
+
+/* ── Task list checkboxes (GFM) ── */
+.tc-markdown input[type="checkbox"] {
+    appearance: none;
+    -webkit-appearance: none;
+    width: 14px;
+    height: 14px;
+    border: 1.5px solid #4b5563;
+    border-radius: 3px;
+    margin-right: 6px;
+    vertical-align: -2px;
+    cursor: default;
+    position: relative;
+}
+
+.tc-markdown input[type="checkbox"]:checked {
+    background: #10b981;
+    border-color: #10b981;
+}
+
+.tc-markdown input[type="checkbox"]:checked::after {
+    content: '✓';
+    position: absolute;
+    color: white;
+    font-size: 10px;
+    top: -1px;
+    left: 1.5px;
+    font-weight: bold;
 }
 
 /* ═══════════════════════════════════════════

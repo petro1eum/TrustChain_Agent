@@ -30,7 +30,7 @@ function downloadTrace(steps: ExecutionStep[]): void {
         })),
     };
     const jsonStr = JSON.stringify(trace, null, 2);
-    const filename = `agent-trace-${new Date().toISOString().replace(/[:.]/g, '-').slice(0, 19)}.json`;
+    const traceFilename = `agent-trace-${new Date().toISOString().replace(/[:.]/g, '-').slice(0, 19)}.json`;
 
     // In a cross-origin iframe, Chrome blocks ALL download navigations
     // (blob URLs, data URLs, a.click()) from the iframe document.
@@ -41,7 +41,7 @@ function downloadTrace(steps: ExecutionStep[]): void {
                 type: 'trustchain:download',
                 version: 1,
                 data: jsonStr,
-                filename,
+                filename: traceFilename,
                 mimeType: 'application/json',
                 requestId: `dl-${Date.now()}`,
             }, '*');
@@ -56,7 +56,7 @@ function downloadTrace(steps: ExecutionStep[]): void {
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
     a.href = url;
-    a.download = filename;
+    a.download = traceFilename;
     a.style.display = 'none';
     document.body.appendChild(a);
     a.click();
