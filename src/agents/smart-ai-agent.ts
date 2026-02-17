@@ -603,6 +603,27 @@ export class SmartAIAgent extends AIAgent {
           progressCallback
         );
 
+        // ⚡ Hard-coded check: if bash_tool was used but create_artifact wasn't,
+        // force artifact creation regardless of LLM validation result
+        const computeToolNames = ['bash_tool', 'execute_code', 'execute_bash'];
+        const usedComputeTools = result.messages.some(m =>
+          m.name && computeToolNames.includes(m.name)
+        ) || toolResults.some((tr: any) =>
+          tr?.toolName && computeToolNames.includes(tr.toolName)
+        );
+        const usedCreateArtifact = result.messages.some(m =>
+          m.name === 'create_artifact'
+        ) || toolResults.some((tr: any) =>
+          tr?.toolName === 'create_artifact'
+        );
+
+        if (usedComputeTools && !usedCreateArtifact && validation.isComplete) {
+          console.log('[SmartAIAgent] ⚡ Overriding validation: bash_tool used but no create_artifact');
+          validation.isComplete = false;
+          validation.suggestedAction = 'create_artifact';
+          validation.explanation = 'Вычисление выполнено, но результат не визуализирован через create_artifact';
+        }
+
         if (!validation.isComplete) {
           progressCallback?.({
             type: 'reasoning_step',
@@ -627,6 +648,41 @@ export class SmartAIAgent extends AIAgent {
               attachments
             );
             result = retryResult;
+          } else if (validation.suggestedAction === 'execute_tools' || (validation.suggestedAction === 'retry_broader' && !validation.retryQuery)) {
+            // Agent described plans instead of executing — force tool execution
+            progressCallback?.({
+              type: 'reasoning_step',
+              message: 'Продолжаю: выполняю задачу вместо планирования',
+              reasoning_text: 'Агент описал план, теперь выполняю код'
+            });
+
+            const executeResult = await this.reactService.reactAnalyze(
+              `${originalInstruction}\n\n⛔ КРИТИЧЕСКИ ВАЖНО: Ты уже описал план. ХВАТИТ ПЛАНИРОВАТЬ. Сейчас ВЫПОЛНИ задачу:\n1. Используй bash_tool для вычислений (Python с numpy/scipy/sympy)\n2. Используй create_artifact для визуализации (HTML+JS)\n3. Дай КОНКРЕТНЫЙ РЕЗУЛЬТАТ с данными, числами, графиками\n\nНЕ описывай что будешь делать — СДЕЛАЙ ЭТО ПРЯМО СЕЙЧАС.`,
+              chatHistory,
+              progressCallback,
+              relevantSkillsMetadata,
+              attachments
+            );
+            result = executeResult;
+          } else if (validation.suggestedAction === 'create_artifact') {
+            // Agent computed result but didn't create an artifact — force artifact creation
+            progressCallback?.({
+              type: 'reasoning_step',
+              message: 'Продолжаю: создаю визуальный артефакт с результатом',
+              reasoning_text: 'Агент вычислил результат через bash_tool, теперь создаю HTML артефакт'
+            });
+
+            // Extract last tool result content for context
+            const lastToolResult = toolResults.length > 0 ? JSON.stringify(toolResults[toolResults.length - 1]).substring(0, 500) : '';
+
+            const artifactResult = await this.reactService.reactAnalyze(
+              `${originalInstruction}\n\n⛔ КРИТИЧЕСКИ ВАЖНО: Ты уже получил результат вычисления:\n${lastToolResult}\n\nТеперь ты ОБЯЗАН вызвать create_artifact и создать КРАСИВЫЙ HTML с результатом!\nHTML должен содержать:\n- Стильное оформление (градиенты, тени, современный CSS)\n- Чёткое отображение результата (крупным шрифтом)\n- Формулу или метод вычисления\n- Дополнительные пояснения\n\nВызови create_artifact ПРЯМО СЕЙЧАС!`,
+              chatHistory,
+              progressCallback,
+              relevantSkillsMetadata,
+              attachments
+            );
+            result = artifactResult;
           } else if (validation.suggestedAction === 'calculate_first') {
             // Добавляем сообщение о необходимости расчёта
             const calcMessage: ChatMessage = {

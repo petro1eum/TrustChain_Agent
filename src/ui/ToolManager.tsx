@@ -88,6 +88,7 @@ const CATEGORY_ICON_MAP: Record<ToolCategory, React.FC<{ size?: number; classNam
     'MCP': Plug,
     'Data Processing': Database,
     'Memory': Brain,
+    'TrustChain': Shield,
 };
 
 // ── Helpers ──

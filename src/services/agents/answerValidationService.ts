@@ -11,7 +11,7 @@ export interface AnswerValidationResult {
     isComplete: boolean;
     isRelevant: boolean;
     issues: string[];
-    suggestedAction: 'return' | 'retry_broader' | 'ask_clarification' | 'calculate_first' | 'continue_multistep';
+    suggestedAction: 'return' | 'retry_broader' | 'ask_clarification' | 'calculate_first' | 'continue_multistep' | 'execute_tools' | 'create_artifact';
     retryQuery?: string;
     explanation: string;
 }
@@ -242,9 +242,13 @@ export class AnswerValidationService {
   "isComplete": true/false (ответ полный и информативный?),
   "isRelevant": true/false (ответ по теме вопроса?),
   "issues": ["список проблем если есть"],
-  "suggestedAction": "return" | "retry_broader" | "ask_clarification",
+  "suggestedAction": "return" | "retry_broader" | "execute_tools" | "create_artifact" | "ask_clarification",
   "explanation": "краткое объяснение"
-}`;
+}
+
+ВАЖНО:
+1. Если агент ОПИСЫВАЕТ что собирается сделать, но НЕ дал фактический результат (написал "Следующий шаг...", "Я подготовлю...", "Нужно выполнить..."), установи suggestedAction = "execute_tools". Агент должен ВЫПОЛНИТЬ задачу, а не планировать!
+2. Если агент использовал bash_tool и получил результат, но НЕ вызвал create_artifact для визуализации — установи suggestedAction = "create_artifact". Результат должен быть представлен как красивый HTML артефакт!`;
 
         try {
             const response = await this.deps.openai.chat.completions.create(

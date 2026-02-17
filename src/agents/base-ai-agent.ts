@@ -363,9 +363,9 @@ export class AIAgent {
             content: output,
             result: output,
             error: error ? (error.message || String(error)) : undefined,
-            // TrustChain Ed25519 signature from MCP tool call result
-            signature: output?.signature,
-            certificate: output?.certificate,
+            // TrustChain Ed25519 signature — toolExecutionService uses __tc_signature
+            signature: output?.__tc_signature || output?.signature,
+            certificate: output?.__tc_envelope?.certificate || output?.certificate,
           }
         });
       } catch (callbackError: any) {
@@ -386,6 +386,34 @@ export class AIAgent {
       name: toolName,
       timestamp: new Date()
     });
+
+    // ⚡ After successful bash_tool/execute_code — inject artifact creation hint
+    // BUT ONLY if create_artifact was NOT already called in this loop
+    const computeTools = ['bash_tool', 'execute_code', 'execute_bash'];
+    if (computeTools.includes(toolName) && !error && output && typeof output !== 'string') {
+      const hasData = output.stdout || output.result || output.output;
+      // Check if create_artifact was already called in this session
+      const artifactAlreadyCreated = loopMessages.some(
+        (m: any) => m.role === 'tool' && m.name === 'create_artifact'
+      ) || loopMessages.some(
+        (m: any) => m.content && typeof m.content === 'string' && m.content.includes('✅ Артефакт')
+      );
+      if (hasData && !artifactAlreadyCreated) {
+        loopMessages.push({
+          role: 'system',
+          content: '⚡ ВАЖНО: Ты получил результат вычисления. Теперь ОБЯЗАТЕЛЬНО вызови create_artifact для создания красивой HTML-страницы с этим результатом. НЕ пиши текстовый ответ — вызови create_artifact СЕЙЧАС!'
+        });
+      }
+    }
+
+    // ⚡ After create_artifact — agent feedback: evaluate and decide
+    if (toolName === 'create_artifact' && !error) {
+      const filename = output?.filename || output?.path || 'artifact';
+      loopMessages.push({
+        role: 'system',
+        content: `✅ Артефакт "${filename}" создан и рендерится LIVE в панели пользователя. Оцени результат: если артефакт качественный и полный — заверши ответ кратким резюме. Если нужны улучшения — вызови create_artifact повторно с исправленным кодом. НЕ вызывай bash_tool/execute_code повторно — вычисление уже выполнено.`
+      });
+    }
 
     return { output, cached: false };
   }

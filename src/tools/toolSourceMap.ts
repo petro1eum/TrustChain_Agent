@@ -63,6 +63,27 @@ export const TOOL_SOURCE_MAP: Record<string, ToolSourceInfo> = {
     browser_navigate: { specFile: `${BASE}tools/frontendTools.ts`, specExport: 'frontendTools', executionFile: `${BASE}services/agents/toolExecutionService.ts`, executionMethod: 'routeFrontendTool' },
     browser_screenshot: { specFile: `${BASE}tools/frontendTools.ts`, specExport: 'frontendTools', executionFile: `${BASE}services/agents/toolExecutionService.ts`, executionMethod: 'routeFrontendTool' },
     browser_extract: { specFile: `${BASE}tools/frontendTools.ts`, specExport: 'frontendTools', executionFile: `${BASE}services/agents/toolExecutionService.ts`, executionMethod: 'routeFrontendTool' },
+
+    // ── TrustChain OSS ──
+    tc_sign: { specFile: `${BASE}tools/trustchainTools.ts`, specExport: 'trustchainOssTools', executionFile: `${BASE}services/agents/trustchainToolExecution.ts`, executionMethod: 'routeTrustChainTool' },
+    tc_verify_chain: { specFile: `${BASE}tools/trustchainTools.ts`, specExport: 'trustchainOssTools', executionFile: `${BASE}services/agents/trustchainToolExecution.ts`, executionMethod: 'routeTrustChainTool' },
+    tc_get_audit_trail: { specFile: `${BASE}tools/trustchainTools.ts`, specExport: 'trustchainOssTools', executionFile: `${BASE}services/agents/trustchainToolExecution.ts`, executionMethod: 'routeTrustChainTool' },
+    tc_get_stats: { specFile: `${BASE}tools/trustchainTools.ts`, specExport: 'trustchainOssTools', executionFile: `${BASE}services/agents/trustchainToolExecution.ts`, executionMethod: 'routeTrustChainTool' },
+    tc_security_scan: { specFile: `${BASE}tools/trustchainTools.ts`, specExport: 'trustchainOssTools', executionFile: `${BASE}services/agents/trustchainToolExecution.ts`, executionMethod: 'routeTrustChainTool' },
+    tc_git_diff: { specFile: `${BASE}tools/trustchainTools.ts`, specExport: 'trustchainOssTools', executionFile: `${BASE}services/agents/trustchainToolExecution.ts`, executionMethod: 'routeTrustChainTool' },
+
+    // ── TrustChain PRO ──
+    tc_execution_graph: { specFile: `${BASE}tools/trustchainTools.ts`, specExport: 'trustchainProTools', executionFile: `${BASE}services/agents/trustchainToolExecution.ts`, executionMethod: 'routeTrustChainTool' },
+    tc_analytics_snapshot: { specFile: `${BASE}tools/trustchainTools.ts`, specExport: 'trustchainProTools', executionFile: `${BASE}services/agents/trustchainToolExecution.ts`, executionMethod: 'routeTrustChainTool' },
+    tc_policy_evaluate: { specFile: `${BASE}tools/trustchainTools.ts`, specExport: 'trustchainProTools', executionFile: `${BASE}services/agents/trustchainToolExecution.ts`, executionMethod: 'routeTrustChainTool' },
+    tc_kms_keys: { specFile: `${BASE}tools/trustchainTools.ts`, specExport: 'trustchainProTools', executionFile: `${BASE}services/agents/trustchainToolExecution.ts`, executionMethod: 'routeTrustChainTool' },
+    tc_kms_rotate: { specFile: `${BASE}tools/trustchainTools.ts`, specExport: 'trustchainProTools', executionFile: `${BASE}services/agents/trustchainToolExecution.ts`, executionMethod: 'routeTrustChainTool' },
+
+    // ── TrustChain Enterprise ──
+    tc_compliance_report: { specFile: `${BASE}tools/trustchainTools.ts`, specExport: 'trustchainEnterpriseTools', executionFile: `${BASE}services/agents/trustchainToolExecution.ts`, executionMethod: 'routeTrustChainTool' },
+    tc_tsa_timestamp: { specFile: `${BASE}tools/trustchainTools.ts`, specExport: 'trustchainEnterpriseTools', executionFile: `${BASE}services/agents/trustchainToolExecution.ts`, executionMethod: 'routeTrustChainTool' },
+    tc_tsa_verify: { specFile: `${BASE}tools/trustchainTools.ts`, specExport: 'trustchainEnterpriseTools', executionFile: `${BASE}services/agents/trustchainToolExecution.ts`, executionMethod: 'routeTrustChainTool' },
+    tc_airgap_status: { specFile: `${BASE}tools/trustchainTools.ts`, specExport: 'trustchainEnterpriseTools', executionFile: `${BASE}services/agents/trustchainToolExecution.ts`, executionMethod: 'routeTrustChainTool' },
 };
 
 /**

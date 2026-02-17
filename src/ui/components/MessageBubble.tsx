@@ -33,12 +33,13 @@ export const MessageBubble: React.FC<{
             </div>
 
             {/* Content */}
-            <div className={`flex-1 min-w-0 ${isUser ? 'max-w-[75%]' : 'max-w-[85%]'} ${isUser ? 'text-right' : ''}`}>
-                <div className={`inline-block text-left rounded-2xl px-4 py-3 text-sm leading-relaxed
+            <div className={`flex-1 min-w-0 overflow-hidden ${isUser ? 'max-w-[75%]' : 'max-w-[85%]'} ${isUser ? 'text-right' : ''}`}>
+                <div className={`text-left rounded-2xl px-4 py-3 text-sm leading-relaxed max-w-full
           ${isUser
-                        ? 'tc-user-bubble rounded-br-md'
+                        ? 'tc-user-bubble rounded-br-md inline-block'
                         : 'tc-assistant-bubble border rounded-bl-md'
-                    }`}>
+                    }`}
+                    style={{ overflowWrap: 'anywhere' }}>
                     {/* Execution timeline (new agent-style) */}
                     {!isUser && message.executionSteps && message.executionSteps.length > 0 && (
                         <div className="mb-2.5">
@@ -60,7 +61,7 @@ export const MessageBubble: React.FC<{
                     )}
 
                     {/* Message content */}
-                    <div className={isUser ? 'whitespace-pre-wrap break-words' : 'break-words tc-markdown'}>
+                    <div className={isUser ? 'whitespace-pre-wrap break-all' : 'break-all tc-markdown'}>
                         {isUser ? renderInline(message.content) : renderFullMarkdown(normalizedContent)}
                     </div>
                 </div>
@@ -96,12 +97,12 @@ export const MessageBubble: React.FC<{
                 )}
 
                 {/* Timestamp */}
-                <div className={`flex items-center gap-2 mt-1 text-[11px] text-gray-600 
+                <div className={`flex items-center gap-2 mt-1 text-[11px] tc-text-muted 
           ${isUser ? 'justify-end' : 'justify-start'}`}>
                     <Clock size={10} />
                     <span>{message.timestamp.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</span>
                     {!isUser && (
-                        <button className="opacity-0 group-hover:opacity-100 transition-opacity hover:text-gray-300 ml-1">
+                        <button className="opacity-0 group-hover:opacity-100 transition-opacity hover:tc-text-secondary ml-1">
                             <Copy size={11} />
                         </button>
                     )}

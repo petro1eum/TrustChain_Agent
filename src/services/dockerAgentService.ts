@@ -290,6 +290,159 @@ class DockerAgentService {
       throw new Error(`Ошибка остановки контейнера: ${error.message}`);
     }
   }
+
+  // ═══════════════════════════════════════════
+  //  Agent Runtime — LLM tool-calling loop
+  // ═══════════════════════════════════════════
+
+  /**
+   * Запустить LLM агента с инструкцией.
+   * Агент выполняет tool-calling loop (Gemini → Docker) и возвращает результат.
+   */
+  async runAgent(request: AgentRunRequest): Promise<{ status: string; message: string; model: string }> {
+    try {
+      const response = await backendApiService.callEndpoint(
+        'docker_agent/agent/run',
+        undefined,
+        request
+      );
+      return response as { status: string; message: string; model: string };
+    } catch (error: any) {
+      throw new Error(`Ошибка запуска агента: ${error.message}`);
+    }
+  }
+
+  /**
+   * Получить текущий статус задачи агента (polling).
+   */
+  async pollAgentStatus(): Promise<AgentTaskStatus> {
+    try {
+      const response = await backendApiService.callEndpoint('docker_agent/agent/status');
+      return response as AgentTaskStatus;
+    } catch (error: any) {
+      return {
+        task_id: '',
+        status: 'failed',
+        instruction: '',
+        error: error.message || 'Ошибка получения статуса'
+      };
+    }
+  }
+
+  /**
+   * Получить историю задач агента.
+   */
+  async getAgentHistory(limit: number = 10): Promise<AgentTaskStatus[]> {
+    try {
+      const response = await backendApiService.callEndpoint(
+        'docker_agent/agent/history',
+        { limit: String(limit) }
+      );
+      return (response || []) as AgentTaskStatus[];
+    } catch (error: any) {
+      console.warn('[DockerAgentService] getAgentHistory error:', error.message);
+      return [];
+    }
+  }
+
+  /**
+   * Получить список доступных скиллов.
+   */
+  async listSkills(): Promise<AgentSkill[]> {
+    try {
+      const response = await backendApiService.callEndpoint('docker_agent/skills');
+      return (response || []) as AgentSkill[];
+    } catch (error: any) {
+      console.warn('[DockerAgentService] listSkills error:', error.message);
+      return [];
+    }
+  }
+
+  /**
+   * Подключиться к SSE стриму reasoning-эвентов для live-отображения
+   * в LiveThinkingAccordion / ProgressSteps.
+   * Возвращает EventSource, который нужно закрыть при unmount.
+   */
+  streamAgent(onEvent: (event: AgentStreamEvent) => void): EventSource | null {
+    const baseUrl = backendApiService.getBaseUrl();
+    if (!baseUrl) return null;
+
+    const es = new EventSource(`${baseUrl}/api/docker_agent/agent/stream`);
+
+    es.onmessage = (e) => {
+      try {
+        const data = JSON.parse(e.data) as AgentStreamEvent;
+        onEvent(data);
+      } catch {
+        // skip malformed
+      }
+    };
+
+    es.onerror = () => {
+      // Auto-reconnect is built into EventSource; close on final error
+      if (es.readyState === EventSource.CLOSED) {
+        onEvent({ type: 'error', message: 'Stream closed' });
+      }
+    };
+
+    return es;
+  }
+}
+
+// ─── Agent Runtime Types ───
+
+export interface AgentRunRequest {
+  instruction: string;
+  model?: string;
+  max_iterations?: number;
+  agent_name?: string;
+}
+
+export interface AgentToolCallRecord {
+  iteration: number;
+  tool: string;
+  args: Record<string, any>;
+  timestamp: string;
+  result: string;
+  success: boolean;
+  trustchain?: {
+    id: string;
+    signature: string;
+    parent_signature: string | null;
+    verified: boolean;
+    key_id?: string;
+    algorithm?: string;
+  };
+}
+
+export interface AgentTaskStatus {
+  task_id: string;
+  status: 'pending' | 'running' | 'completed' | 'failed';
+  instruction: string;
+  started_at?: string;
+  completed_at?: string;
+  result?: string;
+  tool_calls?: AgentToolCallRecord[];
+  error?: string | null;
+  model?: string;
+  iterations?: number;
+}
+
+export interface AgentSkill {
+  name: string;
+  path: string;
+  description: string;
+}
+
+export interface AgentStreamEvent {
+  type: 'thinking' | 'tool_call' | 'tool_result' | 'complete' | 'error';
+  iteration?: number;
+  tool?: string;
+  args?: Record<string, any>;
+  result?: string;
+  signature?: string;
+  message?: string;
+  timestamp?: string;
 }
 
 export const dockerAgentService = new DockerAgentService();

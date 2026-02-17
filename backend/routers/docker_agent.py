@@ -3,7 +3,7 @@ API для управления Docker контейнерами агента
 Использует Docker API для создания и управления изолированными контейнерами с gVisor
 """
 
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, HTTPException, BackgroundTasks
 from pydantic import BaseModel, Field
 from typing import List, Optional, Dict, Any
 import docker
@@ -24,7 +24,7 @@ if _ai_studio_env.exists():
     load_dotenv(_ai_studio_env)
 
 
-router = APIRouter(prefix="/api/docker-agent", tags=["docker_agent"])
+router = APIRouter(prefix="/api/docker_agent", tags=["docker_agent"])
 
 # --- Temp-директории: трекинг и автоочистка ---
 _temp_dirs: list[str] = []
@@ -50,8 +50,8 @@ def _tracked_mkdtemp(prefix: str) -> str:
 
 
 # Имя контейнера агента
-AGENT_CONTAINER_NAME = "kb-agent-container"
-AGENT_IMAGE_NAME = "kb-agent:latest"
+AGENT_CONTAINER_NAME = "trustchain-agent-container"
+AGENT_IMAGE_NAME = "trustchain-agent:latest"
 
 # Структура директорий в контейнере
 CONTAINER_PATHS = {
@@ -165,8 +165,8 @@ def create_agent_container() -> docker.models.containers.Container:
             build_agent_image()
         
         # Создаем volumes для монтирования
-        # Определяем корень проекта (4 уровня вверх от docker_agent.py)
-        project_root = Path(__file__).parent.parent.parent.parent
+        # Корень проекта TrustChain_Agent (2 уровня вверх от docker_agent.py)
+        project_root = Path(__file__).parent.parent.parent
         
         volumes = {
             # Монтируем весь проект в workspace (read-only)
@@ -174,8 +174,8 @@ def create_agent_container() -> docker.models.containers.Container:
                 "bind": CONTAINER_PATHS["workspace"],
                 "mode": "ro"
             },
-            # Монтируем skills из agent-tools
-            str(project_root / "admin_app_backend" / "ai_studio" / "app" / "src" / "agent-tools" / "skills"): {
+            # Монтируем skills из TrustChain_Agent/skills
+            str(project_root / "skills"): {
                 "bind": CONTAINER_PATHS["skills"],
                 "mode": "ro"
             },
@@ -978,3 +978,146 @@ done
         raise
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Ошибка извлечения таблицы: {str(e)}")
+
+
+# ═══════════════════════════════════════════
+#  Tool Registry API (agency-swarm adapted)
+# ═══════════════════════════════════════════
+
+from backend.tools.tool_registry import registry as tool_registry
+
+
+class ToolRunRequest(BaseModel):
+    tool: str = Field(..., description="Name of the tool to run")
+    params: Dict[str, Any] = Field(default_factory=dict, description="Tool parameters")
+    agent_name: str = Field("default", description="Agent session name for context isolation")
+
+
+@router.get("/tools", response_model=List[Dict[str, Any]])
+async def list_tools():
+    """List all available tools with their schemas."""
+    return tool_registry.list_tools()
+
+
+@router.post("/tool/run")
+async def run_tool(request: ToolRunRequest):
+    """Execute a tool by name with given parameters."""
+    result = await tool_registry.run_tool(
+        tool_name=request.tool,
+        params=request.params,
+        agent_name=request.agent_name,
+    )
+    return {"tool": request.tool, "result": result}
+
+
+# ═══════════════════════════════════════════
+#  Agent Runtime API (LLM tool-calling loop)
+# ═══════════════════════════════════════════
+
+from backend.tools.agent_runtime import (
+    run_agent,
+    get_current_task,
+    get_task_history,
+    list_skill_files,
+    AgentTask,
+)
+
+
+class AgentRunRequest(BaseModel):
+    instruction: str = Field(..., description="Task instruction for the agent")
+    model: str = Field("gemini-2.0-flash", description="LLM model name")
+    max_iterations: int = Field(25, ge=1, le=50, description="Max tool-calling iterations")
+    agent_name: str = Field("default", description="Agent session name")
+
+
+@router.post("/agent/run")
+async def run_agent_endpoint(
+    request: AgentRunRequest,
+    background_tasks: BackgroundTasks,
+):
+    """Start an agent task. Runs in background — poll /agent/status for progress."""
+    current = get_current_task()
+    if current and current.status == "running":
+        raise HTTPException(
+            status_code=409,
+            detail=f"Agent is already running: task_id={current.task_id}"
+        )
+
+    async def _run():
+        await run_agent(
+            instruction=request.instruction,
+            model=request.model,
+            max_iterations=request.max_iterations,
+            agent_name=request.agent_name,
+        )
+
+    background_tasks.add_task(_run)
+
+    return {
+        "status": "started",
+        "message": "Agent task queued. Poll /agent/status for progress.",
+        "model": request.model,
+    }
+
+
+@router.get("/agent/status")
+async def agent_status():
+    """Get current agent task status."""
+    task = get_current_task()
+    if task is None:
+        return {"status": "idle", "message": "No task running"}
+    return task.model_dump()
+
+
+@router.get("/agent/history")
+async def agent_history(limit: int = 10):
+    """Get agent task execution history."""
+    return [t.model_dump() for t in get_task_history(limit)]
+
+
+@router.get("/agent/stream")
+async def agent_stream():
+    """
+    SSE stream of agent reasoning events.
+    Frontend connects with EventSource to drive LiveThinkingAccordion in real-time.
+    Events: thinking, tool_call, tool_result, complete, error
+    """
+    import asyncio
+    import json
+    from fastapi.responses import StreamingResponse
+    from backend.tools.agent_runtime import subscribe_events, unsubscribe_events
+
+    q = subscribe_events()
+
+    async def event_generator():
+        try:
+            while True:
+                try:
+                    event = await asyncio.wait_for(q.get(), timeout=60.0)
+                    yield f"data: {json.dumps(event, ensure_ascii=False, default=str)}\n\n"
+                    if event.get("type") in ("complete", "error"):
+                        break
+                except asyncio.TimeoutError:
+                    # Send heartbeat to keep connection alive
+                    yield f"data: {json.dumps({'type': 'heartbeat'})}\n\n"
+        finally:
+            unsubscribe_events(q)
+
+    return StreamingResponse(
+        event_generator(),
+        media_type="text/event-stream",
+        headers={
+            "Cache-Control": "no-cache",
+            "Connection": "keep-alive",
+            "X-Accel-Buffering": "no",
+        },
+    )
+
+
+@router.get("/skills")
+async def list_skills():
+    """List all available skills."""
+    from pathlib import Path
+    project_root = Path(__file__).resolve().parents[2]
+    return list_skill_files(project_root / "skills")
+

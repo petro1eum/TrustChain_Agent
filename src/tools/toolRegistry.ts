@@ -20,7 +20,8 @@ export type ToolCategory =
     | 'Browser'
     | 'MCP'
     | 'Data Processing'
-    | 'Memory';
+    | 'Memory'
+    | 'TrustChain';
 
 export type RiskLevel = 'safe' | 'moderate' | 'dangerous';
 
@@ -58,6 +59,7 @@ const CATEGORY_DESCRIPTIONS: Record<ToolCategory, string> = {
     'MCP': 'Model Context Protocol — dynamic tool servers (stdio/sse/http)',
     'Data Processing': 'Text processing, semantic analysis, data quality, normalization',
     'Memory': 'Persistent memory — cross-session knowledge, facts, preferences',
+    'TrustChain': 'Cryptographic signing, verification, compliance, analytics — OSS/PRO/ENT tiers',
 };
 
 const CATEGORY_RISK: Record<ToolCategory, RiskLevel> = {
@@ -70,6 +72,7 @@ const CATEGORY_RISK: Record<ToolCategory, RiskLevel> = {
     'MCP': 'moderate',
     'Data Processing': 'safe',
     'Memory': 'safe',
+    'TrustChain': 'moderate',
 };
 
 // ── Registry ──
@@ -176,6 +179,27 @@ const TOOL_REGISTRY: ToolMeta[] = [
     // ── Memory (2) ──
     t('memory_save', 'Save Memory', 'Save knowledge/preference to persistent memory', 'Memory'),
     t('memory_recall', 'Recall Memory', 'Recall relevant facts from persistent memory', 'Memory'),
+
+    // ── TrustChain OSS (6) ──
+    t('tc_sign', 'Sign Data', 'Sign data with Ed25519 cryptographic signature', 'TrustChain', { locked: true }),
+    t('tc_verify_chain', 'Verify Chain', 'Verify operation chain integrity', 'TrustChain', { locked: true }),
+    t('tc_get_audit_trail', 'Audit Trail', 'Get signed operation history', 'TrustChain'),
+    t('tc_get_stats', 'TC Stats', 'Get signing statistics and metrics', 'TrustChain'),
+    t('tc_security_scan', 'Security Scan', 'Scan for CVEs with signed results', 'TrustChain'),
+    t('tc_git_diff', 'Git Diff', 'Analyze git changes (signed)', 'TrustChain'),
+
+    // ── TrustChain PRO (5) ──
+    t('tc_execution_graph', 'Execution Graph', 'Build execution DAG with fork/replay detection', 'TrustChain'),
+    t('tc_analytics_snapshot', 'Analytics', 'Get real-time analytics metrics', 'TrustChain'),
+    t('tc_policy_evaluate', 'Policy Check', 'Evaluate tool call against policies', 'TrustChain'),
+    t('tc_kms_keys', 'KMS Keys', 'Key management status', 'TrustChain'),
+    t('tc_kms_rotate', 'Key Rotate', 'Rotate Ed25519 signing key', 'TrustChain'),
+
+    // ── TrustChain Enterprise (4) ──
+    t('tc_compliance_report', 'Compliance Report', 'Generate SOC2/HIPAA/AI Act report', 'TrustChain'),
+    t('tc_tsa_timestamp', 'TSA Timestamp', 'Generate RFC 3161 timestamp', 'TrustChain'),
+    t('tc_tsa_verify', 'TSA Verify', 'Verify TSA timestamp', 'TrustChain'),
+    t('tc_airgap_status', 'Air-Gap Status', 'Check air-gap capabilities', 'TrustChain'),
 ];
 
 // ── Public API ──

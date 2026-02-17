@@ -1,6 +1,8 @@
 import React, { lazy, Suspense } from 'react';
 import { createRoot } from 'react-dom/client';
 import '../src/index.css';
+import 'katex/dist/katex.min.css';
+import '../src/ui/hljs-theme.css';
 
 // Path-based routing: /panel renders the embeddable panel widget
 const isPanel = window.location.pathname === '/panel';

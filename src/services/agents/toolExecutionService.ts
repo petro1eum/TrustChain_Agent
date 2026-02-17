@@ -384,7 +384,14 @@ export class ToolExecutionService {
       case 'no_tool':
         return { success: true, message: 'Direct answer without tools' };
 
-      default:
+      default: {
+        // === TrustChain tools (tc_*) ===
+        const { isTrustChainTool, routeTrustChainTool } = await import('./trustchainToolExecution');
+        if (isTrustChainTool(toolName)) {
+          result = await routeTrustChainTool(toolName, args);
+          break;
+        }
+
         // Check if this is a dynamically registered app action
         const { appActionsRegistry } = await import('../appActionsRegistry');
         if (appActionsRegistry.has(toolName)) {
@@ -395,6 +402,7 @@ export class ToolExecutionService {
         // If we reach here, the tool was not routed through MCP.
         console.error(`[ToolExecution] Unknown tool: ${toolName}. Domain tools should be served via MCP or registered via postMessage.`);
         throw new Error(`Unknown tool: ${toolName}. Provide via MCP server or register via trustchain:register_actions postMessage.`);
+      }
     }
 
     // КРИТИЧНО: Проверяем что result был установлен

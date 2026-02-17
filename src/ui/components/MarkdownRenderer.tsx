@@ -1,4 +1,9 @@
 import React from 'react';
+import ReactMarkdown from 'react-markdown';
+import remarkGfm from 'remark-gfm';
+import remarkMath from 'remark-math';
+import rehypeKatex from 'rehype-katex';
+import rehypeHighlight from 'rehype-highlight';
 
 const DEFAULT_TRUSTCHAIN_TOOLTIP = 'TrustChain: цифровая верификация';
 
@@ -23,226 +28,203 @@ export function normalizeTrustChainMarkup(
     const markerHtml = getTrustchainMarkerHtml(opts?.tooltip || DEFAULT_TRUSTCHAIN_TOOLTIP);
 
     return text
-        // Legacy emoji marker
         .replace(/🛡✓/g, markerHtml)
-        // Escaped HTML from model output
         .replace(
             /&lt;span[\s\S]*?tc-verified(?!-shield)(?!-label)\b[\s\S]*?&gt;[\s\S]*?&lt;\/span&gt;/gi,
             markerHtml
         )
-        // Raw HTML with normal quotes
         .replace(
             /<span[\s\S]*?tc-verified(?!-shield)(?!-label)\b[\s\S]*?>[\s\S]*?<\/span>/gi,
             markerHtml
         )
-        // Raw HTML with escaped quotes: class=\"tc-verified\" or split attributes
         .replace(
             /<span[\s\S]*?class=\\?["']tc-verified(?!-shield)(?!-label)\b\\?["'][\s\S]*?>[\s\S]*?<\/span>/gi,
             markerHtml
         )
-        // Backward compatibility: titles from older versions used "|" and can break markdown tables.
         .replace(/title="([^"]*)"/gi, (_m, title) => `title="${title.replace(/\|/g, ';')}"`)
         .replace(/title=\\"([^"]*)\\"/gi, (_m, title) => `title=\\"${title.replace(/\|/g, ';')}\\"`)
         .replace(/title=&quot;([^&]*)&quot;/gi, (_m, title) => `title=&quot;${title.replace(/\|/g, ';')}&quot;`);
 }
 
+/* ─────── react-markdown plugins ─────── */
+const remarkPlugins = [remarkGfm, remarkMath];
+const rehypePlugins = [rehypeKatex, rehypeHighlight];
+
+/* ─────── Custom components for theme-aware rendering ─────── */
+const mdComponents: Record<string, React.FC<any>> = {
+    /* Headings */
+    h1: ({ children, ...props }: any) => (
+        <h1 {...props} style={{ fontSize: 17, fontWeight: 700, color: 'var(--tc-prose-heading)', margin: '14px 0 6px', lineHeight: 1.4 }}>{children}</h1>
+    ),
+    h2: ({ children, ...props }: any) => (
+        <h2 {...props} style={{ fontSize: 15, fontWeight: 700, color: 'var(--tc-prose-heading)', margin: '12px 0 5px', lineHeight: 1.4 }}>{children}</h2>
+    ),
+    h3: ({ children, ...props }: any) => (
+        <h3 {...props} style={{ fontSize: 13.5, fontWeight: 600, color: 'var(--tc-prose-heading)', margin: '10px 0 4px', lineHeight: 1.4 }}>{children}</h3>
+    ),
+    h4: ({ children, ...props }: any) => (
+        <h4 {...props} style={{ fontSize: 12.5, fontWeight: 600, color: 'var(--tc-prose-heading)', margin: '8px 0 3px', lineHeight: 1.4 }}>{children}</h4>
+    ),
+
+    /* Paragraph */
+    p: ({ children, ...props }: any) => (
+        <p {...props} style={{ margin: '4px 0', fontSize: 13, lineHeight: 1.65, color: 'var(--tc-prose-text)' }}>{children}</p>
+    ),
+
+    /* Bold / Italic */
+    strong: ({ children, ...props }: any) => (
+        <strong {...props} style={{ color: 'var(--tc-prose-strong)', fontWeight: 600 }}>{children}</strong>
+    ),
+    em: ({ children, ...props }: any) => (
+        <em {...props} style={{ color: 'var(--tc-text-secondary)' }}>{children}</em>
+    ),
+
+    /* Lists */
+    ul: ({ children, ...props }: any) => (
+        <ul {...props} style={{ margin: '4px 0', paddingLeft: 20, listStyleType: 'disc', color: 'var(--tc-prose-text)' }}>{children}</ul>
+    ),
+    ol: ({ children, ...props }: any) => (
+        <ol {...props} style={{ margin: '4px 0', paddingLeft: 20, listStyleType: 'decimal', color: 'var(--tc-prose-text)' }}>{children}</ol>
+    ),
+    li: ({ children, ...props }: any) => (
+        <li {...props} style={{ fontSize: 13, lineHeight: 1.6, marginBottom: 2, color: 'var(--tc-prose-text)' }}>{children}</li>
+    ),
+
+    /* Inline code */
+    code: ({ children, className, ...props }: any) => {
+        // If it's inside a <pre> (code block), className will contain "language-xxx"
+        const isBlock = className && /language-/.test(className);
+        if (isBlock) {
+            return <code className={className} {...props} style={{ fontFamily: "'SF Mono', 'Fira Code', 'JetBrains Mono', monospace", fontSize: 12 }}>{children}</code>;
+        }
+        return (
+            <code {...props} style={{
+                background: 'var(--tc-prose-code-bg)',
+                color: 'var(--tc-prose-code)',
+                padding: '1px 5px',
+                borderRadius: 4,
+                fontSize: '0.88em',
+                fontFamily: "'SF Mono', 'Fira Code', monospace",
+            }}>{children}</code>
+        );
+    },
+
+    /* Code block wrapper */
+    pre: ({ children, ...props }: any) => (
+        <pre {...props} style={{
+            background: 'var(--tc-code-bg)',
+            border: '1px solid var(--tc-code-border)',
+            borderRadius: 8,
+            padding: '10px 14px',
+            fontSize: 12,
+            lineHeight: 1.55,
+            overflowX: 'auto',
+            margin: '8px 0',
+            color: 'var(--tc-code-text)',
+        }}>{children}</pre>
+    ),
+
+    /* Tables */
+    table: ({ children, ...props }: any) => (
+        <table {...props} style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12, margin: '8px 0' }}>{children}</table>
+    ),
+    thead: ({ children, ...props }: any) => <thead {...props}>{children}</thead>,
+    tbody: ({ children, ...props }: any) => <tbody {...props}>{children}</tbody>,
+    th: ({ children, ...props }: any) => (
+        <th {...props} style={{
+            textAlign: 'left', padding: '5px 10px',
+            borderBottom: '2px solid var(--tc-prose-table-border)',
+            color: 'var(--tc-prose-th-text)', fontWeight: 600, fontSize: 11,
+            textTransform: 'uppercase', letterSpacing: '0.04em',
+        }}>{children}</th>
+    ),
+    td: ({ children, ...props }: any) => (
+        <td {...props} style={{
+            padding: '4px 10px',
+            borderBottom: '1px solid var(--tc-prose-td-border)',
+            color: 'var(--tc-prose-text)', fontSize: 12,
+        }}>{children}</td>
+    ),
+
+    /* Blockquote */
+    blockquote: ({ children, ...props }: any) => (
+        <blockquote {...props} style={{
+            borderLeft: '3px solid var(--tc-verified-text, #34d399)',
+            paddingLeft: 12, margin: '6px 0',
+            color: 'var(--tc-text-secondary)', fontSize: 12.5, fontStyle: 'italic',
+        }}>{children}</blockquote>
+    ),
+
+    /* HR */
+    hr: (props: any) => (
+        <hr {...props} style={{ border: 'none', borderTop: '1px solid var(--tc-prose-hr)', margin: '10px 0' }} />
+    ),
+
+    /* Links */
+    a: ({ children, href, ...props }: any) => (
+        <a {...props} href={href} target="_blank" rel="noopener noreferrer" style={{
+            color: 'var(--tc-accent-text)', textDecoration: 'underline',
+        }}>{children}</a>
+    ),
+
+    /* Images */
+    img: ({ src, alt, ...props }: any) => (
+        <img {...props} src={src} alt={alt || ''} style={{ maxWidth: '100%', borderRadius: 8, margin: '8px 0' }} />
+    ),
+
+    /* Checkbox (GFM task list) */
+    input: ({ type, checked, ...props }: any) => {
+        if (type === 'checkbox') {
+            return <input {...props} type="checkbox" checked={checked} readOnly
+                style={{ marginRight: 6, accentColor: 'var(--tc-verified-text, #34d399)' }} />;
+        }
+        return <input {...props} />;
+    },
+};
+
 /**
  * Full markdown renderer for TrustChain Agent responses.
- * Supports: headings, bold, italic, code, code blocks, tables,
- * blockquotes, ordered/unordered/nested lists, checkboxes,
- * links, inline HTML (spans with style/title/class), HR.
+ * Uses react-markdown with GFM, math (LaTeX), syntax highlighting.
+ * All colors use CSS custom properties for dark/light theme compatibility.
  */
 export function renderFullMarkdown(text: string): React.ReactNode {
-    const blocks = text.split('\n');
-    const elements: React.ReactNode[] = [];
-    let i = 0;
-
-    while (i < blocks.length) {
-        const line = blocks[i];
-
-        // ── Code blocks ──
-        if (line.startsWith('```')) {
-            const lang = line.replace('```', '').trim();
-            const codeLines: string[] = [];
-            i++;
-            while (i < blocks.length && !blocks[i].startsWith('```')) {
-                codeLines.push(blocks[i]);
-                i++;
-            }
-            i++; // skip closing ```
-            elements.push(
-                <pre key={`code_${i}`} style={{
-                    background: '#0f172a', borderRadius: 8, padding: '10px 12px',
-                    fontSize: 11, overflowX: 'auto', border: '1px solid #1e293b',
-                    margin: '4px 0',
-                }}>
-                    <code className={lang ? `language-${lang}` : ''}>{codeLines.join('\n')}</code>
-                </pre>
-            );
-            continue;
-        }
-
-        // ── Tables ──
-        if (line.includes('|') && i + 1 < blocks.length && blocks[i + 1]?.match(/^\|[-\s:|]+\|$/)) {
-            const tableLines: string[] = [line];
-            i++;
-            while (i < blocks.length && blocks[i].includes('|')) {
-                if (!blocks[i].match(/^\|[-\s:|]+\|$/)) {
-                    tableLines.push(blocks[i]);
-                }
-                i++;
-            }
-            const headers = tableLines[0].split('|').filter(c => c.trim()).map(c => c.trim());
-            const rows = tableLines.slice(1).map(r => r.split('|').filter(c => c.trim()).map(c => c.trim()));
-            elements.push(
-                <table key={`table_${i}`} style={{
-                    width: '100%', borderCollapse: 'collapse', fontSize: 11, margin: '6px 0',
-                }}>
-                    <thead>
-                        <tr>{headers.map((h, hi) => (
-                            <th key={hi} style={{
-                                textAlign: 'left', padding: '4px 8px', borderBottom: '1px solid #334155',
-                                color: '#94a3b8', fontWeight: 600, fontSize: 10,
-                            }}>{renderInline(h)}</th>
-                        ))}</tr>
-                    </thead>
-                    <tbody>{rows.map((row, ri) => (
-                        <tr key={ri}>{row.map((cell, ci) => (
-                            <td key={ci} style={{
-                                padding: '3px 8px', borderBottom: '1px solid #1e293b', color: '#cbd5e1',
-                            }}>{renderInline(cell)}</td>
-                        ))}</tr>
-                    ))}</tbody>
-                </table>
-            );
-            continue;
-        }
-
-        // ── Blockquotes ──
-        if (line.startsWith('> ')) {
-            const quoteLines: string[] = [];
-            while (i < blocks.length && blocks[i].startsWith('> ')) {
-                quoteLines.push(blocks[i].substring(2));
-                i++;
-            }
-            elements.push(
-                <blockquote key={`bq_${i}`} style={{
-                    borderLeft: '3px solid #34d399', paddingLeft: 12, margin: '6px 0',
-                    color: '#94a3b8', fontSize: 12,
-                }}>
-                    {quoteLines.map((ql, qi) => <div key={qi}>{renderInline(ql)}</div>)}
-                </blockquote>
-            );
-            continue;
-        }
-
-        // ── Headings ──
-        if (line.startsWith('#### ')) {
-            elements.push(<h4 key={`h4_${i}`} style={{ fontSize: 12, fontWeight: 600, color: '#e2e8f0', margin: '8px 0 4px' }}>{renderInline(line.substring(5))}</h4>);
-        } else if (line.startsWith('### ')) {
-            elements.push(<h3 key={`h3_${i}`} style={{ fontSize: 13, fontWeight: 600, color: '#e2e8f0', margin: '10px 0 4px' }}>{renderInline(line.substring(4))}</h3>);
-        } else if (line.startsWith('## ')) {
-            elements.push(<h2 key={`h2_${i}`} style={{ fontSize: 14, fontWeight: 700, color: '#f1f5f9', margin: '12px 0 4px' }}>{renderInline(line.substring(3))}</h2>);
-        } else if (line.startsWith('# ')) {
-            elements.push(<h1 key={`h1_${i}`} style={{ fontSize: 16, fontWeight: 700, color: '#f8fafc', margin: '14px 0 6px' }}>{renderInline(line.substring(2))}</h1>);
-        }
-        // ── HR ──
-        else if (line.match(/^---+$/)) {
-            elements.push(<hr key={`hr_${i}`} style={{ border: 'none', borderTop: '1px solid #334155', margin: '8px 0' }} />);
-        }
-        // ── Checkbox list ──
-        else if (line.match(/^(\s*)[-*] \[[ x]\] /)) {
-            const indent = line.match(/^(\s*)/)?.[1].length || 0;
-            const checked = line.includes('[x]');
-            const content = line.replace(/^\s*[-*] \[[ x]\] /, '');
-            elements.push(
-                <div key={`cb_${i}`} style={{
-                    display: 'flex', alignItems: 'flex-start', gap: 6, paddingTop: 2, paddingBottom: 2,
-                    paddingLeft: indent * 8,
-                    color: checked ? '#64748b' : '#cbd5e1',
-                    textDecoration: checked ? 'line-through' : 'none',
-                }}>
-                    <input type="checkbox" checked={checked} readOnly style={{ marginTop: 3, accentColor: '#34d399' }} />
-                    <span style={{ fontSize: 12 }}>{renderInline(content)}</span>
-                </div>
-            );
-        }
-        // ── Ordered list (1. 2. etc.) ──
-        else if (line.match(/^(\s*)\d+\.\s/)) {
-            const indent = line.match(/^(\s*)/)?.[1].length || 0;
-            const content = line.replace(/^\s*\d+\.\s/, '');
-            elements.push(
-                <div key={`ol_${i}`} style={{
-                    paddingLeft: 8 + indent * 8, position: 'relative', fontSize: 12,
-                    color: '#cbd5e1', paddingTop: 1, paddingBottom: 1,
-                }}>
-                    <span style={{ position: 'absolute', left: indent * 8, color: '#64748b', fontWeight: 500 }}>
-                        {line.match(/(\d+)\./)?.[1]}.
-                    </span>
-                    {renderInline(content)}
-                </div>
-            );
-        }
-        // ── Unordered list (- or * with indent support) ──
-        else if (line.match(/^(\s*)[-*]\s/)) {
-            const indent = line.match(/^(\s*)/)?.[1].length || 0;
-            const content = line.replace(/^\s*[-*]\s/, '');
-            elements.push(
-                <div key={`ul_${i}`} style={{
-                    paddingLeft: 12 + indent * 8, position: 'relative', fontSize: 12,
-                    color: '#cbd5e1', paddingTop: 1, paddingBottom: 1,
-                }}>
-                    <span style={{ position: 'absolute', left: indent * 8, color: '#475569' }}>•</span>
-                    {renderInline(content)}
-                </div>
-            );
-        }
-        // ── Empty line ──
-        else if (!line.trim()) {
-            elements.push(<div key={`sp_${i}`} style={{ height: 6 }} />);
-        }
-        // ── Regular paragraph ──
-        else {
-            elements.push(<p key={`p_${i}`} style={{ margin: '2px 0', fontSize: 12, color: '#cbd5e1' }}>{renderInline(line)}</p>);
-        }
-
-        i++;
-    }
-
-    return <>{elements}</>;
+    return (
+        <ReactMarkdown
+            remarkPlugins={remarkPlugins}
+            rehypePlugins={rehypePlugins}
+            components={mdComponents}
+        >
+            {text}
+        </ReactMarkdown>
+    );
 }
 
 /**
  * Renders inline markdown: **bold**, *italic*, `code`, [links](url),
  * and inline HTML <span> tags (for TrustChain verification badges).
+ * Used in execution step labels where full markdown is too heavy.
  */
 export function renderInline(text: string): React.ReactNode {
-    // Split on: **bold**, *italic*, `code`, [text](url), <span ...>...</span>
     const parts = text.split(/(\*\*[^*]+\*\*|\*[^*]+\*|`[^`]+`|\[[^\]]+\]\([^)]+\)|<span[^>]*>[^<]*<\/span>)/);
     return parts.map((part, i) => {
-        // Bold
         if (part.startsWith('**') && part.endsWith('**')) {
-            return <strong key={i} style={{ color: '#e2e8f0', fontWeight: 600 }}>{part.slice(2, -2)}</strong>;
+            return <strong key={i} style={{ color: 'var(--tc-prose-strong)', fontWeight: 600 }}>{part.slice(2, -2)}</strong>;
         }
-        // Italic
         if (part.startsWith('*') && part.endsWith('*') && !part.startsWith('**')) {
-            return <em key={i} style={{ color: '#94a3b8' }}>{part.slice(1, -1)}</em>;
+            return <em key={i} style={{ color: 'var(--tc-text-secondary)' }}>{part.slice(1, -1)}</em>;
         }
-        // Inline code
         if (part.startsWith('`') && part.endsWith('`')) {
             return <code key={i} style={{
-                background: '#1e293b', padding: '1px 5px', borderRadius: 4,
-                fontSize: '0.9em', color: '#93c5fd',
+                background: 'var(--tc-prose-code-bg)', padding: '1px 5px', borderRadius: 4,
+                fontSize: '0.9em', color: 'var(--tc-prose-code)',
             }}>{part.slice(1, -1)}</code>;
         }
-        // Links [text](url)
         const linkMatch = part.match(/^\[([^\]]+)\]\(([^)]+)\)$/);
         if (linkMatch) {
             return <a key={i} href={linkMatch[2]} target="_blank" rel="noopener noreferrer" style={{
-                color: '#818cf8', textDecoration: 'underline',
+                color: 'var(--tc-accent-text)', textDecoration: 'underline',
             }}>{linkMatch[1]}</a>;
         }
-        // Inline HTML <span> — parse style, title, class
         const spanMatch = part.match(/^<span([^>]*)>([^<]*)<\/span>$/);
         if (spanMatch) {
             const attrs = spanMatch[1];
@@ -255,7 +237,6 @@ export function renderInline(text: string): React.ReactNode {
                 styleMatch[1].split(';').forEach(s => {
                     const [k, v] = s.split(':').map(x => x.trim());
                     if (k && v) {
-                        // Convert CSS property to camelCase
                         const camelKey = k.replace(/-([a-z])/g, (_, c) => c.toUpperCase());
                         inlineStyle[camelKey] = v;
                     }

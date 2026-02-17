@@ -205,6 +205,8 @@
 .tc-user-bubble {
     background: var(--tc-user-bubble);
     color: var(--tc-user-bubble-text);
+    overflow-wrap: anywhere;
+    word-break: break-all;
 }
 
 [data-theme="light"] .tc-user-bubble {
@@ -215,6 +217,8 @@
     background: var(--tc-assistant-bubble);
     border-color: var(--tc-assistant-bubble-border);
     color: var(--tc-text-primary);
+    overflow-wrap: anywhere;
+    word-break: break-all;
 }
 
 [data-theme="light"] .tc-assistant-bubble {
@@ -564,6 +568,12 @@
 /* ═══════════════════════════════════════════
    Markdown in Message Bubbles (tc-markdown)
    ═══════════════════════════════════════════ */
+
+.tc-markdown,
+.tc-markdown * {
+    overflow-wrap: anywhere;
+    word-break: break-all;
+}
 
 .tc-markdown table {
     border-collapse: collapse;

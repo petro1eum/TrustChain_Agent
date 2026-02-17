@@ -13,6 +13,9 @@ import { chatHistoryService } from '../../services/chatHistoryService';
 import { agentCallbacksService } from '../../services/agents/agentCallbacksService';
 import { setAgentContext } from '../../services/agentContext';
 import { trustchainService } from '../../services/trustchainService';
+import { licensingService, type LicenseInfo } from '../../services/licensingService';
+import { dockerAgentService, type AgentStreamEvent } from '../../services/dockerAgentService';
+import { postProcessAgentResponse, normalizeSignature, shortSignature } from '../../utils/trustchainPostProcess';
 import type { Message, Artifact, ExecutionStep } from '../components/types';
 import ProSettingsPanel from '../components/ProSettingsPanel';
 import { normalizeTrustChainMarkup, renderFullMarkdown } from '../components/MarkdownRenderer';
@@ -241,39 +244,6 @@ const formatTime = (d: Date | undefined): string => {
     if (!d) return '';
     const date = d instanceof Date ? d : new Date(d);
     return date.toLocaleTimeString('ru', { hour: '2-digit', minute: '2-digit' });
-};
-
-type VerificationMarker = { toolName: string; signature: string };
-
-const normalizeSignature = (value: unknown): string => {
-    if (typeof value !== 'string') return '';
-    return value.trim();
-};
-
-const shortSignature = (signature: string): string => {
-    if (!signature) return 'без подписи';
-    if (signature.length <= 24) return signature;
-    return `${signature.slice(0, 12)}…${signature.slice(-8)}`;
-};
-
-const escapeHtmlAttr = (value: string): string => value
-    .replace(/&/g, '&amp;')
-    .replace(/"/g, '&quot;')
-    .replace(/</g, '&lt;')
-    .replace(/>/g, '&gt;');
-
-const buildVerificationTooltip = (markers: VerificationMarker[]): string => {
-    if (!markers.length) return 'TrustChain: цифровая верификация';
-    const unique = Array.from(new Map(
-        markers.map(m => [`${m.toolName}::${m.signature}`, m])
-    ).values());
-    const shown = unique.slice(0, 5);
-    const lines = shown.map((m, idx) =>
-        `${idx + 1}. ${m.toolName || 'tool'} · ${shortSignature(m.signature)}`
-    );
-    if (unique.length > shown.length) lines.push(`+${unique.length - shown.length} ещё`);
-    // IMPORTANT: avoid "|" because it breaks markdown table rows.
-    return `TrustChain: цифровая верификация; ${lines.join('; ')}`;
 };
 
 // ─── Progress Steps (Harmonization pattern) ───
@@ -742,6 +712,18 @@ const PanelApp: React.FC = () => {
     const [documentModeConfig, setDocumentModeConfig] = useState<DocumentModeConfig | null>(null);
     const [hostProtocolReady, setHostProtocolReady] = useState(false);
 
+    // ── License state ──
+    const [licenseInfo, setLicenseInfo] = useState<LicenseInfo>(() => licensingService.getLicenseInfo());
+    const panelTier = licenseInfo.isValid ? licenseInfo.tier : 'community';
+
+    useEffect(() => {
+        return licensingService.onChange(setLicenseInfo);
+    }, []);
+
+    // ── Backend agent SSE stream state ──
+    const [backendStreamSteps, setBackendStreamSteps] = useState<any[]>([]);
+    const [isBackendStreaming, setIsBackendStreaming] = useState(false);
+
     // ── Initialize Host Bridge (for page_observe/read/interact tools) ──
     useEffect(() => {
         import('../../services/hostBridgeService').then(({ HostBridgeService }) => {
@@ -1055,6 +1037,49 @@ const PanelApp: React.FC = () => {
         if (agent.isInitialized) {
             if (messages.length === 0) chatHistoryService.startSession(`Panel (${params.instance})`, 'openai');
             chatHistoryService.addMessage({ role: 'user', content: text, timestamp: new Date() });
+
+            // ── License tier check ──
+            const freshLicense = licensingService.getLicenseInfo();
+            const effectiveTier = freshLicense.isValid ? freshLicense.tier : 'community';
+
+            // ── Start backend agent run + SSE stream ──
+            setBackendStreamSteps([]);
+            setIsBackendStreaming(true);
+            try {
+                dockerAgentService.runAgent({
+                    instruction: text,
+                    max_iterations: effectiveTier === 'enterprise' ? 25 : effectiveTier === 'pro' ? 15 : 10,
+                }).catch(() => { /* backend may be unavailable */ });
+
+                const es = dockerAgentService.streamAgent((event: AgentStreamEvent) => {
+                    if (event.type === 'thinking') {
+                        setBackendStreamSteps(prev => [...prev, {
+                            id: `sse_${Date.now()}`, type: 'planning',
+                            label: event.message || `Iteration ${event.iteration}`,
+                            detail: event.message, latencyMs: 0,
+                        }]);
+                    } else if (event.type === 'tool_call') {
+                        setBackendStreamSteps(prev => [...prev, {
+                            id: `sse_tc_${Date.now()}`, type: 'tool',
+                            label: event.tool || 'tool', toolName: event.tool,
+                            args: event.args, detail: `Executing ${event.tool}`,
+                            latencyMs: 0, signed: false,
+                        }]);
+                    } else if (event.type === 'tool_result') {
+                        setBackendStreamSteps(prev => [...prev, {
+                            id: `sse_tr_${Date.now()}`, type: 'tool',
+                            label: `${event.tool} result`, toolName: event.tool,
+                            result: event.result, detail: event.result?.substring(0, 150),
+                            latencyMs: 0, signed: !!event.signature, signature: event.signature,
+                        }]);
+                    } else if (event.type === 'complete' || event.type === 'error') {
+                        setIsBackendStreaming(false);
+                        es?.close();
+                    }
+                });
+            } catch {
+                setIsBackendStreaming(false);
+            }
             // Use host-provided system prompt (URL ?system=base64) if available,
             // otherwise fall back to the generic context prompt
             const systemPrompt = params.systemPrompt || getContextSystemPrompt(params.context);
@@ -1075,159 +1100,13 @@ const PanelApp: React.FC = () => {
             const { artifactIds: createdArtifactIds, newArtifacts } = extractArtifactsFromEvents(events);
             if (Object.keys(newArtifacts).length > 0) setDynamicArtifacts(prev => ({ ...prev, ...newArtifacts }));
 
-            // ── Post-process: mark data from signed tool calls with TrustChain badges ──
-            const signedResults: { result: string; signature: string; toolName: string }[] = [];
-            for (const ev of events as any[]) {
-                if (ev.type === 'tool_result' && (ev.signature || ev.certificate)) {
-                    const resultStr = typeof ev.result === 'string' ? ev.result : JSON.stringify(ev.result);
-                    const signature = normalizeSignature(ev.signature) || normalizeSignature(ev.certificate);
-                    if (!signature) continue;
-                    signedResults.push({
-                        result: resultStr || '',
-                        signature,
-                        toolName: ev.toolName || '',
-                    });
-                }
-            }
-
-            let responseContent = result?.text || 'Агент обработал запрос.';
-
-            if (signedResults.length > 0 && responseContent.length > 20) {
-                const headerTooltip = buildVerificationTooltip(
-                    signedResults.map(sr => ({ toolName: sr.toolName || 'tool', signature: sr.signature }))
-                );
-                // ── Universal data point extraction from signed tool results ──
-                let totalDataPoints = 0;
-                const verifiedIds = new Set<string>();
-                const verificationById = new Map<string, VerificationMarker[]>();
-
-                const bindVerifiedId = (rawId: unknown, marker: VerificationMarker) => {
-                    const id = typeof rawId === 'string' ? rawId.trim() : String(rawId || '').trim();
-                    if (!id) return;
-                    verifiedIds.add(id);
-                    const existing = verificationById.get(id) || [];
-                    if (!existing.some(e => e.toolName === marker.toolName && e.signature === marker.signature)) {
-                        existing.push(marker);
-                        verificationById.set(id, existing);
-                    }
-                };
-
-                for (const sr of signedResults) {
-                    const marker: VerificationMarker = {
-                        toolName: sr.toolName || 'tool',
-                        signature: sr.signature,
-                    };
-                    // Try to parse the result as JSON — handle nested formats
-                    let parsed: any = null;
-                    try {
-                        parsed = JSON.parse(sr.result);
-                        // Handle double-stringified JSON
-                        if (typeof parsed === 'string') {
-                            parsed = JSON.parse(parsed);
-                        }
-                        // Handle MCP content wrapper: {content: [{type: "text", text: "..."}]}
-                        if (parsed?.content?.[0]?.text) {
-                            parsed = JSON.parse(parsed.content[0].text);
-                        }
-                        // Handle TrustChain data wrapper: {data: {...}, signature: "..."}
-                        if (parsed?.data && (parsed?.signature || parsed?.certificate)) {
-                            parsed = parsed.data;
-                        }
-                    } catch {
-                        parsed = null;
-                    }
-
-                    if (parsed && typeof parsed === 'object') {
-                        // Count items from common array fields (works with any MCP tool)
-                        // Use a seenIds set to avoid counting duplicate items across overlapping arrays
-                        const seenItemIds = new Set<string>();
-                        const arrayFields = ['items', 'tasks', 'documents', 'contracts',
-                            'meetings', 'vacancies', 'hits', 'results',
-                            'employees', 'organizations'];
-                        for (const field of arrayFields) {
-                            if (Array.isArray(parsed[field])) {
-                                for (const item of parsed[field]) {
-                                    if (!item || typeof item !== 'object') continue;
-                                    // Deduplicate by id to avoid double-counting items/tasks
-                                    const itemKey = item.id ? `${item.id}` : JSON.stringify(item).substring(0, 100);
-                                    if (seenItemIds.has(itemKey)) continue;
-                                    seenItemIds.add(itemKey);
-                                    totalDataPoints++;
-                                    // Extract identifying values for line marking
-                                    if (item.number) bindVerifiedId(item.number, marker);
-                                    if (item.reg_number) bindVerifiedId(item.reg_number, marker);
-                                    if (item.name && item.name.length > 3) bindVerifiedId(item.name, marker);
-                                    if (item.assignee_name) bindVerifiedId(item.assignee_name, marker);
-                                    if (item.author_name) bindVerifiedId(item.author_name, marker);
-                                    if (item.doc_id) bindVerifiedId(item.doc_id, marker);
-                                    if (item.article) bindVerifiedId(item.article, marker);
-                                    if (item.id) bindVerifiedId(String(item.id), marker);
-                                }
-                            }
-                        }
-                        // Stats-only results (e.g. get_task_stats) count as data points too
-                        if (parsed.total !== undefined && totalDataPoints === 0) {
-                            totalDataPoints += 1;
-                        }
-                        // Count by_status / by_priority breakdown entries
-                        for (const field of ['by_status', 'by_priority']) {
-                            if (Array.isArray(parsed[field])) {
-                                totalDataPoints += parsed[field].length;
-                                for (const entry of parsed[field]) {
-                                    if (entry.status) bindVerifiedId(entry.status, marker);
-                                    if (entry.priority) bindVerifiedId(entry.priority, marker);
-                                }
-                            }
-                        }
-                    } else {
-                        // String result — use regex fallback for doc IDs / task numbers
-                        const text = sr.result || '';
-                        const idPatterns = [
-                            /[A-Z]{2,5}-\d{4}-\d{3,6}/g,
-                            /№\s*\d+/g,
-                            /\d{2,3}-\d{2,4}/g,  // task numbers like 01-125
-                        ];
-                        for (const pat of idPatterns) {
-                            const matches = text.match(pat);
-                            if (matches) {
-                                matches.forEach(m => bindVerifiedId(m, marker));
-                                totalDataPoints += matches.length;
-                            }
-                        }
-                    }
-                }
-
-                // Mark lines containing verified data with green shield
-                if (verifiedIds.size > 0) {
-                    const lines = responseContent.split('\n');
-                    const markedLines = lines.map(line => {
-                        const matchedMarkers = new Map<string, VerificationMarker>();
-                        for (const id of verifiedIds) {
-                            if (!line.includes(id)) continue;
-                            const markers = verificationById.get(id) || [];
-                            for (const m of markers) {
-                                matchedMarkers.set(`${m.toolName}::${m.signature}`, m);
-                            }
-                        }
-                        if (matchedMarkers.size > 0 && !line.includes('tc-verified-shield')) {
-                            const tooltip = buildVerificationTooltip(Array.from(matchedMarkers.values()));
-                            return `${line} <span class="tc-verified-shield" title="${escapeHtmlAttr(tooltip)}">✓</span>`;
-                        }
-                        return line;
-                    });
-                    responseContent = markedLines.join('\n');
-                }
-
-                // Strip any LLM-generated TrustChain shields from response to avoid duplication
-                responseContent = responseContent.replace(/^>?\s*[🛡🔐].*TrustChain.*(?:Ed25519|data point|Verified).*\n*/gm, '');
-                responseContent = normalizeTrustChainMarkup(responseContent, { tooltip: headerTooltip });
-                responseContent = responseContent.replace(/^\n+/, ''); // Remove leading empty lines
-
-                // Single consolidated TrustChain header
-                const fullSig = signedResults[0]?.signature || '';
-                const sigShort = shortSignature(fullSig);
-                responseContent = `> <span class="tc-verified-label" title="${escapeHtmlAttr(headerTooltip)}">TrustChain Verified</span> — ${totalDataPoints} data points · ${signedResults.length} tool calls · Ed25519: \`${sigShort}\`\n\n${responseContent}`;
-            }
+            // ── Post-process: TrustChain verification badges via shared utility ──
+            const { content: processedContent, signedResults, hasVerification } = postProcessAgentResponse(
+                result?.text || 'Агент обработал запрос.',
+                events as any[],
+                normalizeTrustChainMarkup,
+            );
+            let responseContent = processedContent;
 
             let finalResponseProof: { signature: string; sequence: number; key_id: string; response_hash: string; tool_signatures_hash: string } | null = null;
             try {
@@ -1298,7 +1177,15 @@ const PanelApp: React.FC = () => {
             };
             setMessages(prev => [...prev, assistantMsg]);
             setIsTyping(false);
-            chatHistoryService.addMessage({ role: 'assistant', content: assistantMsg.content, timestamp: assistantMsg.timestamp });
+            chatHistoryService.addMessage({
+                role: 'assistant',
+                content: assistantMsg.content,
+                timestamp: assistantMsg.timestamp,
+                executionSteps: assistantMsg.executionSteps,
+                signature: assistantMsg.signature,
+                verified: assistantMsg.verified,
+                artifactIds: assistantMsg.artifactIds,
+            });
 
             // Notify host of result
             try {

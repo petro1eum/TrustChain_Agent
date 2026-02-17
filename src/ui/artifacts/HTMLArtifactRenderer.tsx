@@ -9,6 +9,28 @@ interface HTMLArtifactRendererProps {
   artifact: ArtifactContent;
 }
 
+/**
+ * Injects highlight.js CDN + auto-highlight into artifact HTML.
+ * Ensures code blocks inside iframe render with syntax coloring.
+ */
+function injectHighlightJs(html: string): string {
+  const hljsSnippet = `
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/styles/atom-one-dark.min.css">
+<script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/highlight.min.js"><\/script>
+<script>hljs.highlightAll();<\/script>`;
+
+  // If <head> exists, inject before </head>
+  if (html.includes('</head>')) {
+    return html.replace('</head>', hljsSnippet + '\n</head>');
+  }
+  // If <body> exists, inject before </body>
+  if (html.includes('</body>')) {
+    return html.replace('</body>', hljsSnippet + '\n</body>');
+  }
+  // Fallback: append at the end
+  return html + hljsSnippet;
+}
+
 export const HTMLArtifactRenderer: React.FC<HTMLArtifactRendererProps> = ({ artifact }) => {
   const iframeRef = useRef<HTMLIFrameElement>(null);
   const [iframeHeight, setIframeHeight] = useState<number>(600);
@@ -16,7 +38,7 @@ export const HTMLArtifactRenderer: React.FC<HTMLArtifactRendererProps> = ({ arti
   useEffect(() => {
     if (iframeRef.current && artifact.content) {
       const iframe = iframeRef.current;
-      
+
       // Используем srcdoc для полной перезагрузки содержимого iframe
       // Это гарантирует, что все переменные будут очищены
       const handleLoad = () => {
@@ -28,7 +50,7 @@ export const HTMLArtifactRenderer: React.FC<HTMLArtifactRendererProps> = ({ arti
           try {
             const body = doc.body;
             const html = doc.documentElement;
-            
+
             if (body && html) {
               // Получаем максимальную высоту из body и html
               const height = Math.max(
@@ -38,7 +60,7 @@ export const HTMLArtifactRenderer: React.FC<HTMLArtifactRendererProps> = ({ arti
                 html.scrollHeight,
                 html.offsetHeight
               );
-              
+
               // Устанавливаем минимальную высоту 400px и добавляем небольшой отступ
               setIframeHeight(Math.max(400, height + 20));
             }
@@ -97,10 +119,10 @@ export const HTMLArtifactRenderer: React.FC<HTMLArtifactRendererProps> = ({ arti
           }
         };
       };
-      
+
       // Устанавливаем обработчик загрузки
       iframe.addEventListener('load', handleLoad);
-      
+
       return () => {
         iframe.removeEventListener('load', handleLoad);
       };
@@ -115,14 +137,14 @@ export const HTMLArtifactRenderer: React.FC<HTMLArtifactRendererProps> = ({ arti
       <iframe
         ref={iframeRef}
         className="w-full border-0"
-        style={{ 
-          minHeight: '400px', 
+        style={{
+          minHeight: '400px',
           height: `${iframeHeight}px`,
           display: 'block'
         }}
         title={artifact.filename}
         sandbox="allow-scripts allow-same-origin"
-        srcDoc={artifact.content}
+        srcDoc={injectHighlightJs(artifact.content)}
       />
     </div>
   );

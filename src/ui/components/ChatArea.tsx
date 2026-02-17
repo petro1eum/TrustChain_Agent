@@ -66,7 +66,7 @@ export const ChatArea: React.FC<ChatAreaProps> = ({
             </div>
         ) : (
             /* ── Message list ── */
-            <div className="flex-1 overflow-y-auto px-4 py-5 space-y-5 tc-scrollbar">
+            <div className="flex-1 overflow-y-auto overflow-x-hidden px-4 py-5 space-y-5 tc-scrollbar">
                 {messages.map((msg) => (
                     <MessageBubble
                         key={msg.id}

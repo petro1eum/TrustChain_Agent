@@ -17,6 +17,9 @@ import { ToolManager } from './ToolManager';
 import { MCPManager } from './MCPManager';
 import { SkillsManager } from './SkillsManager';
 import { chatHistoryService } from '../services/chatHistoryService';
+import { licensingService, type LicenseInfo } from '../services/licensingService';
+import { dockerAgentService, type AgentStreamEvent } from '../services/dockerAgentService';
+import { postProcessAgentResponse } from '../utils/trustchainPostProcess';
 
 // Hooks
 import { useChatState } from '../hooks/useChatState';
@@ -343,32 +346,32 @@ const DEMO_MESSAGES: Message[] = [
             },
             {
                 id: 'es2', type: 'tool', label: 'Scan Code',
-                toolName: 'git_diff', tier: 'oss', signed: true, latencyMs: 45,
+                toolName: 'tc_git_diff', tier: 'oss', signed: true, latencyMs: 45,
                 args: { commit: 'HEAD~1' }, result: '14 files changed',
                 signature: '3f8a1b2c',
             },
             {
                 id: 'es3', type: 'tool', label: 'Security Scan',
-                toolName: 'security_scan', tier: 'oss', signed: true, latencyMs: 230,
+                toolName: 'tc_security_scan', tier: 'oss', signed: true, latencyMs: 230,
                 args: { depth: 'full', modules: ['auth', 'api', 'core'] },
                 result: '1 warning: lodash CVE-2021-23337',
                 signature: 'c9d0e1f2',
             },
             {
                 id: 'es4', type: 'tool', label: 'Verify Chain',
-                toolName: 'verify_chain', tier: 'oss', signed: true, latencyMs: 12,
+                toolName: 'tc_verify_chain', tier: 'oss', signed: true, latencyMs: 12,
                 args: {}, result: 'Chain valid, 3 nodes',
                 signature: 'b5a6c7d8',
             },
             {
                 id: 'es5', type: 'tool', label: 'Build Execution Graph',
-                toolName: 'build_execution_graph', tier: 'pro', signed: true, latencyMs: 18,
+                toolName: 'tc_execution_graph', tier: 'pro', signed: true, latencyMs: 18,
                 args: { session: 'current' }, result: '3 nodes, 1 chain, 0 forks',
                 signature: 'h1i2j3k4',
             },
             {
                 id: 'es6', type: 'tool', label: 'Compliance Evaluate',
-                toolName: 'compliance_evaluate', tier: 'enterprise', signed: true, latencyMs: 85,
+                toolName: 'tc_compliance_report', tier: 'enterprise', signed: true, latencyMs: 85,
                 args: { framework: 'soc2', type: 'type_ii' },
                 result: 'SOC 2 score: 100% (8/8 controls)',
                 signature: 'e1f2a3b4',
@@ -396,7 +399,7 @@ const DEMO_MESSAGES: Message[] = [
         executionSteps: [
             {
                 id: 'es8', type: 'tool', label: 'Analytics Snapshot',
-                toolName: 'get_analytics_snapshot', tier: 'pro', signed: true, latencyMs: 3,
+                toolName: 'tc_analytics_snapshot', tier: 'pro', signed: true, latencyMs: 3,
                 args: {}, result: '47 ops, 100% verified',
                 signature: 'p1q2r3s4',
             },
@@ -525,8 +528,10 @@ const TrustChainAgentApp: React.FC = () => {
         dynamicArtifacts, setDynamicArtifacts,
         artifactMaximized, setArtifactMaximized,
         searchQuery, setSearchQuery,
+        sessions,
         messagesEndRef, inputRef,
-    } = useChatState(DEMO_MESSAGES);
+        loadSession, deleteSession: deleteSessionFn, downloadSession, startNewChat,
+    } = useChatState([]);
 
     // ── UI state ──
     const [sidebarOpen, setSidebarOpen] = useState(true);
@@ -539,6 +544,18 @@ const TrustChainAgentApp: React.FC = () => {
     const [apiKeyInput, setApiKeyInput] = useState(() => localStorage.getItem('tc_api_key') || '');
     const [modelInput, setModelInput] = useState(() => localStorage.getItem('tc_model') || 'google/gemini-2.5-flash');
     const toggleTheme = () => setTheme(t => t === 'dark' ? 'light' : 'dark');
+
+    // ── License state ──
+    const [licenseInfo, setLicenseInfo] = useState<LicenseInfo>(() => licensingService.getLicenseInfo());
+    const currentTier = licenseInfo.isValid ? licenseInfo.tier : 'community';
+
+    useEffect(() => {
+        return licensingService.onChange(setLicenseInfo);
+    }, []);
+
+    // ── Backend agent SSE stream state ──
+    const [backendStreamSteps, setBackendStreamSteps] = useState<any[]>([]);
+    const [isBackendStreaming, setIsBackendStreaming] = useState(false);
 
     // ── Real Agent ──
     const agent = useAgent();
@@ -766,6 +783,15 @@ const TrustChainAgentApp: React.FC = () => {
         setIsTyping(true);
         if (inputRef.current) inputRef.current.style.height = 'auto';
 
+        // Auto-assign conversation ID on first message in a new chat
+        if (!activeConversation) {
+            setActiveConversation(`chat_${Date.now()}`);
+        }
+
+        // ── License tier check ──
+        const freshLicense = licensingService.getLicenseInfo();
+        const effectiveTier = freshLicense.isValid ? freshLicense.tier : 'community';
+
         if (agent.isInitialized) {
             // ── Real agent execution ──
             // Start a session on first message (AI Studio pattern)
@@ -776,100 +802,186 @@ const TrustChainAgentApp: React.FC = () => {
             // Save user message to persistent history
             chatHistoryService.addMessage({ role: 'user', content: text, timestamp: new Date() });
 
-            // Pass actual conversation history (excluding temp messages)
-            const chatHistory = messages
-                .filter(m => (m.role as string) !== 'assistant_temp')
-                .map(m => ({ role: m.role, content: m.content }));
-            const result = await agent.sendMessage(text, undefined, chatHistory);
-            const events = result?.events || [];
-
-            // Extract artifacts created during execution
-            const { artifactIds: createdArtifactIds, newArtifacts } = extractArtifactsFromEvents(events);
-
-            // Register new dynamic artifacts
-            if (Object.keys(newArtifacts).length > 0) {
-                setDynamicArtifacts(prev => ({ ...prev, ...newArtifacts }));
-            }
-
-            let finalText = result?.text || 'Агент обработал запрос, но не вернул текстовый ответ.';
-            let finalSignature: string | undefined;
+            // ── Start backend agent run + SSE stream ──
+            setBackendStreamSteps([]);
+            setIsBackendStreaming(true);
             try {
-                const toolSigs = events
-                    .filter((ev: any) => ev.type === 'tool_result' && (ev as any).signature)
-                    .map((ev: any) => (ev as any).signature);
-                const proof = await trustchainService.signFinalResponse(finalText, toolSigs, { mode: 'standalone' });
-                finalSignature = proof.envelope.signature;
-                finalText += `\n\n> ✅ Final Response Signed · key: \`${proof.envelope.key_id}\` · seq: \`${proof.envelope.sequence}\``;
-            } catch {
-                // do not block response if signing failed
-            }
+                // Fire and forget — the agent runs server-side
+                dockerAgentService.runAgent({
+                    instruction: text,
+                    model: modelInput,
+                    max_iterations: effectiveTier === 'enterprise' ? 25 : effectiveTier === 'pro' ? 15 : 10,
+                }).catch(() => { /* backend may be unavailable */ });
 
-            const assistantMsg: Message = {
-                id: `m_${Date.now() + 1}`,
-                role: 'assistant',
-                content: finalText,
-                timestamp: new Date(),
-                signature: finalSignature,
-                verified: !!finalSignature,
-                ...(createdArtifactIds.length > 0 && { artifactIds: createdArtifactIds }),
-                executionSteps: events.map((ev, idx) => {
-                    if (ev.type === 'thinking') {
-                        return {
-                            id: ev.id,
-                            type: 'planning' as const,
-                            label: ev.title || 'Reasoning',
-                            detail: ev.content,
+                // Connect SSE stream for real-time reasoning visualization
+                const es = dockerAgentService.streamAgent((event: AgentStreamEvent) => {
+                    if (event.type === 'thinking') {
+                        setBackendStreamSteps(prev => [...prev, {
+                            id: `sse_${Date.now()}`,
+                            type: 'planning',
+                            label: event.message || `Iteration ${event.iteration}`,
+                            detail: event.message,
                             latencyMs: 0,
-                        };
-                    } else if (ev.type === 'tool_call') {
-                        return {
-                            id: ev.id,
-                            type: 'tool' as const,
-                            label: ev.name,
-                            toolName: ev.name,
-                            args: ev.arguments,
-                            detail: `Executing ${ev.name}`,
+                        }]);
+                    } else if (event.type === 'tool_call') {
+                        setBackendStreamSteps(prev => [...prev, {
+                            id: `sse_tc_${Date.now()}`,
+                            type: 'tool',
+                            label: event.tool || 'tool',
+                            toolName: event.tool,
+                            args: event.args,
+                            detail: `Executing ${event.tool}`,
                             latencyMs: 0,
                             signed: false,
-                        };
-                    } else {
-                        // tool_result
-                        return {
-                            id: ev.id,
-                            type: 'tool' as const,
-                            label: `Result`,
-                            detail: typeof ev.result === 'string' ? ev.result?.substring(0, 150) : JSON.stringify(ev.result)?.substring(0, 150),
+                        }]);
+                    } else if (event.type === 'tool_result') {
+                        setBackendStreamSteps(prev => [...prev, {
+                            id: `sse_tr_${Date.now()}`,
+                            type: 'tool',
+                            label: `${event.tool} result`,
+                            toolName: event.tool,
+                            result: event.result,
+                            detail: event.result?.substring(0, 150),
                             latencyMs: 0,
-                            signed: !!(ev as any).signature,
-                            signature: (ev as any).signature,
-                        };
+                            signed: !!event.signature,
+                            signature: event.signature,
+                        }]);
+                    } else if (event.type === 'complete' || event.type === 'error') {
+                        setIsBackendStreaming(false);
+                        es?.close();
                     }
-                }),
-            };
-            setMessages(prev => [...prev, assistantMsg]);
-            setIsTyping(false);
+                });
+            } catch {
+                setIsBackendStreaming(false);
+            }
 
-            // Save assistant response to persistent history
-            chatHistoryService.addMessage({ role: 'assistant', content: assistantMsg.content, timestamp: assistantMsg.timestamp });
+            try {
+                // Pass actual conversation history (excluding temp messages)
+                const chatHistory = messages
+                    .filter(m => (m.role as string) !== 'assistant_temp')
+                    .map(m => ({ role: m.role, content: m.content }));
+                const result = await agent.sendMessage(text, undefined, chatHistory);
+                const events = result?.events || [];
 
-            // Auto-open the first created artifact in the right panel
-            if (createdArtifactIds.length > 0) {
-                setActiveArtifactId(createdArtifactIds[0]);
+                // Extract artifacts created during execution
+                const { artifactIds: createdArtifactIds, newArtifacts } = extractArtifactsFromEvents(events);
+
+                // Register new dynamic artifacts
+                if (Object.keys(newArtifacts).length > 0) {
+                    setDynamicArtifacts(prev => ({ ...prev, ...newArtifacts }));
+                }
+
+                // ── Post-process: TrustChain verification badges via shared utility ──
+                const { content: processedContent, signedResults, hasVerification } = postProcessAgentResponse(
+                    result?.text || 'Агент обработал запрос, но не вернул текстовый ответ.',
+                    events as any[],
+                );
+                let finalText = processedContent;
+                let finalSignature: string | undefined;
+                try {
+                    const toolSigs = signedResults.map(sr => sr.signature);
+                    const proof = await trustchainService.signFinalResponse(finalText, toolSigs, { mode: 'standalone' });
+                    finalSignature = proof.envelope.signature;
+                    finalText += `\n\n> ✅ Final Response Signed · key: \`${proof.envelope.key_id}\` · seq: \`${proof.envelope.sequence}\``;
+                } catch {
+                    // do not block response if signing failed
+                }
+
+                // Append license tier info
+                if (effectiveTier !== 'community') {
+                    finalText += `\n\n> 🔑 License: **${effectiveTier.toUpperCase()}** · ${freshLicense.orgName || 'Active'} · ${freshLicense.daysRemaining}d remaining`;
+                }
+
+                const assistantMsg: Message = {
+                    id: `m_${Date.now() + 1}`,
+                    role: 'assistant',
+                    content: finalText,
+                    timestamp: new Date(),
+                    signature: finalSignature,
+                    verified: !!finalSignature,
+                    ...(createdArtifactIds.length > 0 && { artifactIds: createdArtifactIds }),
+                    executionSteps: events.map((ev, idx) => {
+                        if (ev.type === 'thinking') {
+                            return {
+                                id: ev.id,
+                                type: 'planning' as const,
+                                label: ev.title || 'Reasoning',
+                                detail: ev.content,
+                                latencyMs: 0,
+                            };
+                        } else if (ev.type === 'tool_call') {
+                            return {
+                                id: ev.id,
+                                type: 'tool' as const,
+                                label: ev.name,
+                                toolName: ev.name,
+                                args: ev.arguments,
+                                detail: `Executing ${ev.name}`,
+                                latencyMs: 0,
+                                signed: false,
+                            };
+                        } else {
+                            // tool_result
+                            return {
+                                id: ev.id,
+                                type: 'tool' as const,
+                                label: `Result`,
+                                detail: typeof ev.result === 'string' ? ev.result?.substring(0, 150) : JSON.stringify(ev.result)?.substring(0, 150),
+                                latencyMs: 0,
+                                signed: !!(ev as any).signature,
+                                signature: (ev as any).signature,
+                            };
+                        }
+                    }),
+                };
+                setMessages(prev => [...prev, assistantMsg]);
+                setIsTyping(false);
+                setIsBackendStreaming(false);
+
+                // Save assistant response to persistent history
+                chatHistoryService.addMessage({
+                    role: 'assistant',
+                    content: assistantMsg.content,
+                    timestamp: assistantMsg.timestamp,
+                    executionSteps: assistantMsg.executionSteps,
+                    signature: assistantMsg.signature,
+                    verified: assistantMsg.verified,
+                    artifactIds: assistantMsg.artifactIds,
+                });
+
+                // Auto-open the first created artifact in the right panel
+                if (createdArtifactIds.length > 0) {
+                    setActiveArtifactId(createdArtifactIds[0]);
+                }
+            } catch (agentError: any) {
+                // ── Show error to user instead of silent failure ──
+                const errMsg = agentError?.message || String(agentError);
+                console.error('[TrustChain] Agent execution error:', agentError);
+                const errorResponse: Message = {
+                    id: `m_err_${Date.now()}`,
+                    role: 'assistant',
+                    content: `⚠️ **Agent Error**\n\n${errMsg}\n\n> Check Settings → API Key and Model configuration. Make sure the backend is running.`,
+                    timestamp: new Date(),
+                };
+                setMessages(prev => [...prev, errorResponse]);
+                setIsTyping(false);
+                setIsBackendStreaming(false);
             }
         } else {
             // ── Fallback: no agent configured ──
             setTimeout(() => {
+                const tierLabel = effectiveTier !== 'community' ? ` (License: ${effectiveTier.toUpperCase()})` : '';
                 const assistantMsg: Message = {
                     id: `m_${Date.now() + 1}`,
                     role: 'assistant',
-                    content: `**Agent not connected.** Open Settings (gear icon) and enter your OpenAI/OpenRouter API key to enable real agent execution.\n\nOnce configured, I can execute ${agent.tools.length || '50+'} tools including code analysis, web search, file operations, and more.`,
+                    content: `**Agent not connected.** Open Settings (gear icon) and enter your OpenAI/OpenRouter API key to enable real agent execution.${tierLabel}\n\nOnce configured, I can execute ${agent.tools.length || '50+'} tools including code analysis, web search, file operations, and more.`,
                     timestamp: new Date(),
                 };
                 setMessages(prev => [...prev, assistantMsg]);
                 setIsTyping(false);
             }, 500);
         }
-    }, [inputValue, agent]);
+    }, [inputValue, agent, modelInput]);
 
     const handleKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
         if (e.key === 'Enter' && !e.shiftKey) {
@@ -878,36 +990,59 @@ const TrustChainAgentApp: React.FC = () => {
         }
     };
 
-    const isNewChat = !activeConversation || messages.length === 0;
+    const isNewChat = messages.length === 0;
 
     return (
         <div data-theme={theme} className="h-screen w-screen flex tc-app overflow-hidden">
 
             {/* ═══ SIDEBAR ═══ */}
-            {sidebarOpen && !isEmbedded && (
-                <ChatSidebar
-                    activeConversation={activeConversation}
-                    setActiveConversation={setActiveConversation}
-                    messages={messages}
-                    setMessages={setMessages}
-                    activeSection={activeSection}
-                    setActiveSection={setActiveSection}
-                    searchQuery={searchQuery}
-                    setSearchQuery={setSearchQuery}
-                    activeArtifactId={activeArtifactId}
-                    setActiveArtifactId={setActiveArtifactId}
-                    setSidebarOpen={setSidebarOpen}
-                    setShowSettings={setShowSettings}
-                    setSettingsTab={setSettingsTab}
-                    setInitialToolId={setInitialToolId}
-                    agent={agent}
-                    toolsByCategory={toolsByCategory}
-                    demoMessages={DEMO_MESSAGES}
-                />
+            {!isEmbedded && (
+                sidebarOpen ? (
+                    <ChatSidebar
+                        activeConversation={activeConversation}
+                        setActiveConversation={setActiveConversation}
+                        messages={messages}
+                        setMessages={setMessages}
+                        activeSection={activeSection}
+                        setActiveSection={setActiveSection}
+                        searchQuery={searchQuery}
+                        setSearchQuery={setSearchQuery}
+                        activeArtifactId={activeArtifactId}
+                        setActiveArtifactId={setActiveArtifactId}
+                        setSidebarOpen={setSidebarOpen}
+                        setShowSettings={setShowSettings}
+                        setSettingsTab={setSettingsTab}
+                        setInitialToolId={setInitialToolId}
+                        agent={agent}
+                        toolsByCategory={toolsByCategory}
+                        demoMessages={DEMO_MESSAGES}
+                        sessions={sessions}
+                        onLoadSession={loadSession}
+                        onDeleteSession={deleteSessionFn}
+                        onDownloadSession={downloadSession}
+                        onNewChat={startNewChat}
+                    />
+                ) : (
+                    /* ── Collapsed sidebar strip ── */
+                    <div
+                        className="shrink-0 w-[36px] border-r tc-sidebar flex flex-col items-center cursor-pointer hover:bg-white/5 transition-colors"
+                        onClick={() => setSidebarOpen(true)}
+                        title="Expand sidebar"
+                    >
+                        <div className="mt-4 mb-2">
+                            <div className="w-7 h-7 tc-logo rounded-lg flex items-center justify-center shadow-md">
+                                <Shield size={14} className="text-white" />
+                            </div>
+                        </div>
+                        <div className="flex-1 flex items-center">
+                            <ChevronRight size={14} className="tc-text-muted" />
+                        </div>
+                    </div>
+                )
             )}
 
             {/* ═══ CHAT (center) ═══ */}
-            <div className={`flex-1 flex flex-col min-w-0 ${activeArtifact && !artifactMaximized ? '' : ''}`}>
+            <div className={`flex-1 flex flex-col min-w-0 w-0 overflow-hidden ${activeArtifact && !artifactMaximized ? '' : ''}`}>
                 {!isEmbedded && <ChatHeader
                     sidebarOpen={sidebarOpen}
                     setSidebarOpen={setSidebarOpen}
@@ -919,9 +1054,9 @@ const TrustChainAgentApp: React.FC = () => {
                 />}
 
                 {/* Content area — split when artifact is open */}
-                <div className="flex-1 flex min-h-0">
+                <div className="flex-1 flex min-h-0 min-w-0 overflow-hidden">
                     {/* Chat column — messages + input stacked vertically */}
-                    <div className={`flex flex-col ${activeArtifact && !artifactMaximized ? 'w-[45%] min-w-[360px]' : 'flex-1'}
+                    <div className={`flex flex-col min-w-0 overflow-hidden ${activeArtifact && !artifactMaximized ? 'w-[45%] min-w-[360px]' : 'flex-1'}
                         ${artifactMaximized ? 'hidden' : ''}`}>
                         <ChatArea
                             messages={messages}

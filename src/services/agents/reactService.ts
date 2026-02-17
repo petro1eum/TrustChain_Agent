@@ -179,6 +179,19 @@ export class ReActService {
         break;
       }
 
+      // Guard: skip 'calculate' steps if compute tools already ran — prevents duplicate computation
+      // But allow 'create' steps to re-trigger for artifact refinement
+      const computeToolsList = ['bash_tool', 'execute_code', 'execute_bash'];
+      const computeAlreadyDone = executedTools.some(t => computeToolsList.includes(t));
+      if (computeAlreadyDone) {
+        completion.missingSteps = completion.missingSteps.filter(
+          step => step.action !== 'calculate'
+        );
+        if (completion.missingSteps.length === 0) {
+          completion.isComplete = true;
+        }
+      }
+
       if (completion.isComplete) {
         progressCallback?.({
           type: 'reasoning_step',

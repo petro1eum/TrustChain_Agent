@@ -5,6 +5,7 @@ import {
 } from 'lucide-react';
 import type { ThemeMode } from './types';
 import { DEMO_CONVERSATIONS } from './constants';
+import { chatHistoryService } from '../../services/chatHistoryService';
 
 interface ChatHeaderProps {
     sidebarOpen: boolean;
@@ -16,6 +17,17 @@ interface ChatHeaderProps {
     setShowSettings: (show: boolean) => void;
 }
 
+function getConversationTitle(id: string | null): string {
+    if (!id) return 'New Chat';
+    // Check demo conversations first
+    const demo = DEMO_CONVERSATIONS.find(c => c.id === id);
+    if (demo) return demo.title;
+    // Check real sessions
+    const session = chatHistoryService.getAllSessions().find(s => s.sessionId === id);
+    if (session?.title) return session.title;
+    return 'New Chat';
+}
+
 export const ChatHeader: React.FC<ChatHeaderProps> = ({
     sidebarOpen, setSidebarOpen,
     activeConversation,
@@ -23,21 +35,11 @@ export const ChatHeader: React.FC<ChatHeaderProps> = ({
     agent, setShowSettings,
 }) => (
     <header className="h-12 shrink-0 border-b tc-border flex items-center px-4 gap-3">
-        {!sidebarOpen && (
-            <button onClick={() => setSidebarOpen(true)}
-                className="tc-text-muted hover:tc-text p-1.5 rounded-lg tc-btn-hover transition-colors">
-                <PanelLeft size={16} />
-            </button>
-        )}
         <div className="flex-1 flex items-center gap-2">
-            {activeConversation && (
-                <>
-                    <Hash size={14} className="tc-text-muted" />
-                    <span className="text-sm tc-text font-medium">
-                        {DEMO_CONVERSATIONS.find(c => c.id === activeConversation)?.title || 'New Chat'}
-                    </span>
-                </>
-            )}
+            <Hash size={14} className="tc-text-muted" />
+            <span className="text-sm tc-text font-medium">
+                {getConversationTitle(activeConversation)}
+            </span>
         </div>
         <div className="flex items-center gap-2">
             {/* Theme toggle */}

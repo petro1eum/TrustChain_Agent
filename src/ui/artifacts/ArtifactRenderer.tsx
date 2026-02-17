@@ -14,6 +14,7 @@ import { ExcelArtifactRenderer } from './ExcelArtifactRenderer';
 import { PDFArtifactRenderer } from './PDFArtifactRenderer';
 import { WordArtifactRenderer } from './WordArtifactRenderer';
 import { ImageArtifactRenderer } from './ImageArtifactRenderer';
+import { PythonArtifactRenderer } from './PythonArtifactRenderer';
 
 interface ArtifactRendererProps {
   artifact: ArtifactContent;
@@ -23,35 +24,43 @@ export const ArtifactRenderer: React.FC<ArtifactRendererProps> = ({ artifact }) 
   switch (artifact.type) {
     case 'markdown':
       return <MarkdownArtifactRenderer artifact={artifact} />;
-    
+
     case 'html':
       return <HTMLArtifactRenderer artifact={artifact} />;
-    
+
     case 'react':
       return <ReactArtifactRenderer artifact={artifact} />;
-    
+
     case 'svg':
       return <SVGArtifactRenderer artifact={artifact} />;
-    
-    case 'code':
+
+    case 'code': {
+      // Route Python code to the executable Python terminal
+      const isPython = artifact.language === 'python'
+        || artifact.filename?.endsWith('.py')
+        || /^(import |from |def |class |print\()/m.test(artifact.content);
+      if (isPython) {
+        return <PythonArtifactRenderer artifact={artifact} />;
+      }
       return <CodeArtifactRenderer artifact={artifact} />;
-    
+    }
+
     case 'excel':
       return <ExcelArtifactRenderer artifact={artifact} />;
-    
+
     case 'pdf':
       return <PDFArtifactRenderer artifact={artifact} />;
-    
+
     case 'word':
       return <WordArtifactRenderer artifact={artifact} />;
-    
+
     case 'image':
       return <ImageArtifactRenderer artifact={artifact} />;
-    
+
     case 'mermaid':
       // Mermaid требует специальной библиотеки, пока показываем как код
       return <CodeArtifactRenderer artifact={artifact} />;
-    
+
     case 'text':
     default:
       return (
