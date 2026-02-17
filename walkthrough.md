@@ -31,11 +31,11 @@
 | 23 | **Voice input** (Mic button) | Web Speech API in [InputPanel.tsx](file:///Users/edcher/Documents/GitHub/TrustChain_Agent/src/ui/components/InputPanel.tsx) |
 | 24 | **File attachment** (📎 + clipboard paste) | Paperclip button, multi-format accept list |
 
-### ❌ Remaining Gaps
+### ✅ All Gaps Closed
 
-| # | Feature | Impact |
-|---|---------|--------|
-| 1 | **Auto-invoke tc_* tools** for audit prompts | System prompt tuning needed |
+| # | Feature | Solution |
+|---|---------|----------|
+| 1 | **Auto-invoke tc_* tools** for audit prompts | ✅ 6 native `BaseTool` subclasses in `trustchain_tools.py` — LLM auto-selects via `openai_schema` docstrings |
 
 ---
 

@@ -11,6 +11,16 @@ from backend.tools.built_in.persistent_shell import PersistentShellTool
 from backend.tools.built_in.present_files import PresentFiles
 from backend.tools.built_in.load_file import LoadFileAttachment
 
+# TrustChain built-in tools (LLM auto-invokes via openai_schema)
+from backend.tools.built_in.trustchain_tools import (
+    TrustChainVerify,
+    TrustChainAuditReport,
+    TrustChainComplianceCheck,
+    TrustChainChainStatus,
+    TrustChainExecutionGraph,
+    TrustChainAnalyticsSnapshot,
+)
+
 
 class ToolRegistry:
     """
@@ -25,7 +35,18 @@ class ToolRegistry:
 
     def _register_builtins(self):
         """Register all built-in tools."""
-        for tool_cls in [PersistentShellTool, PresentFiles, LoadFileAttachment]:
+        for tool_cls in [
+            PersistentShellTool,
+            PresentFiles,
+            LoadFileAttachment,
+            # TrustChain audit & compliance tools
+            TrustChainVerify,
+            TrustChainAuditReport,
+            TrustChainComplianceCheck,
+            TrustChainChainStatus,
+            TrustChainExecutionGraph,
+            TrustChainAnalyticsSnapshot,
+        ]:
             self.register(tool_cls)
 
     def register(self, tool_cls: type[BaseTool]) -> None:
