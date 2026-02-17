@@ -1,34 +1,81 @@
-# TrustChain Agent — Demo Parity Report
+# TrustChain Agent — Audit Walkthrough
 
-**Date:** 2026-02-17  
-**Status:** All core UI elements match demo. Two features identified for porting from kb-catalog.
+## Part 1: Demo UI vs Real Agent Gap Analysis
+
+### ✅ Fully Implemented
+
+| # | Feature | Location |
+|---|---------|----------|
+| 1 | 15 TrustChain tools (OSS, PRO, Enterprise) | [trustchainTools.ts](file:///Users/edcher/Documents/GitHub/TrustChain_Agent/src/tools/trustchainTools.ts) |
+| 2 | Backend endpoints for all tools | [trustchain_api.py](file:///Users/edcher/Documents/GitHub/TrustChain_Agent/backend/routers/trustchain_api.py), [trustchain_pro_api.py](file:///Users/edcher/Documents/GitHub/TrustChain_Agent/backend/routers/trustchain_pro_api.py) |
+| 3 | Frontend tool routing | [trustchainToolExecution.ts](file:///Users/edcher/Documents/GitHub/TrustChain_Agent/src/services/agents/trustchainToolExecution.ts) |
+| 4 | Execution timeline (ThinkingContainer, StepRow) | `src/ui/components/` |
+| 5 | Tool detail chips (ToolCallChip) | `src/ui/components/` |
+| 6 | Artifact cards (ArtifactCard) | `src/ui/components/` |
+| 7 | Live streaming accordion | `src/ui/components/LiveThinkingAccordion` |
+| 8 | MessageEvent → executionSteps conversion | [TrustChainAgentApp.tsx:903](file:///Users/edcher/Documents/GitHub/TrustChain_Agent/src/ui/TrustChainAgentApp.tsx#L903) |
+| 9 | Chat session persistence w/ execution steps | `useChatState`, `chatHistoryService` |
+| 10 | Settings modal | Implemented |
+| 11 | Sidebar with chat history (collapsible) | Implemented |
+| 12 | Real Ed25519 signing | [trustchainService.ts](file:///Users/edcher/Documents/GitHub/TrustChain_Agent/src/services/trustchainService.ts) (browser) + backend |
+| 13 | Chain-of-trust visualization | Shield badge in header |
+| 14 | Signature verification | `trustchainService.verify()` |
+| 15 | Final response signing (signFinalResponse) | [TrustChainAgentApp.tsx:883](file:///Users/edcher/Documents/GitHub/TrustChain_Agent/src/ui/TrustChainAgentApp.tsx#L883) |
+| 16 | **Tier badges** (OSS/PRO/ENT) on steps | `TierBadge` in `ThinkingContainer` |
+| 17 | **Merged steps** (tool_call + tool_result) | Unified `StepRow` in `ThinkingContainer` |
+| 18 | **Real latency** per step | `step.latencyMs` tracked from tool execution |
+| 19 | **Artifacts Generated** summary step | `step.type === 'artifacts'` in `ThinkingContainer` |
+| 20 | **Bottom status bar** ("Chain Verified: N ops") | [ChainStatusBar.tsx](file:///Users/edcher/Documents/GitHub/TrustChain_Agent/src/ui/components/ChainStatusBar.tsx) |
+| 21 | **Download trace JSON** | `downloadTrace()` button in `ThinkingContainer` header |
+| 22 | **Nonce replay protection** | `enable_nonce=True` in both TrustChainConfig |
+| 23 | **Voice input** (Mic button) | Web Speech API in [InputPanel.tsx](file:///Users/edcher/Documents/GitHub/TrustChain_Agent/src/ui/components/InputPanel.tsx) |
+| 24 | **File attachment** (📎 + clipboard paste) | Paperclip button, multi-format accept list |
+
+### ❌ Remaining Gaps
+
+| # | Feature | Impact |
+|---|---------|--------|
+| 1 | **Auto-invoke tc_* tools** for audit prompts | System prompt tuning needed |
 
 ---
 
-## Demo vs Code — Element-by-Element Audit
+## Part 2: Library Integration Audit
 
-| # | Demo Element | Component | Status |
-|:-:|---|---|:---:|
-| 1 | **Agent Execution** header block (`7 steps · 43ms · 5/5 signed`) | [ThinkingContainer.tsx](file:///Users/edcher/Documents/GitHub/TrustChain_Agent/src/ui/components/ThinkingContainer.tsx#L113-L116) | ✅ |
-| 2 | **Planning** step (⭐ icon + plan detail) | [StepRow](file:///Users/edcher/Documents/GitHub/TrustChain_Agent/src/ui/components/ThinkingContainer.tsx#L154-L175) `type='planning'` | ✅ |
-| 3 | **Tier badges** (OSS / PRO / ENT) per step | [TierBadge](file:///Users/edcher/Documents/GitHub/TrustChain_Agent/src/ui/components/constants.tsx) + `step.tier` | ✅ |
-| 4 | **Latency** per step (46ms, 230ms...) | `step.latencyMs` on L218 | ✅ |
-| 5 | **CheckCircle** ✓ for signed steps | `step.signed && <CheckCircle>` on L219 | ✅ |
-| 6 | **Expandable** Args / Result / Sig on click | [StepRow](file:///Users/edcher/Documents/GitHub/TrustChain_Agent/src/ui/components/ThinkingContainer.tsx#L222-L241) | ✅ |
-| 7 | **Artifacts Generated** summary step (step 7) | `step.type === 'artifacts'` on L177-L206 | ✅ |
-| 8 | **Artifact cards** below message (icon, title, type, sig hash) | [ArtifactCard.tsx](file:///Users/edcher/Documents/GitHub/TrustChain_Agent/src/ui/components/ArtifactCard.tsx) | ✅ |
-| 9 | **PRO badge** on Execution Graph artifact | `artifact.tier && <TierBadge>` on L39 | ✅ |
-| 10 | **Signature badge** (`✅ a7f3b2c8e91d… Verified`) | [SignatureBadge](file:///Users/edcher/Documents/GitHub/TrustChain_Agent/src/ui/components/MessageBubble.tsx#L116-L124) | ✅ |
-| 11 | **Timestamp** (`07:35 AM`) | `message.timestamp.toLocaleTimeString()` on L103 | ✅ |
-| 12 | **Chain Verified** green bar at bottom | [ChainStatusBar.tsx](file:///Users/edcher/Documents/GitHub/TrustChain_Agent/src/ui/components/ChainStatusBar.tsx) | ✅ |
-| 13 | **JSON trace download** (↓ button) | `downloadTrace()` on L12-L65 | ✅ |
+### Architecture: Two Parallel Execution Paths
 
-> [!NOTE]
-> All **13 core UI elements** from the demo screenshot are implemented and functional.
+```mermaid
+flowchart TD
+    subgraph Frontend["Frontend (Browser)"]
+        UI[TrustChainAgentApp]
+        UA[useAgent Hook]
+        SA[SmartAIAgent]
+        TS[trustchainService]
+    end
 
----
+    subgraph Backend["Backend (FastAPI)"]
+        AR[agent_runtime.py]
+        TA[trustchain_api.py]
+        TPA[trustchain_pro_api.py]
+    end
 
-## Integration Matrix
+    subgraph Libraries["Python Libraries"]
+        TC["trust_chain OSS\nTrustChain, SignedResponse\nEd25519 signing"]
+        TCP["trust_chain_pro\nAnalytics, Graph, Compliance\nPolicyEngine, TSA, KMS"]
+    end
+
+    UI --> UA --> SA -->|OpenRouter API| LLM[LLM Cloud]
+    SA -->|tool execution| Tools[In-Browser Tools]
+    UI -->|fire-and-forget| AR
+    AR -->|_tc_sign| TA
+    TA --> TC
+    AR --> TCP
+    TPA --> TCP
+    TPA --> TA
+    UI -->|tc_* tool calls| TPA
+    TS -->|frontend signing| FrontSign[JS-based signing]
+```
+
+### Integration Matrix
 
 | Module | agent_runtime.py | REST API | Frontend SmartAIAgent |
 |--------|:---:|:---:|:---:|
@@ -44,60 +91,49 @@
 | **`ChainExplorer`** | ❌ | ❌ | ❌ |
 | `SeatManager` | — | ✅ `/license` | ❌ |
 
----
+### Key Finding
 
-## Gaps — Features from kb-catalog Not Yet in TrustChain Agent
-
-### Gap 1: Voice Input (🎙️ Mic Button) — ✅ PORTED
-
-**Source:** [kb-catalog InputPanel.tsx](file:///Users/edcher/Documents/GitHub/kb-catalog/admin_app_backend/ai_studio/app/src/components/agents/components/InputPanel.tsx)  
-**Target:** [InputPanel.tsx](file:///Users/edcher/Documents/GitHub/TrustChain_Agent/src/ui/components/InputPanel.tsx)
-
-- Web Speech API (`SpeechRecognition` / `webkitSpeechRecognition`)
-- Continuous mode, `ru-RU` locale, interim results
-- Mic toggle button with red pulse animation when active
-- Placeholder changes to `🎙 Listening…` when recording
-- Interim text displayed above input as `🎙 {text}`
-- Auto-restart on `onend`, graceful degradation
-
-### Gap 2: File Attachment (📎) — Already Existed
-
-File attachment was already implemented in TrustChain Agent's `InputPanel.tsx`:
-- Paperclip button → hidden `<input type="file">`
-- Paste-from-clipboard for images
-- Attachment previews with size and remove button
-- **Updated:** expanded `accept` to match kb-catalog: `.doc`, `.docx`, `.xls`, `.xlsx`, `.ppt`, `.pptx`
+> Both libraries are **genuinely integrated** in the backend. Every tool call through `agent_runtime.py` is cryptographically signed with real Ed25519 via `trust_chain`, and analytics/graph/compliance from `trust_chain_pro` are active. The gap is that `SmartAIAgent` (the primary user-facing path) doesn't route through this backend signing pipeline — it uses its own JS-based Ed25519 keypair.
 
 ---
 
-## Integration Changes — Summary of Recent Session
+## Part 3: Demo Parity Report (2026-02-17)
+
+### Demo vs Code — Element-by-Element Audit
+
+| # | Demo Element | Component | Status |
+|:-:|---|---|:---:|
+| 1 | **Agent Execution** header (`7 steps · 43ms · 5/5 signed`) | [ThinkingContainer.tsx](file:///Users/edcher/Documents/GitHub/TrustChain_Agent/src/ui/components/ThinkingContainer.tsx#L113-L116) | ✅ |
+| 2 | **Planning** step (⭐ icon + plan detail) | [StepRow](file:///Users/edcher/Documents/GitHub/TrustChain_Agent/src/ui/components/ThinkingContainer.tsx#L154-L175) `type='planning'` | ✅ |
+| 3 | **Tier badges** (OSS / PRO / ENT) per step | `TierBadge` + `step.tier` | ✅ |
+| 4 | **Latency** per step (46ms, 230ms...) | `step.latencyMs` | ✅ |
+| 5 | **CheckCircle** ✓ for signed steps | `step.signed && <CheckCircle>` | ✅ |
+| 6 | **Expandable** Args / Result / Sig on click | StepRow L222-241 | ✅ |
+| 7 | **Artifacts Generated** summary step (step 7) | `step.type === 'artifacts'` | ✅ |
+| 8 | **Artifact cards** (icon, title, type, sig hash) | [ArtifactCard.tsx](file:///Users/edcher/Documents/GitHub/TrustChain_Agent/src/ui/components/ArtifactCard.tsx) | ✅ |
+| 9 | **PRO badge** on Execution Graph artifact | `artifact.tier && <TierBadge>` | ✅ |
+| 10 | **Signature badge** (`✅ a7f3b2c… Verified`) | [SignatureBadge](file:///Users/edcher/Documents/GitHub/TrustChain_Agent/src/ui/components/MessageBubble.tsx#L116-L124) | ✅ |
+| 11 | **Timestamp** (`07:35 AM`) | `message.timestamp.toLocaleTimeString()` | ✅ |
+| 12 | **Chain Verified** green bar at bottom | [ChainStatusBar.tsx](file:///Users/edcher/Documents/GitHub/TrustChain_Agent/src/ui/components/ChainStatusBar.tsx) | ✅ |
+| 13 | **JSON trace download** (↓ button) | `downloadTrace()` | ✅ |
+
+### kb-catalog Features Ported
+
+| Feature | Status | Details |
+|---|:---:|---|
+| 🎙️ **Voice Input** (Mic button) | ✅ Ported | Web Speech API, continuous, ru-RU, interim text, auto-restart |
+| 📎 **File Attachment** | Already existed | Expanded `accept` to add `.doc/.docx/.xls/.xlsx/.ppt/.pptx` |
+
+### Session Changes (2026-02-17)
 
 | File | Changes |
 |---|---|
-| [trustchain_api.py](file:///Users/edcher/Documents/GitHub/TrustChain_Agent/backend/routers/trustchain_api.py) | `enable_nonce=True`, `nonce_backend="memory"`, `nonce_ttl=86400` in both TrustChainConfig instances |
-| [trustchain_pro_api.py](file:///Users/edcher/Documents/GitHub/TrustChain_Agent/backend/routers/trustchain_pro_api.py) | `POST /analytics/record` + `POST /graph/add-node` endpoints |
-| [agent_runtime.py](file:///Users/edcher/Documents/GitHub/TrustChain_Agent/backend/tools/agent_runtime.py) | PolicyEngine pre-flight, ChainExplorer auto-export, StreamingReasoningChain signing |
-| [backendSigningService.ts](file:///Users/edcher/Documents/GitHub/TrustChain_Agent/src/services/backendSigningService.ts) | `recordAnalyticsViaBackend()`, `recordGraphNodeViaBackend()`, `signReasoningViaBackend()` |
-| [toolExecutionService.ts](file:///Users/edcher/Documents/GitHub/TrustChain_Agent/src/services/agents/toolExecutionService.ts) | Fire-and-forget calls to analytics + graph after each tool |
-| [useAgent.ts](file:///Users/edcher/Documents/GitHub/TrustChain_Agent/src/hooks/useAgent.ts) | Batch reasoning signing at agent completion |
-| [TrustChainAgentApp.tsx](file:///Users/edcher/Documents/GitHub/TrustChain_Agent/src/ui/TrustChainAgentApp.tsx) | Tier badges, merged steps, real latency, artifacts summary step |
-| [ChainStatusBar.tsx](file:///Users/edcher/Documents/GitHub/TrustChain_Agent/src/ui/components/ChainStatusBar.tsx) | **New** — bottom status bar with chain health |
-| [toolProvisioning.test.ts](file:///Users/edcher/Documents/GitHub/TrustChain_Agent/src/tools/toolProvisioning.test.ts) | Fixed regex to match actual `create_artifact` description word order |
-| [INTEGRATION_STANDARD.md](file:///Users/edcher/Documents/GitHub/TrustChain_Agent/INTEGRATION_STANDARD.md) | Bumped to v3.1 — added nonce field, fixed Universal Tools table |
+| [INTEGRATION_STANDARD.md](file:///Users/edcher/Documents/GitHub/TrustChain_Agent/INTEGRATION_STANDARD.md) | Bumped v3.0 → v3.1, added nonce field, fixed Universal Tools table |
+| [InputPanel.tsx](file:///Users/edcher/Documents/GitHub/TrustChain_Agent/src/ui/components/InputPanel.tsx) | Added voice input (Mic/Web Speech API), expanded file accept list |
 
----
-
-## Test Results
+### Test Results
 
 ```
-Test Files  3 passed (3)
-     Tests  93 passed (93)
-     tsc    0 errors
+tsc:    0 errors
+vitest: 93/93 passed
 ```
-
----
-
-## Next Steps
-
-1. **Port Voice Input** from kb-catalog → TrustChain Agent input bar
-2. **Port File Attachment** from kb-catalog → TrustChain Agent input bar (with Docker container upload path)
