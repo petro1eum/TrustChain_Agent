@@ -77,23 +77,23 @@ flowchart TD
 
 ### Integration Matrix
 
-| Module | agent_runtime.py | REST API | Frontend SmartAIAgent |
+| Module | agent_runtime.py | REST API | Frontend |
 |--------|:---:|:---:|:---:|
-| `TrustChain.sign()` / `.verify()` | ✅ L359 | ✅ `/chain/record` | ❌ (JS Ed25519 only) |
-| `TrustChainAnalytics` | ✅ L370 | ✅ `/analytics` | ❌ |
-| `ExecutionGraph` | ✅ L379 | ✅ `/graph` | ❌ |
-| `ComplianceReport` | ✅ L412 | ✅ `/compliance/{fw}` | ❌ |
-| `PolicyEngine` | — | ✅ `/policy/*` | ❌ |
+| `TrustChain.sign()` / `.verify()` | ✅ L359 | ✅ `/chain/record` | ✅ `signViaBackend()` |
+| `TrustChainAnalytics` | ✅ L370 | ✅ `/analytics/record` | ✅ `recordAnalyticsViaBackend()` fire-and-forget |
+| `ExecutionGraph` | ✅ L379 | ✅ `/graph/add-node` | ✅ `recordGraphNodeViaBackend()` fire-and-forget |
+| `ComplianceReport` | ✅ L412 | ✅ `/compliance/{fw}` | ❌ UI нет |
+| `PolicyEngine` | ✅ L93 | ✅ `/policy/*` | ❌ UI нет |
 | `LocalTSA` | — | ✅ `/tsa/*` | ❌ |
 | `AirGappedConfig` | — | ✅ `/airgap/status` | ❌ |
 | `KeyProvider` / KMS | — | ✅ `/kms/*` | ❌ |
-| **`StreamingReasoningChain`** | ❌ | ❌ | ❌ |
-| **`ChainExplorer`** | ❌ | ❌ | ❌ |
-| `SeatManager` | — | ✅ `/license` | ❌ |
+| `StreamingReasoningChain` | ✅ L70, L373 | ✅ `/streaming/sign-reasoning` | ✅ `signReasoningViaBackend()` in `useAgent.ts` |
+| `ChainExplorer` | ✅ L114, L505 | ✅ `/export/html` | ✅ Link in `ChainStatusBar` |
+| `SeatManager` | — | ✅ `/license` | ❌ UI нет |
 
 ### Key Finding
 
-> Both libraries are **genuinely integrated** in the backend. Every tool call through `agent_runtime.py` is cryptographically signed with real Ed25519 via `trust_chain`, and analytics/graph/compliance from `trust_chain_pro` are active. The gap is that `SmartAIAgent` (the primary user-facing path) doesn't route through this backend signing pipeline — it uses its own JS-based Ed25519 keypair.
+> Both libraries are **genuinely integrated** across all three layers. Backend `agent_runtime.py` signs every tool call via `trust_chain` and records analytics/graph/compliance via `trust_chain_pro`. The frontend now also routes through the backend signing pipeline: `signViaBackend()` for tool signing, `recordAnalyticsViaBackend()` / `recordGraphNodeViaBackend()` as fire-and-forget calls after each tool execution, and `signReasoningViaBackend()` for batch reasoning signing at agent completion. `ChainExplorer` auto-exports audit trails and is linked from `ChainStatusBar`. Remaining frontend gaps: no dedicated UI for Compliance, PolicyEngine, TSA, KMS, AirGap, or SeatManager.
 
 ---
 
