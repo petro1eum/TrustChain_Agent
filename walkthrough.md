@@ -468,27 +468,30 @@ def my_tool(query: str) -> dict:
 
 ## Part 9: Verifiable Append-Only Log — Certificate Transparency — 2026-02-17
 
-### Проблема
+*(content already in place)*
 
-Наивный `FileStorage` хранил каждую операцию как отдельный файл (`op_0001.json`, `op_0002.json`, ...). На 1000+ операций это создаёт нагрузку на FS, O(n) на verify, невозможно доказать аудитору что лог не подменён.
+---
 
-### Архитектура (CQRS)
+## Part 10: X.509 PKI for AI Agents — 2026-02-17
+
+### Архитектура
 
 ```mermaid
 flowchart TD
-    Sign["tc.sign()"] -->|"append"| Log["chain.log\n(binary, append-only)"]
-    Log -->|"leaf hash"| MT["MerkleTree\n(in-memory)"]
-    MT -->|"root"| HEAD["HEAD\n(root hash)"]
-    Log -->|"sync"| IDX["index.db\n(SQLite, WAL)"]
-
-    subgraph "Read Path (O(log n))"
-        CLI["tc log / blame / show"] --> IDX
-        Verify["tc chain-verify"] --> MT
-    end
-
-    subgraph "Proofs"
-        Incl["inclusion_proof(op)"] --> MT
-        Cons["consistency_proof(old, new)"] --> MT
+    Root["🔒 Root CA\n(CISO / 10 лет)"]
+    Root -->|signs| Int["🔐 Intermediate CA\n(TrustChain / 1 год)"]
+    Int -->|issues| A1["🤖 Agent Cert\n(1 час validity)"]
+    Int -->|issues| A2["🤖 Agent Cert\n(1 час validity)"]
+    
+    A1 -->|signs ops| VLog["Verifiable Log"]
+    
+    Root -->|publishes| CRL["📋 CRL\n(red button)"]
+    
+    subgraph "Custom OIDs"
+        OID1["model_hash"]
+        OID2["prompt_hash"]
+        OID3["tool_versions"]
+        OID4["capabilities"]
     end
 ```
 
@@ -496,37 +499,39 @@ flowchart TD
 
 | Файл | Описание |
 |---|---|
-| [verifiable_log.py](file:///Users/edcher/Documents/GitHub/trust_chain/trustchain/v2/verifiable_log.py) | `VerifiableChainStore`, `InclusionProof`, binary log format |
-| [test_verifiable_log.py](file:///Users/edcher/Documents/GitHub/trust_chain/tests/test_verifiable_log.py) | 32 теста: append, Merkle, proofs, tamper, rebuild, perf |
-
-### Ключевые решения
-
-| Решение | До (FileStorage) | После (VerifiableChainStore) |
-|---|---|---|
-| Хранение | 1000+ файлов `op_NNNN.json` | 1 файл `chain.log` |
-| Verify | O(n) scan всех файлов | O(1) сравнение Merkle root |
-| ID | Последовательный `op_0001` | Content-addressable `sha256[:12]` |
-| Proof | Отдать всю цепочку | O(log n) inclusion proof |
-| Запросы | Полный перебор | SQLite (indexed) |
+| [x509_pki.py](file:///Users/edcher/Documents/GitHub/trust_chain/trustchain/v2/x509_pki.py) | `TrustChainCA`, `AgentCertificate`, `CertVerifyResult` |
+| [test_x509_pki.py](file:///Users/edcher/Documents/GitHub/trust_chain/tests/test_x509_pki.py) | 32 теста: CA hierarchy, OIDs, CRL, PEM, chain verify |
 
 ### Как это работает
 
 ```python
-from trustchain import TrustChain, TrustChainConfig
+from trustchain import TrustChainCA
 
-# Verifiable log — дефолт с v2.4.0
-tc = TrustChain(TrustChainConfig(chain_storage="verifiable"))
-signed = tc.sign("audit_tool", {"event": "login", "user": "admin"})
+# 1. CISO создаёт Root CA (один раз)
+root = TrustChainCA.create_root_ca("Acme Root CA")
 
-# O(1) верификация
-assert tc.chain.verify()["valid"] is True
+# 2. Платформа получает Intermediate CA
+platform = root.issue_intermediate_ca("Acme AI Platform")
 
-# O(log n) inclusion proof для аудитора
-ops = tc.chain.log()
-proof = tc.chain.inclusion_proof(ops[0]["id"])
-print(proof.to_dict())  # Can send to external auditor
+# 3. Агент получает сертификат на 1 час
+agent = platform.issue_agent_cert(
+    agent_id="procurement-bot-01",
+    model_hash="sha256:abc123",
+    prompt_hash="sha256:def456",
+    tool_versions={"bash_tool": "1.0"},
+)
 
-# Доказать что историю не переписали
-consistency = tc.chain.consistency_proof(old_length=5, old_root="abc...")
+# 4. Full chain verification
+assert agent.verify_chain([platform, root])
+
+# 5. Red button — немедленный отзыв
+platform.revoke(agent.serial_number, "Prompt injection")
+assert agent.verify_against(platform).valid is False
+```
+
+### Тесты
+
+```
+492 tests passing (32 X.509 + 32 Verifiable Log + 428 existing)
 ```
 
