@@ -1,4 +1,4 @@
-# TrustChain Agent — Integration Standard v3.0
+# TrustChain Agent — Integration Standard v3.1
 
 **Руководство по интеграции AI-ассистента с криптографической верификацией в вашу платформу**
 
@@ -317,6 +317,7 @@ TrustChain — это наша ключевая технология: каждо
     "agent_id": "trustchain-agent-001",
     "session_id": "sess_abc123",
     "timestamp": "2026-02-12T06:00:00Z",
+    "nonce": "f2c9ca85-40c0-41a2-b8f1-3e7d6a1c9b4e",
     "user_query": "Подтверди заказ ORD-123",
     "sequence": 5
   }
@@ -325,12 +326,13 @@ TrustChain — это наша ключевая технология: каждо
 
 | Поле | Описание |
 |------|----------|
-| `signature` | Ed25519 подпись payload: `name + arguments + timestamp + sequence` |
+| `signature` | Ed25519 подпись payload: `name + arguments + timestamp + nonce + sequence` |
 | `agent_id` | ID экземпляра агента |
 | `session_id` | ID сессии пользователя |
 | `timestamp` | ISO 8601 время вызова |
+| `nonce` | UUID v4 — уникальный одноразовый идентификатор. Сгорает при `verify()`, блокируя replay-атаки |
 | `user_query` | Исходный запрос пользователя, который привёл к этому вызову |
-| `sequence` | Порядковый номер вызова в сессии (защита от replay) |
+| `sequence` | Порядковый номер вызова в сессии (дополнительная защита от replay) |
 
 ### Верификация на стороне MCP Server
 
@@ -721,10 +723,11 @@ panelFrame.contentWindow.postMessage({
 |-----------|-------|----------|
 | **Web** | `web_search`, `web_fetch` | Поиск и загрузка веб-страниц |
 | **Page** | `page_observe`, `page_read`, `page_interact` | Взаимодействие со страницей через Playwright |
-| **Code** | `execute_code`, `run_terminal` | Выполнение кода в Docker sandbox |
-| **Data** | `analyze_data`, `transform` | Обработка CSV/JSON/Excel |
-| **Browser** | `screenshot`, `click`, `type` | Управление Playwright-браузером |
-| **Artifacts** | `create_artifact` | Создание встраиваемых артефактов |
+| **Code** | `bash_tool`, `execute_code`, `execute_bash` | Выполнение кода в Docker sandbox |
+| **File** | `view`, `create_file`, `str_replace`, `extract_table_to_excel` | Просмотр, создание и редактирование файлов |
+| **Browser** | `browser_navigate`, `browser_screenshot`, `browser_extract` | Управление Playwright-браузером |
+| **Artifacts** | `create_artifact` | Создание встраиваемых HTML/React артефактов |
+| **Analysis** | `analyze_code_structure`, `search_code_symbols`, `get_code_dependencies` | Анализ кодовой базы |
 
 > [!TIP]
 > Не дублируйте эти инструменты в вашем MCP Server. Если пользователь попросит "поискать в интернете" или "выполнить код" — агент справится сам.
@@ -857,4 +860,4 @@ panelFrame.contentWindow.postMessage({
 
 ---
 
-**TrustChain Agent Integration Standard v3.0** • [Model Context Protocol](https://modelcontextprotocol.io/) • Ed25519 Cryptographic Verification
+**TrustChain Agent Integration Standard v3.1** • [Model Context Protocol](https://modelcontextprotocol.io/) • Ed25519 Cryptographic Verification + Nonce Replay Protection
