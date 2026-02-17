@@ -6,7 +6,7 @@ import {
     BarChart3, Key, WifiOff, ChevronRight,
     Hash, Sparkles, Bot,
     PanelLeftClose, PanelLeft, ArrowUp, X,
-    Sun, Moon,
+    Sun, Moon, BookOpen, Play,
     Loader2, AlertCircle, FileText, RefreshCw
 } from 'lucide-react';
 import './agentTheme.css';
@@ -63,11 +63,11 @@ Scanned 14 files across 3 modules. Found **1 warning**, 0 critical issues.
 
 | Check | Status | Severity | Details |
 |-------|--------|----------|---------|
-| SQL Injection | ✅ Safe | — | Parameterized queries in all 8 endpoints |
-| XSS | ✅ Safe | — | Output escaped via \`sanitizeHtml()\` |
-| Auth Bypass | ✅ Safe | — | JWT validation on all protected routes |
-| CSRF | ✅ Safe | — | SameSite cookies + CSRF tokens |
-| Dependency Vulns | ⚠️ Warning | Medium | \`lodash@4.17.20\` → CVE-2021-23337 |
+| SQL Injection | Safe | -- | Parameterized queries in all 8 endpoints |
+| XSS | Safe | -- | Output escaped via \`sanitizeHtml()\` |
+| Auth Bypass | Safe | -- | JWT validation on all protected routes |
+| CSRF | Safe | -- | SameSite cookies + CSRF tokens |
+| Dependency Vulns | Warning | Medium | \`lodash@4.17.20\` -> CVE-2021-23337 |
 
 ## Recommendation
 \`\`\`bash
@@ -91,7 +91,7 @@ All operations in this analysis are cryptographically signed. Chain hash: \`a7f3
 
 **Organization:** TrustChain Agent Session
 **Period:** ${new Date().toLocaleDateString()}
-**Overall Score: 100%** ✅ Compliant
+**Overall Score: 100%** Compliant
 
 ---
 
@@ -100,23 +100,23 @@ All operations in this analysis are cryptographically signed. Chain hash: \`a7f3
 ### CC6.1 — Logical and Physical Access Controls
 | Control | Status | Evidence |
 |---------|--------|----------|
-| Key Management | ✅ Pass | Ed25519 keys with AES-256-GCM encryption |
-| Access Logging | ✅ Pass | All API calls logged with caller identity |
-| Session Management | ✅ Pass | Token-based auth with 15min expiry |
+| Key Management | Pass | Ed25519 keys with AES-256-GCM encryption |
+| Access Logging | Pass | All API calls logged with caller identity |
+| Session Management | Pass | Token-based auth with 15min expiry |
 
 ### CC7.2 — System Monitoring
 | Control | Status | Evidence |
 |---------|--------|----------|
-| Cryptographic Signing | ✅ Pass | All 3 tool operations signed |
-| Chain Integrity | ✅ Pass | Parent-child Merkle chain verified |
-| Anomaly Detection | ✅ Pass | 0 violations in 47 operations |
+| Cryptographic Signing | Pass | All 3 tool operations signed |
+| Chain Integrity | Pass | Parent-child Merkle chain verified |
+| Anomaly Detection | Pass | 0 violations in 47 operations |
 
 ### CC8.1 — Change Management
 | Control | Status | Evidence |
 |---------|--------|----------|
-| Audit Trail | ✅ Pass | Complete chain of trust maintained |
-| Nonce Protection | ✅ Pass | Replay attacks blocked (nonce store active) |
-| Version Control | ✅ Pass | All artifacts versioned and signed |
+| Audit Trail | Pass | Complete chain of trust maintained |
+| Nonce Protection | Pass | Replay attacks blocked (nonce store active) |
+| Version Control | Pass | All artifacts versioned and signed |
 
 ---
 
@@ -177,7 +177,7 @@ export async function authMiddleware(
     // Verify chain integrity
     const isValid = await chain.verifyChain();
     if (!isValid) {
-      console.error('⚠️ Chain integrity violation detected!');
+      console.error('[WARN] Chain integrity violation detected!');
       // Log but don't block — alert the security team
       await alertSecurityTeam(entry);
     }
@@ -540,6 +540,24 @@ const TrustChainAgentApp: React.FC = () => {
     const [activeSection, setActiveSection] = useState<'chats' | 'agent' | 'trust'>('chats');
     const [theme, setTheme] = useState<ThemeMode>('light');
     const [showSettings, setShowSettings] = useState(false);
+    const [showRunbook, setShowRunbook] = useState(false);
+    const [runbookYaml, setRunbookYaml] = useState(() => localStorage.getItem('tc_runbook_yaml') || `name: "SOC2 Nightly Audit"
+description: "Automated compliance and integrity check"
+workflow:
+  - step: 1
+    action: "Check chain integrity"
+    tool: "chain_status"
+  - step: 2
+    action: "SOC2 compliance scan"
+    tool: "compliance"
+    params:
+      framework: "soc2"
+  - step: 3
+    action: "Generate audit trail"
+    tool: "audit_report"
+`);
+    const [runbookRunning, setRunbookRunning] = useState(false);
+    const [runbookResult, setRunbookResult] = useState<string | null>(null);
     const [settingsTab, setSettingsTab] = useState<'general' | 'tools' | 'mcp' | 'skills' | 'pro'>('general');
     const [initialToolId, setInitialToolId] = useState<string | undefined>(undefined);
     const [apiKeyInput, setApiKeyInput] = useState(() => localStorage.getItem('tc_api_key') || '');
@@ -743,7 +761,7 @@ const TrustChainAgentApp: React.FC = () => {
                                 .map((ev: any) => (ev as any).signature);
                             const proof = await trustchainService.signFinalResponse(finalText, toolSigs, { mode: 'standalone' });
                             finalSignature = proof.envelope.signature;
-                            finalText += `\n\n> ✅ Final Response Signed · key: \`${proof.envelope.key_id}\` · seq: \`${proof.envelope.sequence}\``;
+                            finalText += `\n\n> Final Response Signed | key: \`${proof.envelope.key_id}\` | seq: \`${proof.envelope.sequence}\``;
                         } catch {
                             // ignore signing failures
                         }
@@ -890,7 +908,7 @@ const TrustChainAgentApp: React.FC = () => {
 
                 // Append license tier info
                 if (effectiveTier !== 'community') {
-                    finalText += `\n\n> 🔑 License: **${effectiveTier.toUpperCase()}** · ${freshLicense.orgName || 'Active'} · ${freshLicense.daysRemaining}d remaining`;
+                    finalText += `\n\n> License: **${effectiveTier.toUpperCase()}** | ${freshLicense.orgName || 'Active'} | ${freshLicense.daysRemaining}d remaining`;
                 }
 
                 const assistantMsg: Message = {
@@ -1018,7 +1036,7 @@ const TrustChainAgentApp: React.FC = () => {
                 const errorResponse: Message = {
                     id: `m_err_${Date.now()}`,
                     role: 'assistant',
-                    content: `⚠️ **Agent Error**\n\n${errMsg}\n\n> Check Settings → API Key and Model configuration. Make sure the backend is running.`,
+                    content: `**Agent Error**\n\n${errMsg}\n\n> Check Settings -> API Key and Model configuration. Make sure the backend is running.`,
                     timestamp: new Date(),
                 };
                 setMessages(prev => [...prev, errorResponse]);
@@ -1109,6 +1127,7 @@ const TrustChainAgentApp: React.FC = () => {
                     toggleTheme={toggleTheme}
                     agent={agent}
                     setShowSettings={setShowSettings}
+                    onOpenRunbook={() => setShowRunbook(true)}
                 />}
 
                 {/* Content area — split when artifact is open */}
@@ -1218,7 +1237,7 @@ const TrustChainAgentApp: React.FC = () => {
                                         ? 'tc-text border-b-2 border-amber-500'
                                         : 'tc-text-muted hover:tc-text'}`}
                             >
-                                ⚡ Pro
+                                Pro
                             </button>
                         </div>
 
@@ -1354,6 +1373,73 @@ const TrustChainAgentApp: React.FC = () => {
                     </div>
                 </div>
             )}
+
+            {/* ═══ RUNBOOK OVERLAY ═══ */}
+            {showRunbook && (
+                <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm"
+                    onClick={(e) => { if (e.target === e.currentTarget) setShowRunbook(false); }}>
+                    <div className="tc-surface border tc-border-light rounded-2xl shadow-2xl w-[600px] max-h-[80vh] flex flex-col">
+                        <div className="flex items-center justify-between p-5 border-b tc-border">
+                            <div className="flex items-center gap-2">
+                                <BookOpen size={18} className="text-indigo-400" />
+                                <h3 className="text-base font-semibold tc-text-heading">Security Runbooks (SOAR)</h3>
+                            </div>
+                            <button onClick={() => setShowRunbook(false)}
+                                className="tc-text-muted hover:tc-text p-1 rounded-lg tc-btn-hover">
+                                <X size={18} />
+                            </button>
+                        </div>
+                        <div className="flex-1 overflow-auto p-5 space-y-4">
+                            <textarea
+                                value={runbookYaml}
+                                onChange={(e) => {
+                                    setRunbookYaml(e.target.value);
+                                    localStorage.setItem('tc_runbook_yaml', e.target.value);
+                                }}
+                                className="w-full h-64 px-3 py-2 text-xs font-mono tc-surface border tc-border-light rounded-xl tc-text focus:outline-none focus:ring-2 focus:ring-indigo-500/30 resize-y"
+                                placeholder="Paste your YAML runbook here..."
+                            />
+                            <div className="flex items-center gap-2">
+                                <button
+                                    disabled={runbookRunning}
+                                    onClick={async () => {
+                                        setRunbookRunning(true);
+                                        setRunbookResult(null);
+                                        try {
+                                            const resp = await fetch('/api/trustchain/runbook/execute', {
+                                                method: 'POST',
+                                                headers: { 'Content-Type': 'application/json' },
+                                                body: JSON.stringify({ yaml_content: runbookYaml }),
+                                            });
+                                            const data = await resp.json();
+                                            setRunbookResult(data.result || data.error || 'Done');
+                                        } catch (err: any) {
+                                            setRunbookResult(`Error: ${err.message}`);
+                                        } finally {
+                                            setRunbookRunning(false);
+                                        }
+                                    }}
+                                    className="flex items-center gap-1.5 px-4 py-2 text-sm text-white rounded-xl transition-colors
+                                        bg-gradient-to-r from-indigo-500 to-violet-500 hover:from-indigo-600 hover:to-violet-600
+                                        shadow-lg shadow-indigo-500/20 disabled:opacity-50"
+                                >
+                                    <Play size={14} />
+                                    {runbookRunning ? 'Running...' : 'Execute Runbook'}
+                                </button>
+                                <span className="text-[11px] tc-text-muted">
+                                    Tools: chain_status, compliance, audit_report, verify, execution_graph, analytics
+                                </span>
+                            </div>
+                            {runbookResult && (
+                                <div className="p-3 text-xs font-mono tc-surface border tc-border-light rounded-xl tc-text whitespace-pre-wrap max-h-48 overflow-auto">
+                                    {runbookResult}
+                                </div>
+                            )}
+                        </div>
+                    </div>
+                </div>
+            )}
+
             {/* ═══ CHAIN STATUS BAR ═══ */}
             {!isEmbedded && <ChainStatusBar />}
         </div>

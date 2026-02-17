@@ -228,3 +228,238 @@ vitest: 93/93 passed
 | **Итого** | **20** | **22** | **18** | **44** |
 
 > **Вывод:** +4 OSS модуля подключены: Events (CloudEvents), Metrics (Prometheus + `/metrics`), OpenTelemetry (auto-instrument), FastAPI middleware (auto-sign responses). Итого 20/44 agent_runtime ✅, 22/44 REST ✅, 18/44 Frontend ✅. Единственные незадействованные модули: Redis HA, OnaiDocs bridge, + N/A интеграции (LangChain, Flask, Django, pytest).
+
+---
+
+## Part 5: YAML Runbook Executor (SOAR) — 2026-02-17
+
+### Overview
+
+Added a YAML-based Security Orchestration, Automation, and Response (SOAR) engine that allows users to define and execute multi-step security workflows (runbooks) directly from the UI.
+
+### Backend
+
+| Component | File | Description |
+|---|---|---|
+| `TrustChainRunbook` BaseTool | [trustchain_tools.py](file:///Users/edcher/Documents/GitHub/TrustChain_Agent/backend/tools/built_in/trustchain_tools.py#L361-L468) | Parses YAML, resolves tool aliases, executes steps sequentially with conditional logic |
+| REST endpoint | [trustchain_api.py](file:///Users/edcher/Documents/GitHub/TrustChain_Agent/backend/routers/trustchain_api.py) | `POST /api/trustchain/runbook/execute` — accepts YAML, returns execution results |
+| Tool registry | [tool_registry.py](file:///Users/edcher/Documents/GitHub/TrustChain_Agent/backend/tools/tool_registry.py) | `TrustChainRunbook` registered alongside other 6 TrustChain tools |
+
+**Supported workflow features:**
+- Sequential step execution with `step`, `action`, `tool`, `params`
+- Conditional logic: `condition: always` (run even if previous failed) or `on_success` (default)
+- Tool aliasing: short names (`verify`, `compliance`, `chain_status`, `audit_report`, `execution_graph`, `analytics`) map to full tool classes
+
+### Frontend — Two Access Points
+
+| Location | Component | Access |
+|---|---|---|
+| **Main App** — Settings → Pro tab | [ProSettingsPanel.tsx](file:///Users/edcher/Documents/GitHub/TrustChain_Agent/src/ui/components/ProSettingsPanel.tsx) | YAML editor + Execute button in the "Security Runbooks" section |
+| **Panel** — Header quick-trigger | [PanelApp.tsx](file:///Users/edcher/Documents/GitHub/TrustChain_Agent/src/ui/panel/PanelApp.tsx) | BookOpen icon button → overlay with YAML editor + Execute |
+
+Both UIs persist YAML content in `localStorage` and call the backend endpoint for execution.
+
+### Bug Fixes (same session)
+
+| Fix | File | Detail |
+|---|---|---|
+| Extra `}` syntax error | `PanelApp.tsx` L1553 | Caused `tsc` failure — removed extra brace |
+| Emoji removal | `trustchain_tools.py`, `PanelApp.tsx`, `TrustChainAgentApp.tsx` | Replaced ~48 emoji with plain text markers (`[ERROR]`, `PASS`, `OK`, `WARN`) |
+
+### Verification
+
+```
+tsc --noEmit:   0 errors
+vitest run:     93/93 tests passed
+```
+
+### Visual Verification
+
+Panel header with BookOpen (Security Runbooks) button next to Settings gear:
+
+![Panel header with Runbook button](/Users/edcher/.gemini/antigravity/brain/8021b56b-baa3-40a5-a311-fd0fa8c82021/panel_runbook_header.png)
+
+Full Runbook overlay demo (click → YAML editor → Execute):
+
+![Runbook overlay demo](/Users/edcher/.gemini/antigravity/brain/8021b56b-baa3-40a5-a311-fd0fa8c82021/runbook_overlay_demo_1771308785632.webp)
+
+---
+
+## Part 6: Git-like `.trustchain/` Persistent Storage — 2026-02-17
+
+### Проблема
+
+`_operations: List[Dict] = []` в `trustchain_api.py` — вся цепочка подписей жила в RAM и пропадала при рестарте сервера. Для enterprise audit trail неприемлемо.
+
+### Решение: «Git for AI Agents»
+
+Реализован Git-like storage — каждая подписанная операция = «коммит», цепочка хранится в `.trustchain/` директории:
+
+```
+.trustchain/
+├── HEAD                  # latest signature hash
+├── config.json           # chain metadata
+├── metadata.json         # storage version
+├── objects/              # один JSON-файл на операцию
+│   ├── op_0001.json
+│   ├── op_0002.json
+│   └── ...
+└── refs/
+    └── sessions/         # per-session HEAD pointers
+        ├── task_abc123.ref
+        └── task_def456.ref
+```
+
+### Маппинг Git ↔ TrustChain
+
+| Git | TrustChain | Метод |
+|---|---|---|
+| `.git/` | `.trustchain/` | Root directory |
+| `git commit` | `tc.chain.commit()` | Append signed op |
+| `HEAD` | `tc.chain.head()` | Latest signature |
+| `git log` | `tc.chain.log()` | List operations |
+| `git blame` | `tc.chain.blame(tool)` | Find ops by tool |
+| `git verify-commit` | `tc.chain.verify()` | Chain integrity (fsck) |
+| `git status` | `tc.chain.status()` | Health summary |
+| `git diff` | `tc.chain.diff(a, b)` | Compare operations |
+| `git branch` | `tc.chain.sessions()` | Per-session refs |
+
+### Изменения по репозиториям
+
+#### OSS: `trust_chain`
+
+| Файл | Изменение |
+|---|---|
+| [storage.py](file:///Users/edcher/Documents/GitHub/trust_chain/trustchain/v2/storage.py) | Добавлен `FileStorage` — Git-like `objects/` per-file |
+| [chain_store.py](file:///Users/edcher/Documents/GitHub/trust_chain/trustchain/v2/chain_store.py) | **[NEW]** `ChainStore` с полным Git API |
+| [config.py](file:///Users/edcher/Documents/GitHub/trust_chain/trustchain/v2/config.py) | Добавлены `enable_chain`, `chain_storage`, `chain_dir` |
+| [core.py](file:///Users/edcher/Documents/GitHub/trust_chain/trustchain/v2/core.py) | `sign()` auto-commit + `_UNSET` sentinel для auto-chain |
+| [__init__.py](file:///Users/edcher/Documents/GitHub/trust_chain/trustchain/v2/__init__.py) | Export `ChainStore`, `FileStorage` |
+| [test_file_storage.py](file:///Users/edcher/Documents/GitHub/trust_chain/tests/test_file_storage.py) | **[NEW]** 25 тестов |
+
+#### Pro: `trust_chain_pro`
+
+| Файл | Изменение |
+|---|---|
+| [sqlite_store.py](file:///Users/edcher/Documents/GitHub/trust_chain_pro/trustchain_pro/enterprise/sqlite_store.py) | **[NEW]** `SQLiteChainStore(Storage)` — WAL, индексы, SQL-агрегация |
+
+#### Agent: `TrustChain_Agent`
+
+| Файл | Изменение |
+|---|---|
+| [trustchain_api.py](file:///Users/edcher/Documents/GitHub/TrustChain_Agent/backend/routers/trustchain_api.py) | Удалены `_operations[]`, `_last_parent_sig`, `verify_chain_integrity()` → всё через `_tc.chain` |
+
+### Ключевые решения
+
+- **`_UNSET` sentinel** — различает «auto-chain от HEAD» (дефолт) и «явно нет родителя» (None). Сессии передают None для первого шага; прямые вызовы получают auto-chaining.
+- **`enable_chain=True` по умолчанию** — каждый `sign()` автоматически коммитит в chain.
+- **`TRUSTCHAIN_DIR` env var** — Agent использует `{project_root}/.trustchain/` по умолчанию.
+
+### Тесты
+
+```
+# OSS: 63 теста
+trust_chain$ pytest tests/test_file_storage.py tests/test_v2_basic.py \
+  tests/test_chain_of_trust.py tests/test_session.py -q
+...............................................................  [100%]  63 passed
+
+# Agent import OK
+TrustChain_Agent$ python3 -c "from backend.routers.trustchain_api import _tc; ..."
+✅ chain backend: FileStorage
+   chain dir: /Users/edcher/Documents/GitHub/TrustChain_Agent/.trustchain
+```
+
+---
+
+## Part 7: Roadmap — Следующие шаги
+
+### 7.1 CLI: `tc log` / `tc verify` / `tc blame` (Приоритет 1)
+
+Git-like CLI для расследования инцидентов:
+
+```bash
+tc log                        # хронология действий агента (newest first)
+tc log --tool bash_tool       # только bash операции
+tc log -n 5                   # последние 5 операций
+tc chain-verify               # проверка цепочки (fsck)
+tc blame bash_tool            # forensics по инструменту
+tc status                     # здоровье цепочки
+tc show op_0003               # детали одной операции
+tc diff op_0001 op_0005       # сравнение двух операций
+tc export chain.json          # экспорт в JSON
+```
+
+**Статус: ✅ РЕАЛИЗОВАНО** — 12 команд, `tc` + `trustchain` алиасы в `pyproject.toml`.
+
+### 7.2 Tool Certificates / PKI — ✅ РЕАЛИЗОВАНО
+
+«SSL для ИИ-инструментов» — Zero Trust Architecture:
+
+| Компонент | Статус |
+|---|---|
+| `ToolCertificate` (SSL-like cert) | ✅ `v2/certificate.py` |
+| `compute_code_hash()` | ✅ SHA-256 of source code |
+| `ToolRegistry` (CA + persistent store) | ✅ `.trustchain/certs/` |
+| `@trustchain_certified` decorator | ✅ Pre-flight check on every call |
+| `UntrustedToolError` | ✅ Raises on untrusted execution |
+| Certificate revocation | ✅ `registry.revoke(tool)` |
+| Code tampering detection | ✅ Hash mismatch → DENY |
+| Internal CA signing | ✅ `Signer` integration |
+| 21 тестов | ✅ All passing |
+
+**Elevator pitch:** *«Вы же не пускаете код в production без Git? Тогда почему вы пускаете ИИ-агентов работать без истории решений? TrustChain — это Git для вашего ИИ.»*
+
+---
+
+## Part 8: Tool Certificates (PKI) — 2026-02-17
+
+### Архитектура
+
+```mermaid
+flowchart LR
+    Dev["Tool Author"] -->|certify| Reg["ToolRegistry\n.trustchain/certs/"]
+    Reg -->|verify| Agent["Agent Runtime"]
+    Agent -->|@trustchain_certified| Tool["Tool Function"]
+    
+    Reg -->|revoke| CRL["Revocation"]
+    
+    subgraph "Per-call check"
+        Check1["1. Cert exists?"]
+        Check2["2. Not revoked/expired?"]
+        Check3["3. Code hash match?"]
+    end
+    
+    Agent --> Check1 --> Check2 --> Check3 --> Tool
+```
+
+### Новые файлы
+
+| Файл | Описание |
+|---|---|
+| [certificate.py](file:///Users/edcher/Documents/GitHub/trust_chain/trustchain/v2/certificate.py) | `ToolCertificate`, `ToolRegistry`, `@trustchain_certified`, `UntrustedToolError` |
+| [test_certificates.py](file:///Users/edcher/Documents/GitHub/trust_chain/tests/test_certificates.py) | 21 тест: hash, cert validity, registry CRUD, decorator, code tampering |
+
+### Как это работает
+
+```python
+from trustchain import ToolRegistry, trustchain_certified
+
+# 1. CISO создает реестр
+registry = ToolRegistry(registry_dir=".trustchain/certs")
+
+# 2. Сертифицирует инструмент (хеширует исходный код)
+registry.certify(my_tool, owner="DevOps", organization="Acme")
+
+# 3. Декоратор проверяет сертификат при КАЖДОМ вызове
+@trustchain_certified(registry)
+def my_tool(query: str) -> dict:
+    return {"result": query}
+
+# Если кто-то изменит код my_tool → UntrustedToolError!
+```
+
+### Тесты
+
+```
+93 tests passing (21 PKI + 72 existing)
+```

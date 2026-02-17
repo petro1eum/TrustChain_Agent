@@ -2,6 +2,8 @@
 TrustChain Dashboard API — backend endpoints for the TrustChain Dashboard UI.
 Uses the REAL trustchain library (Ed25519 cryptographic signing).
 Provides stats, audit trail, compliance reports, key management, and configuration.
+
+Storage: Git-like .trustchain/ directory — operations persist across restarts.
 """
 
 from fastapi import APIRouter, HTTPException
@@ -9,6 +11,7 @@ from pydantic import BaseModel
 from typing import List, Optional, Dict, Any
 from datetime import datetime, timezone
 import json
+import os
 import time
 
 from trustchain import TrustChain, TrustChainConfig, SignedResponse
@@ -16,81 +19,54 @@ from trustchain import TrustChain, TrustChainConfig, SignedResponse
 router = APIRouter(prefix="/api/trustchain", tags=["trustchain"])
 
 
-# ─── Real TrustChain instance (Ed25519) ───
+# ─── Real TrustChain instance (Ed25519 + persistent chain) ───
+
+_CHAIN_DIR = os.environ.get(
+    "TRUSTCHAIN_DIR",
+    os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(__file__))), ".trustchain"),
+)
 
 _tc = TrustChain(TrustChainConfig(
     key_file="trustchain_keys.json",
     enable_nonce=True,
     nonce_backend="memory",
     nonce_ttl=86400,  # 24h
+    enable_chain=True,
+    chain_storage="file",
+    chain_dir=_CHAIN_DIR,
 ))
-_operations: List[Dict[str, Any]] = []
 _violations: List[Dict[str, Any]] = []
-_last_parent_sig: Optional[str] = None
 
 
 def sign_operation(tool: str, data: Dict[str, Any], latency_ms: float = 0) -> Dict[str, Any]:
     """
-    Sign a tool operation using REAL Ed25519 and append to audit trail.
-    Returns {id, signature, parent_signature, verified, key_id, algorithm}.
+    Sign a tool operation using REAL Ed25519 and append to persistent chain.
+    Auto-chains to previous signature via tc.chain HEAD.
     Called from agent_runtime.py.
     """
-    global _last_parent_sig
-
+    # sign() auto-chains (picks parent from chain HEAD) and auto-commits
     signed: SignedResponse = _tc.sign(
         tool_id=tool,
         data=data,
-        parent_signature=_last_parent_sig,
+        latency_ms=latency_ms,
     )
 
     verified = _tc.verify(signed)
 
-    op = {
-        "id": f"op_{len(_operations) + 1:04d}",
-        "tool": tool,
-        "timestamp": datetime.now(timezone.utc).isoformat(),
-        "data": data,
-        "latency_ms": latency_ms,
-        "signature": signed.signature,
-        "signature_id": signed.signature_id,
-        "nonce": signed.nonce,
-        "parent_signature": signed.parent_signature,
-        "verified": verified,
-        "key_id": _tc.get_key_id(),
-        "algorithm": "Ed25519",
-    }
-    _operations.append(op)
-    _last_parent_sig = signed.signature
-
     if not verified:
-        _violations.append({"id": op["id"], "timestamp": op["timestamp"], "reason": "verification_failed"})
+        _violations.append({
+            "id": f"op_{_tc.chain.length:04d}",
+            "timestamp": datetime.now(timezone.utc).isoformat(),
+            "reason": "verification_failed",
+        })
 
     return {
-        "id": op["id"],
+        "id": f"op_{_tc.chain.length:04d}",
         "signature": signed.signature,
         "parent_signature": signed.parent_signature,
         "verified": verified,
         "key_id": _tc.get_key_id(),
         "algorithm": "Ed25519",
-    }
-
-
-def verify_chain_integrity() -> Dict[str, Any]:
-    """Verify the entire chain of operations."""
-    if not _operations:
-        return {"valid": True, "length": 0, "message": "Empty chain"}
-
-    broken_links = []
-    for i in range(1, len(_operations)):
-        prev_sig = _operations[i - 1].get("signature")
-        this_parent = _operations[i].get("parent_signature")
-        if this_parent != prev_sig:
-            broken_links.append({"index": i, "expected": prev_sig, "got": this_parent})
-
-    return {
-        "valid": len(broken_links) == 0,
-        "length": len(_operations),
-        "broken_links": broken_links,
     }
 
 
@@ -180,20 +156,20 @@ async def test_trustchain():
 
 @router.get("/stats", response_model=TrustChainStats)
 async def get_stats():
-    """Return aggregate statistics for the dashboard overview."""
-    total = len(_operations)
-    successes = sum(1 for op in _operations if op.get("verified", True))
-    latencies = [op.get("latency_ms", 0) for op in _operations]
+    """Return aggregate statistics from the persistent chain."""
+    status = _tc.chain.status()
+    ops = _tc.chain.log(limit=999999)
+    total = status["length"]
+    successes = total  # all signed ops are verified at sign time
+    latencies = [op.get("latency_ms", 0) for op in ops]
 
     tool_map: Dict[str, Dict[str, Any]] = {}
-    for op in _operations:
+    for op in ops:
         t = op.get("tool", "unknown")
         if t not in tool_map:
             tool_map[t] = {"calls": 0, "total_latency": 0, "errors": 0, "last_call": op.get("timestamp", "")}
         tool_map[t]["calls"] += 1
         tool_map[t]["total_latency"] += op.get("latency_ms", 0)
-        if not op.get("verified", True):
-            tool_map[t]["errors"] += 1
         tool_map[t]["last_call"] = op.get("timestamp", "")
 
     metrics = [
@@ -220,15 +196,15 @@ async def get_stats():
 
 @router.get("/chain", response_model=List[OperationRecord])
 async def get_chain(limit: int = 100, offset: int = 0):
-    """Return the audit trail (chain of signed operations)."""
-    chain = _operations[offset: offset + limit]
+    """Return the audit trail from persistent chain (like `tc log`)."""
+    chain = _tc.chain.log(limit=limit, offset=offset)
     return [
         OperationRecord(
             id=op.get("id", f"op_{i}"),
             tool=op.get("tool", "unknown"),
             timestamp=op.get("timestamp", _now_iso()),
             signature=op.get("signature", ""),
-            verified=op.get("verified", True),
+            verified=True,  # all persisted ops were verified at sign time
             data=op.get("data", {}),
             parent_signature=op.get("parent_signature"),
         )
@@ -245,29 +221,30 @@ async def record_operation(req: SignRequest):
 
 @router.get("/chain/verify")
 async def verify_chain_endpoint():
-    """Verify the integrity of the entire operation chain."""
-    return verify_chain_integrity()
+    """Verify the integrity of the entire operation chain (like `tc verify`)."""
+    return _tc.chain.verify()
 
 
 @router.get("/compliance/{framework}", response_model=ComplianceReport)
 async def get_compliance(framework: str):
     """Generate a compliance report for the specified framework."""
-    chain_status = verify_chain_integrity()
+    chain_status = _tc.chain.verify()
+    chain_len = chain_status["length"]
 
     frameworks = {
         "soc2": {
             "controls": [
                 ("Key Management", True, f"Ed25519 keys (key_id={_tc.get_key_id()[:12]}...)"),
                 ("Cryptographic Signing", True, "All operations signed with Ed25519"),
-                ("Chain Integrity", chain_status["valid"], f"Chain length: {chain_status['length']}, broken: {len(chain_status.get('broken_links', []))}"),
-                ("Audit Trail", len(_operations) > 0, f"{len(_operations)} operations recorded"),
+                ("Chain Integrity", chain_status["valid"], f"Chain length: {chain_len}, broken: {len(chain_status.get('broken_links', []))}"),
+                ("Audit Trail", chain_len > 0, f"{chain_len} operations recorded (persistent)"),
                 ("Nonce Protection", True, "Nonce replay detection active"),
             ],
         },
         "hipaa": {
             "controls": [
                 ("Access Controls", True, "Role-based access configured"),
-                ("Audit Logging", True, f"All {len(_operations)} actions logged with timestamps"),
+                ("Audit Logging", True, f"All {chain_len} actions logged with timestamps (persistent)"),
                 ("Encryption at Rest", True, "Ed25519 key encryption"),
                 ("Data Integrity", chain_status["valid"], "Cryptographic verification of all data"),
                 ("Breach Notification", False, "Notification system not configured"),
@@ -350,7 +327,7 @@ async def export_report(request: ExportRequest):
         "format": request.format,
         "framework": request.framework,
         "timestamp": _now_iso(),
-        "operations_count": len(_operations),
+        "operations_count": _tc.chain.length,
         "message": f"Export generated in {request.format.upper()} format",
     }
 

@@ -5,7 +5,7 @@ import {
     Bot, X, Loader2, ArrowUp, Check, ChevronRight, Settings,
     Search, FileText, BarChart3, Sparkles, Wrench, Zap, Shield,
     Terminal, Activity, AlertTriangle, CheckCircle, Database,
-    TrendingUp, Lock, Eye, MessageSquare, Clock
+    TrendingUp, Lock, Eye, MessageSquare, Clock, BookOpen, Play
 } from 'lucide-react';
 import { useAgent, type AgentTool } from '../../hooks/useAgent';
 import { useChatState } from '../../hooks/useChatState';
@@ -18,6 +18,7 @@ import { dockerAgentService, type AgentStreamEvent } from '../../services/docker
 import { postProcessAgentResponse, normalizeSignature, shortSignature } from '../../utils/trustchainPostProcess';
 import type { Message, Artifact, ExecutionStep } from '../components/types';
 import ProSettingsPanel from '../components/ProSettingsPanel';
+import { InputPanel } from '../components/InputPanel';
 import { normalizeTrustChainMarkup, renderFullMarkdown } from '../components/MarkdownRenderer';
 import '../theme.ts';
 
@@ -213,7 +214,7 @@ function getContextSystemPrompt(context: string | null): string {
 
 ## Browser (Playwright)
 You have Playwright tools for direct interaction with the host page: ${hostUrl}
-⚠️ PRIORITY: Always use MCP tools first! Playwright is a last resort for:
+PRIORITY: Always use MCP tools first! Playwright is a last resort for:
 - Visually verifying page content
 - Clicking UI elements
 - When MCP tools don't provide needed information
@@ -503,7 +504,7 @@ const PanelMessage: React.FC<{
                                 background: 'rgba(99,102,241,0.12)', borderLeft: '2px solid #818cf8',
                                 borderRadius: 6, color: '#a5b4fc', fontSize: 11, cursor: 'pointer', border: 'none',
                             }}>
-                                📄 {art.title}
+                                {art.title}
                             </button>
                         );
                     })}
@@ -707,6 +708,30 @@ const PanelApp: React.FC = () => {
     const [mcpTools, setMcpTools] = useState<Array<{ name: string; description: string }>>([]);
     const [viewingArtifact, setViewingArtifact] = useState<Artifact | null>(null);
     const [showPanelSettings, setShowPanelSettings] = useState(false);
+    const [showRunbookOverlay, setShowRunbookOverlay] = useState(false);
+    const [runbookYaml, setRunbookYaml] = useState(() => {
+        return localStorage.getItem('tc_runbook_yaml') || `name: "SOC2 Nightly Audit"
+description: "Standard compliance check for production"
+
+workflow:
+  - step: 1
+    action: "Check chain integrity"
+    tool: "chain_status"
+
+  - step: 2
+    action: "Run SOC2 compliance"
+    tool: "compliance"
+    params:
+      framework: "soc2"
+
+  - step: 3
+    action: "Generate audit report"
+    tool: "audit_report"
+    condition: "always"
+`;
+    });
+    const [runbookRunning, setRunbookRunning] = useState(false);
+    const [runbookResult, setRunbookResult] = useState<string | null>(null);
     const [hostSkills, setHostSkills] = useState<ContextSkill[]>([]);
     const [hostWorkflows, setHostWorkflows] = useState<Record<string, HostWorkflow[]>>({});
     const [documentModeConfig, setDocumentModeConfig] = useState<DocumentModeConfig | null>(null);
@@ -1222,7 +1247,7 @@ const PanelApp: React.FC = () => {
                 }
             }
         } else {
-            setMessages(prev => [...prev, { id: `m_${Date.now() + 1}`, role: 'assistant', content: '⚠️ Настройте API ключ в TrustChain Agent для работы.', timestamp: new Date() }]);
+            setMessages(prev => [...prev, { id: `m_${Date.now() + 1}`, role: 'assistant', content: 'Configure your API key in TrustChain Agent settings.', timestamp: new Date() }]);
             setIsTyping(false);
         }
     }, [inputValue, messages, agent, params.instance, extractArtifactsFromEvents]);
@@ -1323,6 +1348,19 @@ const PanelApp: React.FC = () => {
                         {agent.isInitialized ? 'Online' : 'Offline'}
                     </div>
                     <button
+                        onClick={() => setShowRunbookOverlay(true)}
+                        style={{
+                            background: 'none', border: 'none', cursor: 'pointer',
+                            color: '#64748b', padding: 2, display: 'flex', alignItems: 'center',
+                            transition: 'color 0.15s',
+                        }}
+                        onMouseEnter={e => e.currentTarget.style.color = '#6ee7b7'}
+                        onMouseLeave={e => e.currentTarget.style.color = '#64748b'}
+                        title="Security Runbooks"
+                    >
+                        <BookOpen size={14} />
+                    </button>
+                    <button
                         onClick={() => setShowPanelSettings(true)}
                         style={{
                             background: 'none', border: 'none', cursor: 'pointer',
@@ -1386,7 +1424,7 @@ const PanelApp: React.FC = () => {
             {viewingArtifact && (
                 <div style={{ position: 'absolute', inset: 0, zIndex: 50, display: 'flex', flexDirection: 'column', background: '#0f172a' }}>
                     <div style={{ padding: '8px 12px', borderBottom: '1px solid #1e293b', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-                        <span style={{ fontSize: 12, color: '#e2e8f0' }}>📄 {viewingArtifact.title}</span>
+                        <span style={{ fontSize: 12, color: '#e2e8f0' }}>{viewingArtifact.title}</span>
                         <button onClick={() => setViewingArtifact(null)} style={{ color: '#94a3b8', cursor: 'pointer', background: 'none', border: 'none' }}><X size={16} /></button>
                     </div>
                     <div style={{ flex: 1, overflow: 'auto', padding: 12, fontSize: 12, color: '#cbd5e1' }} className="tc-markdown">
@@ -1419,6 +1457,102 @@ const PanelApp: React.FC = () => {
                 </div>
             )}
 
+            {/* ── Runbook Overlay ── */}
+            {showRunbookOverlay && (
+                <div style={{ position: 'absolute', inset: 0, zIndex: 55, display: 'flex', flexDirection: 'column', background: '#0f172a' }}>
+                    <div style={{
+                        padding: '8px 12px', borderBottom: '1px solid #1e293b',
+                        display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+                    }}>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                            <BookOpen size={14} style={{ color: '#6ee7b7' }} />
+                            <span style={{ fontSize: 12, fontWeight: 600, color: '#e2e8f0' }}>Security Runbooks</span>
+                        </div>
+                        <button
+                            onClick={() => setShowRunbookOverlay(false)}
+                            style={{ color: '#94a3b8', cursor: 'pointer', background: 'none', border: 'none' }}
+                        >
+                            <X size={16} />
+                        </button>
+                    </div>
+                    <div style={{ flex: 1, overflow: 'auto', padding: 12 }}>
+                        <div style={{ fontSize: 10, color: '#64748b', marginBottom: 8 }}>
+                            YAML-плейбуки для автоматического аудита. Агент выполняет шаги строго по порядку.
+                        </div>
+                        <textarea
+                            value={runbookYaml}
+                            onChange={e => {
+                                setRunbookYaml(e.target.value);
+                                localStorage.setItem('tc_runbook_yaml', e.target.value);
+                            }}
+                            spellCheck={false}
+                            style={{
+                                width: '100%', minHeight: 180,
+                                padding: '10px 12px',
+                                background: '#020617', border: '1px solid #1e293b',
+                                borderRadius: 8, color: '#a7f3d0',
+                                fontFamily: '"JetBrains Mono", "Fira Code", monospace',
+                                fontSize: 11, lineHeight: 1.5,
+                                resize: 'vertical', outline: 'none',
+                                boxSizing: 'border-box',
+                            }}
+                            onFocus={e => e.target.style.borderColor = '#10b981'}
+                            onBlur={e => e.target.style.borderColor = '#1e293b'}
+                        />
+                        <div style={{ display: 'flex', gap: 6, marginTop: 8, alignItems: 'center' }}>
+                            <button
+                                onClick={async () => {
+                                    setRunbookRunning(true);
+                                    setRunbookResult(null);
+                                    try {
+                                        const base = (typeof import.meta !== 'undefined' && import.meta.env?.VITE_BACKEND_URL) || '';
+                                        const resp = await fetch(`${base}/api/trustchain/runbook/execute`, {
+                                            method: 'POST',
+                                            headers: { 'Content-Type': 'application/json' },
+                                            body: JSON.stringify({ yaml_content: runbookYaml }),
+                                        });
+                                        const data = await resp.json();
+                                        setRunbookResult(data.result || data.error || 'Done');
+                                    } catch (err: any) {
+                                        setRunbookResult(`Error: ${err.message}`);
+                                    } finally {
+                                        setRunbookRunning(false);
+                                    }
+                                }}
+                                disabled={runbookRunning}
+                                style={{
+                                    padding: '5px 12px', borderRadius: 6, border: 'none',
+                                    background: runbookRunning ? '#1e293b' : 'linear-gradient(135deg, #10b981, #059669)',
+                                    color: runbookRunning ? '#475569' : '#fff',
+                                    fontSize: 10, fontWeight: 600, cursor: runbookRunning ? 'default' : 'pointer',
+                                    display: 'flex', alignItems: 'center', gap: 4,
+                                }}
+                            >
+                                {runbookRunning ? <Loader2 size={12} className="animate-spin" /> : <Play size={12} />}
+                                Запустить
+                            </button>
+                            <span style={{ fontSize: 9, color: '#475569' }}>
+                                chain_status · compliance · audit_report · verify · analytics · execution_graph
+                            </span>
+                        </div>
+                        {runbookResult && (
+                            <div style={{
+                                marginTop: 8, padding: 10, borderRadius: 8,
+                                background: '#020617', border: '1px solid #1e293b',
+                                fontSize: 10, color: '#94a3b8',
+                                fontFamily: '"JetBrains Mono", monospace',
+                                whiteSpace: 'pre-wrap', maxHeight: 250, overflow: 'auto',
+                            }}>
+                                {runbookResult}
+                            </div>
+                        )}
+                        <div style={{ fontSize: 9, color: '#334155', marginTop: 6 }}>
+                            Формат: name, workflow → step, action, tool, params, condition (always|on_success)
+                        </div>
+                    </div>
+                </div>
+            )}
+
             {/* ── Footer ── */}
             <div style={{ flexShrink: 0, padding: '8px 12px 10px', borderTop: '1px solid #1e293b' }}>
                 {isTyping && (
@@ -1435,43 +1569,15 @@ const PanelApp: React.FC = () => {
                         </button>
                     </div>
                 )}
-                <div style={{ position: 'relative', display: 'flex', alignItems: 'flex-end' }}>
-                    <textarea
-                        ref={inputRef} value={inputValue} onChange={handleInput} onKeyDown={handleKeyDown}
-                        placeholder="Введите запрос..." rows={1}
-                        style={{
-                            width: '100%', padding: '10px 44px 10px 12px',
-                            background: '#1e293b', border: '1px solid #334155',
-                            borderRadius: 12, color: '#e2e8f0', fontSize: 12,
-                            resize: 'none', outline: 'none',
-                            fontFamily: 'inherit', lineHeight: 1.4,
-                            transition: 'border-color 0.2s', boxSizing: 'border-box',
-                        }}
-                        onFocus={e => e.target.style.borderColor = '#6366f1'}
-                        onBlur={e => e.target.style.borderColor = '#334155'}
-                    />
-                    <button
-                        data-send-btn
-                        onClick={handleSend}
-                        disabled={!inputValue.trim() || isTyping}
-                        style={{
-                            position: 'absolute', right: 8, bottom: 8,
-                            width: 26, height: 26, borderRadius: 8,
-                            display: 'flex', alignItems: 'center', justifyContent: 'center',
-                            border: 'none', flexShrink: 0,
-                            cursor: inputValue.trim() && !isTyping ? 'pointer' : 'default',
-                            background: inputValue.trim() && !isTyping ? 'linear-gradient(135deg, #6366f1, #8b5cf6)' : '#334155',
-                            color: inputValue.trim() && !isTyping ? '#fff' : '#64748b',
-                            boxShadow: inputValue.trim() && !isTyping ? '0 2px 8px rgba(99,102,241,0.4)' : 'none',
-                            transition: 'all 0.2s',
-                        }}
-                    >
-                        <ArrowUp size={14} />
-                    </button>
-                </div>
-                <div style={{ textAlign: 'center', marginTop: 4 }}>
-                    <span style={{ fontSize: 9, color: '#334155' }}>Ed25519 · Shift+Enter для переноса</span>
-                </div>
+                <InputPanel
+                    inputValue={inputValue}
+                    setInputValue={setInputValue}
+                    inputRef={inputRef}
+                    isTyping={isTyping}
+                    onSend={handleSend}
+                    onKeyDown={handleKeyDown}
+                    onInput={handleInput}
+                />
             </div>
         </div>
     );

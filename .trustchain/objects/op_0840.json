@@ -1,0 +1,35 @@
+{
+  "key": "op_0840",
+  "value": {
+    "id": "op_0840",
+    "tool": "/api/trustchain-pro/status",
+    "timestamp": "2026-02-17T09:09:01.122577+00:00",
+    "data": {
+      "status": "ok",
+      "tier": "pro",
+      "modules": {
+        "compliance": true,
+        "policy_engine": true,
+        "graph": true,
+        "analytics": true,
+        "airgap": true,
+        "kms": true,
+        "tsa": true,
+        "licensing": true,
+        "streaming": true,
+        "exports": true
+      },
+      "available_count": 10,
+      "total_count": 10,
+      "timestamp": "2026-02-17T09:09:01.120955+00:00"
+    },
+    "latency_ms": 0,
+    "signature": "tou8sLr7f9vatPmbwlXq14VZipjFeh3v0GYLaa42uwcBfEDygsu2VI9akinr4Mo+n3diaXMfEgDWLDRG7VldBw==",
+    "signature_id": "e306e57d-36d3-46e8-84a3-8728e5f3a162",
+    "nonce": "e1bbb742-a49e-4280-9e22-5f82d477c980",
+    "parent_signature": "vgQ1Lb5X8D8CZOdlxdxg13QbbPG25GPn7Fr6U93anuJR4A3vMfG/0sv+e1D59J+v7j5D7mCby9WDXKOHNAnSDg==",
+    "key_id": "e7e820aa-331c-4814-9f40-7ca114e51972",
+    "algorithm": "ed25519"
+  },
+  "created_at": 1771319341.122587
+}

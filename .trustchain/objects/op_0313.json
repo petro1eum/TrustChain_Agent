@@ -1,0 +1,40 @@
+{
+  "key": "op_0313",
+  "value": {
+    "id": "op_0313",
+    "tool": "/api/trustchain/stats",
+    "timestamp": "2026-02-17T08:55:09.419149+00:00",
+    "data": {
+      "total_operations": 312,
+      "success_rate": 1.0,
+      "avg_latency_ms": 0.0,
+      "chain_length": 312,
+      "violations": 0,
+      "last_updated": "2026-02-17T08:55:09.418174+00:00",
+      "tool_metrics": [
+        {
+          "name": "/api/trustchain/stats",
+          "calls": 156,
+          "avg_latency": 0.0,
+          "error_rate": 0.0,
+          "last_call": "2026-02-17T08:55:08.192163+00:00"
+        },
+        {
+          "name": "/api/trustchain-pro/status",
+          "calls": 156,
+          "avg_latency": 0.0,
+          "error_rate": 0.0,
+          "last_call": "2026-02-17T08:55:08.193611+00:00"
+        }
+      ]
+    },
+    "latency_ms": 0,
+    "signature": "sehfl+BMnvBNQdTTZFxuEZ/8vPvl1M3Zupc3j+m9anJlmvF6EU9nb8Wr7Y8XxSaisu7rq17a5EZfTh2bH2UwCQ==",
+    "signature_id": "588c1bec-2c48-4019-a7c4-fbd8ecc0f836",
+    "nonce": "8a63b4ad-0f49-4b12-a20a-0c286cad95c6",
+    "parent_signature": "X6qZKb4K8faqbPDw9St+AzpM/nITcg3iqFdn6v9nX9iCNPi5L8MShhiRZiF9YGe5yAb+4ubH6F3+c7l3V7AWCQ==",
+    "key_id": "e7e820aa-331c-4814-9f40-7ca114e51972",
+    "algorithm": "ed25519"
+  },
+  "created_at": 1771318509.4191601
+}

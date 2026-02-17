@@ -45,9 +45,9 @@ from backend.routers.skills import router as skills_router
 try:
     from backend.routers.trustchain_pro_api import router as trustchain_pro_router
     _has_trustchain_pro = True
-except ImportError:
+except Exception as _pro_err:
     _has_trustchain_pro = False
-    print("⚠️  trustchain_pro not installed — Pro API disabled")
+    print(f"⚠️  trustchain_pro not available — Pro API disabled: {_pro_err}")
 
 app.include_router(trustchain_router)
 app.include_router(mcp_router)

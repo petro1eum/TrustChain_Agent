@@ -1,0 +1,35 @@
+{
+  "key": "op_0256",
+  "value": {
+    "id": "op_0256",
+    "tool": "/api/trustchain-pro/status",
+    "timestamp": "2026-02-17T08:53:39.417498+00:00",
+    "data": {
+      "status": "ok",
+      "tier": "pro",
+      "modules": {
+        "compliance": true,
+        "policy_engine": true,
+        "graph": true,
+        "analytics": true,
+        "airgap": true,
+        "kms": true,
+        "tsa": true,
+        "licensing": true,
+        "streaming": true,
+        "exports": true
+      },
+      "available_count": 10,
+      "total_count": 10,
+      "timestamp": "2026-02-17T08:53:39.415907+00:00"
+    },
+    "latency_ms": 0,
+    "signature": "0giEYsI6Y1H5N4BCpzjsQEfg3NykEuov1S0XWnIRa8bS1gMFu+RIQi6noQcGXXOM54i8tBb/A0qzD1eHkTtcCg==",
+    "signature_id": "89ed4a97-c8ba-4af7-90aa-9e9d8d0cd6eb",
+    "nonce": "a3a7967b-ed38-4647-838c-e199cbf394b8",
+    "parent_signature": "Ceh+NUjsCw2aRzRk6UVrVcTdHpy0STwZeINEk6CZodTYiqw0yI8hPUN9aDKEePAunOvi7+OJDGCj0loLJ83LBQ==",
+    "key_id": "e7e820aa-331c-4814-9f40-7ca114e51972",
+    "algorithm": "ed25519"
+  },
+  "created_at": 1771318419.417512
+}

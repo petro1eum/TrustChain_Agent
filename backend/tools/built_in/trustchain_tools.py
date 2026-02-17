@@ -73,7 +73,7 @@ class TrustChainVerify(BaseTool):
 
         if target is None:
             return (
-                f"❌ Operation `{self.signature_id}` not found in the current "
+                f"[ERROR] Operation `{self.signature_id}` not found in the current "
                 f"audit trail ({len(operations)} operations recorded). "
                 f"Provide a valid signature ID."
             )
@@ -86,7 +86,7 @@ class TrustChainVerify(BaseTool):
             parent = target.get("parent_signature", "—")
             tool = target.get("tool", "unknown")
 
-            status = "✅ VALID" if is_valid else "❌ INVALID — possible tampering"
+            status = "VALID" if is_valid else "INVALID -- possible tampering"
             return (
                 f"## Signature Verification\n\n"
                 f"| Field | Value |\n|---|---|\n"
@@ -98,7 +98,7 @@ class TrustChainVerify(BaseTool):
                 f"| **Algorithm** | `{target.get('algorithm', 'Ed25519')}` |\n"
             )
         except Exception as e:
-            return f"❌ Verification failed: {e}"
+            return f"[ERROR] Verification failed: {e}"
 
 
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
@@ -122,7 +122,7 @@ class TrustChainAuditReport(BaseTool):
         _, operations = _get_tc()
 
         if not operations:
-            return "📋 No signed operations recorded yet in this session."
+            return "No signed operations recorded yet in this session."
 
         ops = operations if self.last_n == 0 else operations[-self.last_n:]
 
@@ -134,7 +134,7 @@ class TrustChainAuditReport(BaseTool):
         for i, op in enumerate(ops, 1):
             sig = op.get("signature", "—")[:16]
             parent = (op.get("parent_signature") or "—")[:16]
-            verified = "✅" if op.get("verified", False) else "⚠️"
+            verified = "OK" if op.get("verified", False) else "WARN"
             tool = op.get("tool", "?")
             lines.append(f"| {i} | `{tool}` | `{sig}…` | `{parent}…` | {verified} |")
 
@@ -165,7 +165,7 @@ class TrustChainComplianceCheck(BaseTool):
         mods = _get_pro_modules()
         compliance = mods.get("compliance")
         if compliance is None:
-            return ("⚠️ Compliance module not available.  "
+            return ("[WARN] Compliance module not available.  "
                     "Requires TrustChain Pro license (Enterprise tier).")
 
         try:
@@ -176,10 +176,10 @@ class TrustChainComplianceCheck(BaseTool):
                 f"| Metric | Value |\n|---|---|\n"
                 f"| **Framework** | {self.framework.upper()} |\n"
                 f"| **Score** | **{score}** |\n"
-                f"| **Status** | {'✅ PASS' if (isinstance(score, (int, float)) and score >= 80) else '⚠️ Review needed'} |\n"
+                f"| **Status** | {'PASS' if (isinstance(score, (int, float)) and score >= 80) else 'Review needed'} |\n"
             )
         except Exception as e:
-            return f"❌ Compliance check failed: {e}"
+            return f"[ERROR] Compliance check failed: {e}"
 
 
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
@@ -198,7 +198,7 @@ class TrustChainChainStatus(BaseTool):
 
         total = len(operations)
         if total == 0:
-            return "🔗 Chain is empty — no operations recorded yet."
+            return "Chain is empty -- no operations recorded yet."
 
         last = operations[-1]
         key_id = last.get("key_id", "—")
@@ -212,7 +212,7 @@ class TrustChainChainStatus(BaseTool):
             if expected_parent and actual_parent and expected_parent != actual_parent:
                 broken_links += 1
 
-        integrity = "✅ Intact" if broken_links == 0 else f"⚠️ {broken_links} broken link(s)"
+        integrity = "Intact" if broken_links == 0 else f"WARN: {broken_links} broken link(s)"
 
         return (
             f"## Chain of Trust Status\n\n"
@@ -247,7 +247,7 @@ class TrustChainExecutionGraph(BaseTool):
         _, operations = _get_tc()
 
         if not operations:
-            return "📊 No operations recorded — graph is empty."
+            return "No operations recorded -- graph is empty."
 
         if self.format == "mermaid":
             lines = ["## Execution Graph (Mermaid)\n", "```mermaid", "graph TD"]
@@ -293,7 +293,7 @@ class TrustChainAnalyticsSnapshot(BaseTool):
             # Fall back to counting from raw operations
             _, operations = _get_tc()
             if not operations:
-                return "📊 No operations recorded yet."
+                return "No operations recorded yet."
 
             from collections import Counter
             tool_counts = Counter(op.get("tool", "?") for op in operations)
@@ -319,7 +319,7 @@ class TrustChainAnalyticsSnapshot(BaseTool):
                 return "\n".join(lines)
             return f"## Analytics\n\n{snapshot}"
         except Exception as e:
-            return f"❌ Analytics snapshot failed: {e}"
+            return f"[ERROR] Analytics snapshot failed: {e}"
 
 
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
@@ -397,21 +397,21 @@ class TrustChainRunbook(BaseTool):
         try:
             runbook = _yaml.safe_load(self.yaml_content)
         except Exception as e:
-            return f"❌ Invalid YAML: {e}"
+            return f"[ERROR] Invalid YAML: {e}"
 
         if not isinstance(runbook, dict):
-            return "❌ Runbook must be a YAML mapping with 'workflow' key."
+            return "[ERROR] Runbook must be a YAML mapping with 'workflow' key."
 
         name = runbook.get("name", "Unnamed Runbook")
         description = runbook.get("description", "")
         steps = runbook.get("workflow", [])
 
         if not steps:
-            return "❌ Runbook has no workflow steps."
+            return "[ERROR] Runbook has no workflow steps."
 
         aliases = _get_tool_aliases()
         results: list[str] = [
-            f"## 📋 Runbook: {name}\n",
+            f"## Runbook: {name}\n",
         ]
         if description:
             results.append(f"_{description}_\n")
@@ -430,7 +430,7 @@ class TrustChainRunbook(BaseTool):
             if not all_passed and condition != "always":
                 results.append(
                     f"### Step {step_num}: {action}\n"
-                    f"⏭️ **Skipped** (previous step failed)\n\n---\n"
+                    f"**Skipped** (previous step failed)\n\n---\n"
                 )
                 continue
 
@@ -439,7 +439,7 @@ class TrustChainRunbook(BaseTool):
             if tool_cls is None:
                 results.append(
                     f"### Step {step_num}: {action}\n"
-                    f"❌ **Unknown tool:** `{tool_name}`\n"
+                    f"[ERROR] **Unknown tool:** `{tool_name}`\n"
                     f"Available: {', '.join(sorted(set(aliases.keys())))}\n\n---\n"
                 )
                 all_passed = False
@@ -451,18 +451,18 @@ class TrustChainRunbook(BaseTool):
                 output = await tool_instance.run(context=context)
                 results.append(
                     f"### Step {step_num}: {action}\n"
-                    f"🔧 `{tool_name}` → ✅ Success\n\n"
+                    f"`{tool_name}` -> OK\n\n"
                     f"{output}\n\n---\n"
                 )
             except Exception as e:
                 results.append(
                     f"### Step {step_num}: {action}\n"
-                    f"🔧 `{tool_name}` → ❌ Failed: {e}\n\n---\n"
+                    f"`{tool_name}` -> FAILED: {e}\n\n---\n"
                 )
                 all_passed = False
 
         # Summary
-        status = "✅ All steps passed" if all_passed else "⚠️ Some steps failed"
+        status = "All steps passed" if all_passed else "Some steps failed"
         results.append(f"\n**Result:** {status}")
 
         return "\n".join(results)

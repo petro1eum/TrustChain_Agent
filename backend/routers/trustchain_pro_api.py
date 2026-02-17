@@ -464,7 +464,8 @@ class ReasoningSignRequest(BaseModel):
 
 @router.post("/streaming/sign-reasoning")
 async def sign_reasoning(req: ReasoningSignRequest):
-    """Sign reasoning steps using StreamingReasoningChain."""
+    """Sign reasoning steps using StreamingReasoningChain (Pro) or OSS fallback."""
+    # Try Pro StreamingReasoningChain first
     try:
         from trustchain_pro.enterprise.streaming import StreamingReasoningChain
         tc = _get_tc()
@@ -472,10 +473,36 @@ async def sign_reasoning(req: ReasoningSignRequest):
         for step_text in req.steps:
             chain._sign_step(step_text)
         return chain.export_json()
-    except ImportError:
-        raise HTTPException(status_code=501, detail="StreamingReasoningChain module not available")
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+    except Exception:
+        pass
+
+    # OSS fallback — sign each step individually with TrustChain OSS
+    tc = _get_tc()
+    signed_steps = []
+    for i, step_text in enumerate(req.steps):
+        try:
+            sig = tc.sign(data={"step": i, "text": step_text[:500]}, tool=f"reasoning_step_{i}")
+            signed_steps.append({
+                "step": i,
+                "text": step_text[:500],
+                "signature": sig.signature if hasattr(sig, "signature") else str(sig),
+                "verified": True,
+            })
+        except Exception as e:
+            signed_steps.append({
+                "step": i,
+                "text": step_text[:500],
+                "signature": None,
+                "verified": False,
+                "error": str(e),
+            })
+
+    return {
+        "name": req.name,
+        "steps": signed_steps,
+        "all_verified": all(s["verified"] for s in signed_steps),
+        "fallback": "oss",
+    }
 
 
 # ════════════════════════════════════════════

@@ -17,6 +17,22 @@ export default defineConfig({
                 changeOrigin: true,
                 rewrite: (path) => path.replace('/playwright-mcp', '/mcp'),
             },
+            '/api': {
+                target: 'http://localhost:9742',
+                changeOrigin: true,
+            },
+            '/trustchain': {
+                target: 'http://localhost:9742',
+                changeOrigin: true,
+            },
+            '/health': {
+                target: 'http://localhost:9742',
+                changeOrigin: true,
+            },
+            '/metrics': {
+                target: 'http://localhost:9742',
+                changeOrigin: true,
+            },
         },
     },
     // Ensure /panel path doesn't 404 in dev
