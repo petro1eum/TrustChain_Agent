@@ -163,15 +163,15 @@ vitest: 93/93 passed
 | 13 | **Basic Policy** | `v2/policy.py` | ❌ Pro `PolicyEngine` | ❌ | — |
 | 14 | **Basic Graph** | `v2/graph.py` | ❌ Pro `ExecutionGraph` | ❌ | — |
 | 15 | **Basic TSA** | `v2/tsa.py` | ❌ Pro `LocalTSA` | ❌ | — |
-| 16 | **Events / hooks** | `v2/events.py` | ❌ | ❌ | — |
-| 17 | **Metrics** | `v2/metrics.py` | ❌ | ❌ | — |
+| 16 | **Events / hooks** | `v2/events.py` | ✅ `TrustEvent` CloudEvents | — | — |
+| 17 | **Metrics** | `v2/metrics.py` | ✅ `get_metrics()` Prometheus | ✅ `/metrics` | — |
 | 18 | **Multi-tenancy** | `v2/tenants.py` | ❌ | ❌ | — |
 | 19 | **HTTP Server** | `v2/server.py` | — свой FastAPI | — | — |
 | 20 | **Pydantic v2** | `integrations/pydantic_v2.py` | ❌ | ❌ | — |
 | 21 | **LangChain callback** | `integrations/langchain.py` | ❌ | — | — |
 | 22 | **LangSmith callback** | `integrations/langsmith.py` | ❌ | — | — |
-| 23 | **OpenTelemetry** | `integrations/opentelemetry.py` | ❌ | — | — |
-| 24 | **FastAPI middleware** | `integrations/fastapi.py` | ❌ не как middleware | — | — |
+| 23 | **OpenTelemetry** | `integrations/opentelemetry.py` | ✅ `TrustChainInstrumentor` | — | — |
+| 24 | **FastAPI middleware** | `integrations/fastapi.py` | ✅ `TrustChainMiddleware` in `main.py` | ✅ auto-sign | — |
 | 25 | **Flask middleware** | `integrations/flask.py` | — n/a | — | — |
 | 26 | **Django middleware** | `integrations/django.py` | — n/a | — | — |
 | 27 | **MCP integration** | `integrations/mcp.py` | ❌ своя MCP | — | — |
@@ -180,7 +180,7 @@ vitest: 93/93 passed
 | 30 | **UI Explorer** | `ui/explorer.py` | — | — | ❌ свой React UI |
 | 31 | **CLI** | `cli.py` | — | — | — |
 
-**OSS покрытие: 10/31 ✅ во всех применимых слоях, 1 ⚠️, 12 ❌, 8 неприменимо**
+**OSS покрытие: 14/31 ✅ во всех применимых слоях, 1 ⚠️, 8 ❌, 8 неприменимо**
 
 ---
 
@@ -222,9 +222,9 @@ vitest: 93/93 passed
 
 | Tier | agent_runtime ✅ | REST API ✅ | Frontend ✅ | Всего модулей |
 |---|:---:|:---:|:---:|:---:|
-| **OSS** | 10 | 8 | 6 | 31 |
+| **OSS** | **14** | **10** | 6 | 31 |
 | **Pro** | 5 | 8 | **8** | 8 |
 | **Enterprise** | 1 | 4 | **4** | 5 |
-| **Итого** | **16** | **20** | **18** | **44** |
+| **Итого** | **20** | **22** | **18** | **44** |
 
-> **Вывод:** Frontend закрыл все пробелы: +7 модулей (Compliance, PolicyEngine, TSA, KMS, AirGap, SeatManager + Pro Modules status) подключены через `ProSettingsPanel.tsx`. Итого 18/44 Frontend ✅ (было 11). Единственные незадействованные модули: Redis HA и OnaiDocs bridge.
+> **Вывод:** +4 OSS модуля подключены: Events (CloudEvents), Metrics (Prometheus + `/metrics`), OpenTelemetry (auto-instrument), FastAPI middleware (auto-sign responses). Итого 20/44 agent_runtime ✅, 22/44 REST ✅, 18/44 Frontend ✅. Единственные незадействованные модули: Redis HA, OnaiDocs bridge, + N/A интеграции (LangChain, Flask, Django, pytest).

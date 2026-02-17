@@ -118,6 +118,44 @@ except ImportError:
     _CE_cls = None
 
 
+# ── TrustChain OSS: Events (CloudEvents) ──
+
+_tc_events_available = False
+try:
+    from trustchain.v2.events import TrustEvent
+    _tc_events_available = True
+    logger.info("📡 TrustChain OSS: Events (CloudEvents) module loaded")
+except ImportError:
+    TrustEvent = None
+
+# ── TrustChain OSS: Metrics (Prometheus) ──
+
+_tc_metrics = None
+try:
+    from trustchain.v2.metrics import get_metrics
+    _tc_metrics = get_metrics(enabled=True)
+    logger.info("📈 TrustChain OSS: Metrics (Prometheus) module loaded")
+except ImportError:
+    pass
+
+# ── TrustChain OSS: OpenTelemetry ──
+
+_tc_otel_available = False
+try:
+    from trustchain.integrations.opentelemetry import (
+        TrustChainInstrumentor,
+        set_trustchain_span_attributes,
+    )
+    TrustChainInstrumentor().instrument()
+    _tc_otel_available = True
+    logger.info("🔭 TrustChain OSS: OpenTelemetry instrumentor activated")
+except ImportError:
+    set_trustchain_span_attributes = None
+except Exception as _otel_err:
+    logger.debug(f"OpenTelemetry init skipped: {_otel_err}")
+    set_trustchain_span_attributes = None
+
+
 # ── SSE Event Queues (for live streaming to frontend) ──
 
 _event_queues: list[asyncio.Queue] = []
@@ -455,6 +493,34 @@ async def run_agent(
                                 )
                             except Exception as ex:
                                 logger.debug(f"Analytics record failed: {ex}")
+
+                        # ── TrustChain OSS: Metrics (Prometheus counters) ──
+                        if _tc_metrics:
+                            try:
+                                _tc_metrics.signs_total.labels(
+                                    tool_id=tool_name,
+                                    status="ok" if tool_record["success"] else "error",
+                                ).inc()
+                                _tc_metrics.sign_latency.labels(
+                                    tool_id=tool_name,
+                                ).observe(latency_ms / 1000.0)
+                            except Exception:
+                                pass
+
+                        # ── TrustChain OSS: Events (CloudEvents emission) ──
+                        if _tc_events_available and TrustEvent:
+                            try:
+                                _event = TrustEvent(
+                                    source=f"/agent/{agent_name}/tool/{tool_name}",
+                                    subject=tool_name,
+                                    data={"args": tool_args, "result_preview": result_str[:300]},
+                                    trustchain_signature=tool_record["trustchain"].get("signature"),
+                                    trustchain_nonce=tool_record["trustchain"].get("id"),
+                                    trustchain_chain_id=task.task_id,
+                                )
+                                logger.debug(f"CloudEvent emitted: {_event.id} for {tool_name}")
+                            except Exception:
+                                pass
 
                         # ── TrustChain Pro: Execution Graph ──
                         if _tc_graph:

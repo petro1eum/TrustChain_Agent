@@ -4,7 +4,7 @@ TrustChain Agent — FastAPI Backend
 
 from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import JSONResponse
+from fastapi.responses import JSONResponse, Response
 
 app = FastAPI(
     title="TrustChain Agent API",
@@ -18,6 +18,21 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+# ── TrustChain OSS: FastAPI Middleware (auto-sign all JSON responses) ──
+try:
+    from trustchain.integrations.fastapi import TrustChainMiddleware
+    from backend.routers.trustchain_api import _tc as _signing_tc
+    app.add_middleware(
+        TrustChainMiddleware,
+        trustchain=_signing_tc,
+        sign_all=True,
+        skip_paths=["/docs", "/openapi.json", "/health", "/redoc", "/"],
+    )
+    print("✅ TrustChain OSS: FastAPI TrustChainMiddleware active (auto-sign responses)")
+except ImportError as _mw_err:
+    print(f"⚠️  TrustChainMiddleware not installed — responses unsigned: {_mw_err}")
+
 
 # ── Routers ──
 from backend.routers.trustchain_api import router as trustchain_router
@@ -80,6 +95,19 @@ async def conversations_stub(path: str = ""):
 async def health():
     return {"status": "ok", "service": "trustchain-agent-backend"}
 
+@app.get("/metrics")
+async def metrics():
+    """Prometheus metrics endpoint (TrustChain OSS Metrics)."""
+    try:
+        from prometheus_client import generate_latest
+        return Response(
+            content=generate_latest(),
+            media_type="text/plain; version=0.0.4; charset=utf-8",
+        )
+    except ImportError:
+        return {"error": "prometheus_client not installed"}
+
 @app.get("/")
 async def root():
     return {"service": "TrustChain Agent API", "version": "0.1.0", "docs": "/docs"}
+
