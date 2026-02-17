@@ -122,6 +122,16 @@ async def pro_status():
         modules["licensing"] = True
     except Exception:
         modules["licensing"] = False
+    try:
+        from trustchain_pro.enterprise.streaming import StreamingReasoningChain
+        modules["streaming"] = True
+    except Exception:
+        modules["streaming"] = False
+    try:
+        from trustchain_pro.enterprise.exports import ChainExplorer
+        modules["exports"] = True
+    except Exception:
+        modules["exports"] = False
 
     return {
         "status": "ok",
@@ -238,6 +248,31 @@ async def execution_graph():
         raise HTTPException(status_code=500, detail=str(e))
 
 
+class GraphNodeRequest(BaseModel):
+    """Request body for POST /graph/add-node."""
+    session_id: str = "frontend"
+    tool: str
+    args: Dict[str, Any] = {}
+    result_preview: str = ""
+
+
+@router.post("/graph/add-node")
+async def add_graph_node(req: GraphNodeRequest):
+    """Add a node to the execution graph (called by frontend per tool call)."""
+    try:
+        from trustchain_pro.enterprise.graph import ExecutionGraph
+        ops = _get_operations()
+        if not ops:
+            return {"status": "skipped", "reason": "no operations in chain"}
+        graph = ExecutionGraph.from_chain(ops)
+        graph.add_node(req.session_id, req.tool, req.args, req.result_preview[:500])
+        return {"status": "recorded", "tool": req.tool}
+    except ImportError:
+        return {"status": "unavailable", "error": "ExecutionGraph module not available"}
+    except Exception as e:
+        return {"status": "error", "error": str(e)}
+
+
 # ════════════════════════════════════════════
 #  Analytics
 # ════════════════════════════════════════════
@@ -262,6 +297,26 @@ async def analytics_snapshot():
         }
     except Exception as e:
         return {"error": str(e)}
+
+
+class AnalyticsRecordRequest(BaseModel):
+    """Request body for POST /analytics/record."""
+    tool: str
+    latency_ms: float = 0
+    success: bool = True
+
+
+@router.post("/analytics/record")
+async def record_analytics(req: AnalyticsRecordRequest):
+    """Record a tool execution in analytics (called by frontend per tool call)."""
+    analytics = _get_analytics()
+    if analytics is None:
+        return {"status": "unavailable", "error": "Analytics not available"}
+    try:
+        analytics.record_operation(req.tool, req.latency_ms, req.success)
+        return {"status": "recorded", "tool": req.tool}
+    except Exception as e:
+        return {"status": "error", "error": str(e)}
 
 
 @router.post("/analytics/reset")
@@ -395,3 +450,58 @@ async def export_chain_json():
         "length": len(ops),
         "exported_at": _now_iso(),
     }
+
+
+# ════════════════════════════════════════════
+#  Streaming Reasoning Chain
+# ════════════════════════════════════════════
+
+class ReasoningSignRequest(BaseModel):
+    """Request body for POST /streaming/sign-reasoning."""
+    steps: List[str]
+    name: str = "agent_reasoning"
+
+
+@router.post("/streaming/sign-reasoning")
+async def sign_reasoning(req: ReasoningSignRequest):
+    """Sign reasoning steps using StreamingReasoningChain."""
+    try:
+        from trustchain_pro.enterprise.streaming import StreamingReasoningChain
+        tc = _get_tc()
+        chain = StreamingReasoningChain(tc, name=req.name)
+        for step_text in req.steps:
+            chain._sign_step(step_text)
+        return chain.export_json()
+    except ImportError:
+        raise HTTPException(status_code=501, detail="StreamingReasoningChain module not available")
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+# ════════════════════════════════════════════
+#  Chain Explorer — HTML Export
+# ════════════════════════════════════════════
+
+@router.get("/export/html")
+async def export_chain_html():
+    """Generate an interactive HTML audit report via ChainExplorer."""
+    try:
+        from trustchain_pro.enterprise.exports import ChainExplorer
+        import tempfile, os
+        from fastapi.responses import HTMLResponse
+
+        tc = _get_tc()
+        ops = _get_operations()
+
+        explorer = ChainExplorer(responses=ops, tc=tc)
+        tmp_path = os.path.join(tempfile.gettempdir(), "trustchain_audit.html")
+        explorer.export_html(tmp_path)
+
+        with open(tmp_path, "r") as f:
+            html_content = f.read()
+
+        return HTMLResponse(content=html_content)
+    except ImportError:
+        raise HTTPException(status_code=501, detail="ChainExplorer module not available")
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))

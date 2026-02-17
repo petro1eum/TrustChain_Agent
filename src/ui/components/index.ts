@@ -24,3 +24,4 @@ export { InputPanel } from './InputPanel';
 export { VerifiedFact } from './VerifiedFact';
 export type { VerificationInfo } from './VerifiedFact';
 export type { ChatAttachmentPreview } from './InputPanel';
+export { ChainStatusBar } from './ChainStatusBar';

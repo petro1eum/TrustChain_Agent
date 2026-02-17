@@ -41,6 +41,7 @@ import { ChatSidebar } from './components/ChatSidebar';
 import { ChatHeader } from './components/ChatHeader';
 import { ChatArea } from './components/ChatArea';
 import { InputPanel } from './components/InputPanel';
+import { ChainStatusBar } from './components/ChainStatusBar';
 
 /* Types imported from ./components/types */
 
@@ -900,39 +901,96 @@ const TrustChainAgentApp: React.FC = () => {
                     signature: finalSignature,
                     verified: !!finalSignature,
                     ...(createdArtifactIds.length > 0 && { artifactIds: createdArtifactIds }),
-                    executionSteps: events.map((ev, idx) => {
-                        if (ev.type === 'thinking') {
-                            return {
-                                id: ev.id,
-                                type: 'planning' as const,
-                                label: ev.title || 'Reasoning',
-                                detail: ev.content,
-                                latencyMs: 0,
-                            };
-                        } else if (ev.type === 'tool_call') {
-                            return {
-                                id: ev.id,
+                    executionSteps: (() => {
+                        // ── Tier mapping for tool names ──
+                        const TOOL_TIERS: Record<string, 'oss' | 'pro' | 'enterprise'> = {
+                            tc_sign: 'oss', tc_verify_chain: 'oss', tc_get_audit_trail: 'oss',
+                            tc_get_stats: 'oss', tc_security_scan: 'oss', tc_git_diff: 'oss',
+                            tc_execution_graph: 'pro', tc_analytics_snapshot: 'pro',
+                            tc_policy_evaluate: 'pro', tc_kms_keys: 'pro', tc_kms_rotate: 'pro',
+                            tc_compliance_report: 'enterprise', tc_tsa_timestamp: 'enterprise',
+                            tc_tsa_verify: 'enterprise', tc_airgap_status: 'enterprise',
+                        };
+                        const getTier = (name: string) => TOOL_TIERS[name] || (name.startsWith('tc_') ? 'oss' : undefined);
+
+                        // ── Merge tool_call + tool_result pairs ──
+                        const merged: any[] = [];
+                        const callMap = new Map<string, any>(); // toolCallId → call event
+
+                        for (const ev of events) {
+                            if (ev.type === 'thinking') {
+                                merged.push({
+                                    id: ev.id,
+                                    type: 'planning' as const,
+                                    label: ev.title || 'Reasoning',
+                                    detail: ev.content,
+                                    latencyMs: 0,
+                                });
+                            } else if (ev.type === 'tool_call') {
+                                callMap.set(ev.id, ev);
+                                // Don't push yet — wait for matching result
+                            } else if (ev.type === 'tool_result') {
+                                const callEv = callMap.get((ev as any).toolCallId);
+                                const toolName = callEv?.name || 'unknown';
+                                const tier = getTier(toolName);
+                                const latencyMs = callEv?.timestamp && ev.timestamp
+                                    ? new Date(ev.timestamp).getTime() - new Date(callEv.timestamp).getTime()
+                                    : 0;
+                                const result = ev.result;
+                                const backendSig = typeof result === 'object' && result?.__tc_backend_signature;
+                                const backendVerified = typeof result === 'object' && result?.__tc_backend_verified;
+
+                                merged.push({
+                                    id: ev.id,
+                                    type: 'tool' as const,
+                                    label: toolName,
+                                    toolName,
+                                    args: callEv?.arguments,
+                                    detail: typeof result === 'string'
+                                        ? result?.substring(0, 150)
+                                        : JSON.stringify(result)?.substring(0, 150),
+                                    latencyMs: Math.max(0, latencyMs),
+                                    signed: !!(ev as any).signature || !!backendSig,
+                                    signature: (ev as any).signature || backendSig,
+                                    backendVerified: !!backendVerified,
+                                    ...(tier && { tier }),
+                                });
+
+                                // Remove from map so unmatched calls are pushed at the end
+                                if (callEv) callMap.delete(callEv.id);
+                            }
+                        }
+
+                        // Push any unmatched tool_call events (still running)
+                        for (const [, callEv] of callMap) {
+                            const toolName = callEv.name;
+                            merged.push({
+                                id: callEv.id,
                                 type: 'tool' as const,
-                                label: ev.name,
-                                toolName: ev.name,
-                                args: ev.arguments,
-                                detail: `Executing ${ev.name}`,
+                                label: toolName,
+                                toolName,
+                                args: callEv.arguments,
+                                detail: `Executing ${toolName}...`,
                                 latencyMs: 0,
                                 signed: false,
-                            };
-                        } else {
-                            // tool_result
-                            return {
-                                id: ev.id,
-                                type: 'tool' as const,
-                                label: `Result`,
-                                detail: typeof ev.result === 'string' ? ev.result?.substring(0, 150) : JSON.stringify(ev.result)?.substring(0, 150),
-                                latencyMs: 0,
-                                signed: !!(ev as any).signature,
-                                signature: (ev as any).signature,
-                            };
+                                ...(getTier(toolName) && { tier: getTier(toolName) }),
+                            });
                         }
-                    }),
+
+                        // Auto-generate "Artifacts" summary step
+                        const artifactSteps = merged.filter(s => s.toolName === 'create_artifact');
+                        if (artifactSteps.length > 0) {
+                            merged.push({
+                                id: `artifacts_summary_${Date.now()}`,
+                                type: 'planning' as const,
+                                label: `${artifactSteps.length} Artifact${artifactSteps.length > 1 ? 's' : ''} Generated`,
+                                detail: artifactSteps.map(s => s.args?.identifier || s.args?.title || 'artifact').join(', '),
+                                latencyMs: 0,
+                            });
+                        }
+
+                        return merged;
+                    })(),
                 };
                 setMessages(prev => [...prev, assistantMsg]);
                 setIsTyping(false);
@@ -1296,6 +1354,8 @@ const TrustChainAgentApp: React.FC = () => {
                     </div>
                 </div>
             )}
+            {/* ═══ CHAIN STATUS BAR ═══ */}
+            {!isEmbedded && <ChainStatusBar />}
         </div>
     );
 };

@@ -20,6 +20,9 @@ router = APIRouter(prefix="/api/trustchain", tags=["trustchain"])
 
 _tc = TrustChain(TrustChainConfig(
     key_file="trustchain_keys.json",
+    enable_nonce=True,
+    nonce_backend="memory",
+    nonce_ttl=86400,  # 24h
 ))
 _operations: List[Dict[str, Any]] = []
 _violations: List[Dict[str, Any]] = []
@@ -101,6 +104,13 @@ class OperationRecord(BaseModel):
     verified: bool
     data: Dict[str, Any]
     parent_signature: Optional[str] = None
+
+
+class SignRequest(BaseModel):
+    """Request body for POST /chain/record — used by frontend backendSigningService."""
+    tool: str
+    data: Dict[str, Any] = {}
+    latency_ms: float = 0
 
 
 class ToolMetric(BaseModel):
@@ -227,9 +237,9 @@ async def get_chain(limit: int = 100, offset: int = 0):
 
 
 @router.post("/chain/record")
-async def record_operation(tool: str, data: Dict[str, Any], latency_ms: float = 0):
+async def record_operation(req: SignRequest):
     """Record a new signed operation in the chain (via API call)."""
-    result = sign_operation(tool, data, latency_ms)
+    result = sign_operation(req.tool, req.data, req.latency_ms)
     return {"status": "recorded", **result}
 
 
@@ -315,7 +325,13 @@ async def rotate_key():
     """Trigger key rotation (creates new key pair)."""
     global _tc
     old_key_id = _tc.get_key_id()
-    _tc = TrustChain(TrustChainConfig(persist_keys=True, key_path="trustchain_keys.json"))
+    _tc = TrustChain(TrustChainConfig(
+        persist_keys=True,
+        key_path="trustchain_keys.json",
+        enable_nonce=True,
+        nonce_backend="memory",
+        nonce_ttl=86400,
+    ))
     return {
         "status": "rotated",
         "old_key": old_key_id,

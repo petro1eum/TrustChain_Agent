@@ -63,6 +63,60 @@ try:
 except ImportError:
     pass
 
+_tc_streaming = None
+_tc_streaming_available = False
+
+try:
+    from trustchain_pro.enterprise.streaming import StreamingReasoningChain as _SRC_cls
+    _tc_streaming_available = True
+    logger.info("🌊 TrustChain Pro: StreamingReasoningChain module loaded")
+except ImportError:
+    _SRC_cls = None
+
+
+def _get_streaming_chain():
+    """Lazy-init StreamingReasoningChain (needs TrustChain instance)."""
+    global _tc_streaming
+    if _tc_streaming is None and _tc_streaming_available:
+        try:
+            from backend.routers.trustchain_api import _tc
+            _tc_streaming = _SRC_cls(_tc, name="agent_reasoning")
+        except Exception as ex:
+            logger.debug(f"StreamingReasoningChain init failed: {ex}")
+    return _tc_streaming
+
+
+_tc_policy_engine = None
+_tc_policy_available = False
+
+try:
+    from trustchain_pro.enterprise.policy_engine import PolicyEngine as _PE_cls
+    _tc_policy_available = True
+    logger.info("🛡️  TrustChain Pro: PolicyEngine module loaded")
+except ImportError:
+    _PE_cls = None
+
+
+def _get_policy_engine():
+    """Lazy-init PolicyEngine."""
+    global _tc_policy_engine
+    if _tc_policy_engine is None and _tc_policy_available:
+        try:
+            _tc_policy_engine = _PE_cls()
+        except Exception as ex:
+            logger.debug(f"PolicyEngine init failed: {ex}")
+    return _tc_policy_engine
+
+
+_tc_chain_explorer_available = False
+
+try:
+    from trustchain_pro.enterprise.exports import ChainExplorer as _CE_cls
+    _tc_chain_explorer_available = True
+    logger.info("📄 TrustChain Pro: ChainExplorer module loaded")
+except ImportError:
+    _CE_cls = None
+
 
 # ── SSE Event Queues (for live streaming to frontend) ──
 
@@ -164,6 +218,7 @@ class AgentTask(BaseModel):
     error: Optional[str] = None
     model: str = DEFAULT_MODEL
     iterations: int = 0
+    chain_export_path: Optional[str] = None
 
 
 # In-memory state
@@ -315,6 +370,15 @@ async def run_agent(
                 # Add assistant message to history
                 messages.append(msg)
 
+                # ── TrustChain Pro: Sign reasoning content (StreamingReasoningChain) ──
+                reasoning_content = msg.get("content") or ""
+                streaming = _get_streaming_chain()
+                if reasoning_content and streaming:
+                    try:
+                        streaming._sign_step(reasoning_content[:2000])
+                    except Exception as ex:
+                        logger.debug(f"StreamingReasoningChain sign failed: {ex}")
+
                 # Check for tool calls
                 tool_calls = msg.get("tool_calls")
                 if tool_calls:
@@ -337,6 +401,25 @@ async def run_agent(
                             "args": tool_args,
                             "timestamp": datetime.now().isoformat(),
                         }
+
+                        # ── TrustChain Pro: PolicyEngine pre-flight ──
+                        policy_engine = _get_policy_engine()
+                        if policy_engine:
+                            try:
+                                evaluation = policy_engine.evaluate(
+                                    tool_id=tool_name,
+                                    args=tool_args,
+                                    context={"task_id": task.task_id, "iteration": iteration},
+                                )
+                                tool_record["policy_result"] = {
+                                    "allowed": evaluation.allowed if hasattr(evaluation, 'allowed') else True,
+                                    "violations": [str(v) for v in (evaluation.violations if hasattr(evaluation, 'violations') else [])],
+                                }
+                                if hasattr(evaluation, 'allowed') and not evaluation.allowed:
+                                    logger.warning(f"🛡️ Policy DENIED tool {tool_name}: {evaluation.violations}")
+                                    _emit({"type": "policy_violation", "tool": tool_name, "violations": tool_record["policy_result"]["violations"], "timestamp": datetime.now().isoformat()})
+                            except Exception as ex:
+                                logger.debug(f"PolicyEngine evaluate failed: {ex}")
 
                         # Execute via registry
                         tool_result = await registry.run_tool(
@@ -418,6 +501,25 @@ async def run_agent(
                 )
             except Exception as ex:
                 logger.debug(f"Compliance record failed: {ex}")
+
+        # ── TrustChain Pro: ChainExplorer auto-export ──
+        if _tc_chain_explorer_available:
+            try:
+                from backend.routers.trustchain_api import _tc
+                from backend.routers.trustchain_pro_api import _get_operations
+                import tempfile
+
+                ops = _get_operations()
+                if ops and len(ops) > 0:
+                    explorer = _CE_cls(responses=ops, tc=_tc)
+                    export_dir = Path(tempfile.gettempdir()) / "trustchain_exports"
+                    export_dir.mkdir(exist_ok=True)
+                    export_path = export_dir / f"audit_{task.task_id}.html"
+                    explorer.export_html(str(export_path))
+                    task.chain_export_path = str(export_path)
+                    logger.info(f"📄 ChainExplorer: exported audit trail → {export_path}")
+            except Exception as ex:
+                logger.debug(f"ChainExplorer export failed: {ex}")
 
         logger.info(f"✅ AGENT COMPLETED | tool_calls={len(task.tool_calls)} | iterations={task.iterations}")
 

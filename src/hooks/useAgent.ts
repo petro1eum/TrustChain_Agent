@@ -17,6 +17,7 @@ import {
     getToolRegistry,
 } from '../tools/toolRegistry';
 import { SmartAIAgent } from '../agents/smart-ai-agent';
+import { signReasoningViaBackend } from '../services/backendSigningService';
 import type {
     ChatMessage as AgentChatMessage,
     ProgressEvent,
@@ -334,6 +335,16 @@ export function useAgent(): UseAgentReturn {
             }
 
             setStatus('ready');
+
+            // 🌊 TrustChain Pro: batch-sign all reasoning steps (fire-and-forget)
+            const thinkingSteps = events
+                .filter(e => e.type === 'thinking')
+                .map(e => (e as ThinkingEvent).content)
+                .filter(Boolean);
+            if (thinkingSteps.length > 0) {
+                signReasoningViaBackend(thinkingSteps).catch(() => { });
+            }
+
             return { text: finalText, events: [...events] };
         } catch (err: any) {
             if (abortRef.current) return { text: '', events: [] };

@@ -10,6 +10,8 @@ import { codeExecutionService } from '../codeExecutionService';
 import { bashExecutionService } from '../bashExecutionService';
 import { trustchainService } from '../trustchainService';
 import type { TrustChainEnvelope } from '../trustchainService';
+import { signViaBackend, recordAnalyticsViaBackend, recordGraphNodeViaBackend } from '../backendSigningService';
+import type { BackendSignature } from '../backendSigningService';
 import type { MetricsService } from './metricsService';
 import type { ToolHandlersService } from './toolHandlersService';
 import type { AppActions, DataProcessingContext, ExecutionPlan } from '../../agents/types';
@@ -193,7 +195,7 @@ export class ToolExecutionService {
 
       this.updatePendingFileRequestState(toolName, args, result);
 
-      // 🔐 TrustChain: подпись каждого tool call
+      // 🔐 TrustChain: подпись каждого tool call (browser Ed25519)
       let tcEnvelope: TrustChainEnvelope | undefined;
       try {
         tcEnvelope = await trustchainService.sign(toolName, args);
@@ -201,11 +203,37 @@ export class ToolExecutionService {
         console.warn('[ToolExecution][TrustChain] Signing skipped:', (e as Error).message);
       }
 
-      // Обогащаем результат подписью
-      if (tcEnvelope && result && typeof result === 'object') {
-        result.__tc_envelope = tcEnvelope;
-        result.__tc_signature = tcEnvelope.signature;
+      // 🔐 Backend TrustChain: подпись через Python Ed25519 (trust_chain library)
+      const latency = Date.now() - toolStartTime;
+      let backendSig: BackendSignature | null = null;
+      try {
+        const resultPreview = typeof result === 'string' ? result : JSON.stringify(result);
+        // Fire-and-forget: don't await if we want faster UX
+        backendSig = await signViaBackend(toolName, args, resultPreview || '', latency);
+      } catch (e) {
+        console.warn('[ToolExecution][BackendSign] Skipped:', (e as Error).message);
       }
+
+      // Обогащаем результат подписями
+      if (result && typeof result === 'object') {
+        if (tcEnvelope) {
+          result.__tc_envelope = tcEnvelope;
+          result.__tc_signature = tcEnvelope.signature;
+        }
+        if (backendSig) {
+          result.__tc_backend = backendSig;
+          result.__tc_backend_signature = backendSig.signature;
+          result.__tc_backend_verified = backendSig.verified;
+        }
+      }
+
+      // 📊 TrustChain Pro: Analytics record (fire-and-forget)
+      const toolSuccess = !(result && typeof result === 'object' && result.error);
+      recordAnalyticsViaBackend(toolName, latency, toolSuccess);
+
+      // 🗓 TrustChain Pro: Execution Graph node (fire-and-forget)
+      const graphPreview = typeof result === 'string' ? result : JSON.stringify(result);
+      recordGraphNodeViaBackend(toolName, args, graphPreview || '');
 
       // Кешируем результат (FIFO лимит 200)
       this.deps.toolExecutionCache.set(cacheKey, result);
@@ -215,7 +243,6 @@ export class ToolExecutionService {
       }
 
       // 📊 метрики
-      const latency = Date.now() - toolStartTime;
       this.deps.metricsService.recordToolCall(toolName, latency);
 
       // Регистрируем использование ресурсов

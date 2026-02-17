@@ -372,7 +372,7 @@ describe('6. Tool description quality for LLM discoverability', () => {
         const tool = basicTools.find(t => t.function.name === 'create_artifact');
         expect(tool).toBeTruthy();
         const desc = tool!.function.description.toLowerCase();
-        expect(desc).toMatch(/не.*используй.*create_artifact.*excel/i);
+        expect(desc).toMatch(/не.*excel.*используй.*bash_tool/i);
     });
 
     it('extract_table_to_excel description mentions PDF→Excel purpose', () => {
