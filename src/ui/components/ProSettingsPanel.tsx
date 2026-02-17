@@ -4,7 +4,7 @@
  */
 
 import React, { useState, useEffect, useCallback } from 'react';
-import { Shield, Crown, Building2, FileText, ToggleLeft, ToggleRight, AlertTriangle, Key, Users, Calendar, RotateCw, Clock, Wifi, WifiOff, CheckCircle, XCircle, Loader2, Server, Lock } from 'lucide-react';
+import { Shield, Crown, Building2, FileText, ToggleLeft, ToggleRight, AlertTriangle, Key, Users, Calendar, RotateCw, Clock, Wifi, WifiOff, CheckCircle, XCircle, Loader2, Server, Lock, Play, BookOpen } from 'lucide-react';
 import trustchainService from '../../services/trustchainService';
 import type { TrustChainTier } from '../../services/trustchainService';
 import { licensingService, type LicenseInfo } from '../../services/licensingService';
@@ -79,6 +79,27 @@ const DEFAULT_POLICY_YAML = `policies:
 const LS_TIER_KEY = 'tc_pro_tier';
 const LS_POLICY_YAML_KEY = 'tc_policy_yaml';
 const LS_COMPLIANCE_KEY = 'tc_compliance';
+const LS_RUNBOOK_KEY = 'tc_runbook_yaml';
+
+const DEFAULT_RUNBOOK_YAML = `name: "SOC2 Nightly Audit"
+description: "Standard compliance check for production"
+
+workflow:
+  - step: 1
+    action: "Check chain integrity"
+    tool: "chain_status"
+
+  - step: 2
+    action: "Run SOC2 compliance"
+    tool: "compliance"
+    params:
+      framework: "soc2"
+
+  - step: 3
+    action: "Generate audit report"
+    tool: "audit_report"
+    condition: "always"
+`;
 
 const ProSettingsPanel: React.FC<ProSettingsPanelProps> = ({ compact = false, onTierChange }) => {
     const [tier, setTier] = useState<TrustChainTier>(() => {
@@ -101,6 +122,14 @@ const ProSettingsPanel: React.FC<ProSettingsPanelProps> = ({ compact = false, on
     const [licenseInfo, setLicenseInfo] = useState<LicenseInfo>(() => licensingService.getLicenseInfo());
     const [licenseError, setLicenseError] = useState('');
     const [activating, setActivating] = useState(false);
+
+    // ── Runbook state ──
+    const [showRunbookEditor, setShowRunbookEditor] = useState(false);
+    const [runbookYaml, setRunbookYaml] = useState(() => {
+        return localStorage.getItem(LS_RUNBOOK_KEY) || DEFAULT_RUNBOOK_YAML;
+    });
+    const [runbookRunning, setRunbookRunning] = useState(false);
+    const [runbookResult, setRunbookResult] = useState<string | null>(null);
 
     // ── REST-wired state ──
     const [policyLoadResult, setPolicyLoadResult] = useState<{ count: number; names: string[] } | null>(null);
@@ -581,6 +610,106 @@ const ProSettingsPanel: React.FC<ProSettingsPanelProps> = ({ compact = false, on
                     </div>
                 )}
             </div>
+
+            {/* ── Runbook Executor (SOAR) ── */}
+            {isPro && (
+                <div style={sectionStyle}>
+                    <div style={labelStyle}>
+                        <BookOpen size={12} style={{ marginRight: 4 }} />
+                        Security Runbooks (SOAR)
+                    </div>
+                    <div style={{ fontSize: 10, color: '#64748b', marginBottom: 8 }}>
+                        YAML-плейбуки для автоматического аудита. Агент выполняет шаги строго по порядку.
+                    </div>
+                    <button
+                        onClick={() => setShowRunbookEditor(!showRunbookEditor)}
+                        style={{
+                            background: 'rgba(16,185,129,0.08)',
+                            border: '1px solid rgba(16,185,129,0.2)',
+                            borderRadius: 8, padding: '6px 10px',
+                            fontSize: 10, color: '#6ee7b7',
+                            cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 6,
+                            width: '100%', textAlign: 'left',
+                        }}
+                    >
+                        <FileText size={12} />
+                        {showRunbookEditor ? 'Скрыть редактор' : 'Редактировать Runbook'}
+                    </button>
+                    {showRunbookEditor && (
+                        <div style={{ marginTop: 8 }}>
+                            <textarea
+                                value={runbookYaml}
+                                onChange={e => {
+                                    setRunbookYaml(e.target.value);
+                                    localStorage.setItem(LS_RUNBOOK_KEY, e.target.value);
+                                }}
+                                spellCheck={false}
+                                style={{
+                                    width: '100%', minHeight: compact ? 140 : 200,
+                                    padding: '10px 12px',
+                                    background: '#020617', border: '1px solid #1e293b',
+                                    borderRadius: 8, color: '#a7f3d0',
+                                    fontFamily: '"JetBrains Mono", "Fira Code", monospace',
+                                    fontSize: 11, lineHeight: 1.5,
+                                    resize: 'vertical', outline: 'none',
+                                    boxSizing: 'border-box',
+                                }}
+                                onFocus={e => e.target.style.borderColor = '#10b981'}
+                                onBlur={e => e.target.style.borderColor = '#1e293b'}
+                            />
+                            <div style={{ display: 'flex', gap: 6, marginTop: 8, alignItems: 'center' }}>
+                                <button
+                                    onClick={async () => {
+                                        setRunbookRunning(true);
+                                        setRunbookResult(null);
+                                        try {
+                                            const resp = await fetch(`${getBaseUrl()}/api/trustchain/runbook/execute`, {
+                                                method: 'POST',
+                                                headers: { 'Content-Type': 'application/json' },
+                                                body: JSON.stringify({ yaml_content: runbookYaml }),
+                                            });
+                                            const data = await resp.json();
+                                            setRunbookResult(data.result || data.error || 'Done');
+                                        } catch (err: any) {
+                                            setRunbookResult(`Error: ${err.message}`);
+                                        } finally {
+                                            setRunbookRunning(false);
+                                        }
+                                    }}
+                                    disabled={runbookRunning}
+                                    style={{
+                                        padding: '5px 12px', borderRadius: 6, border: 'none',
+                                        background: runbookRunning ? '#1e293b' : 'linear-gradient(135deg, #10b981, #059669)',
+                                        color: runbookRunning ? '#475569' : '#fff',
+                                        fontSize: 10, fontWeight: 600, cursor: runbookRunning ? 'default' : 'pointer',
+                                        display: 'flex', alignItems: 'center', gap: 4,
+                                    }}
+                                >
+                                    {runbookRunning ? <Loader2 size={12} className="animate-spin" /> : <Play size={12} />}
+                                    Запустить Runbook
+                                </button>
+                                <span style={{ fontSize: 9, color: '#475569' }}>
+                                    Tools: chain_status, compliance, audit_report, verify, analytics, execution_graph
+                                </span>
+                            </div>
+                            {runbookResult && (
+                                <div style={{
+                                    marginTop: 8, padding: 10, borderRadius: 8,
+                                    background: '#020617', border: '1px solid #1e293b',
+                                    fontSize: 10, color: '#94a3b8',
+                                    fontFamily: '"JetBrains Mono", monospace',
+                                    whiteSpace: 'pre-wrap', maxHeight: 200, overflow: 'auto',
+                                }}>
+                                    {runbookResult}
+                                </div>
+                            )}
+                            <div style={{ fontSize: 9, color: '#334155', marginTop: 4 }}>
+                                Формат: name, workflow → step, action, tool, params, condition (always|on_success)
+                            </div>
+                        </div>
+                    )}
+                </div>
+            )}
 
             {/* ── Compliance Frameworks ── */}
             <div style={sectionStyle}>

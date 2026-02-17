@@ -19,6 +19,7 @@ from backend.tools.built_in.trustchain_tools import (
     TrustChainChainStatus,
     TrustChainExecutionGraph,
     TrustChainAnalyticsSnapshot,
+    TrustChainRunbook,
 )
 
 
@@ -46,6 +47,7 @@ class ToolRegistry:
             TrustChainChainStatus,
             TrustChainExecutionGraph,
             TrustChainAnalyticsSnapshot,
+            TrustChainRunbook,
         ]:
             self.register(tool_cls)
 

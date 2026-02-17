@@ -353,3 +353,22 @@ async def export_report(request: ExportRequest):
         "operations_count": len(_operations),
         "message": f"Export generated in {request.format.upper()} format",
     }
+
+
+# ─── Runbook Executor ───
+
+class RunbookRequest(BaseModel):
+    yaml_content: str
+
+@router.post("/runbook/execute")
+async def execute_runbook(req: RunbookRequest):
+    """Execute a YAML-defined security runbook (SOAR workflow)."""
+    from backend.tools.built_in.trustchain_tools import TrustChainRunbook
+
+    try:
+        tool = TrustChainRunbook(yaml_content=req.yaml_content)
+        result = await tool.run()
+        return {"result": result}
+    except Exception as e:
+        return {"error": str(e)}
+

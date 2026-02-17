@@ -320,3 +320,150 @@ class TrustChainAnalyticsSnapshot(BaseTool):
             return f"## Analytics\n\n{snapshot}"
         except Exception as e:
             return f"❌ Analytics snapshot failed: {e}"
+
+
+# ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+#  7. TrustChainRunbook — YAML workflow executor (SOAR)
+# ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+# Map short names used in YAML → actual BaseTool classes
+_TOOL_ALIASES: dict[str, type["BaseTool"]] = {}
+
+
+def _get_tool_aliases() -> dict[str, type["BaseTool"]]:
+    """Lazy-build alias map so all classes are defined first."""
+    if not _TOOL_ALIASES:
+        _TOOL_ALIASES.update({
+            # Short YAML names → classes
+            "verify":           TrustChainVerify,
+            "tc_verify":        TrustChainVerify,
+            "audit_report":     TrustChainAuditReport,
+            "tc_audit":         TrustChainAuditReport,
+            "compliance":       TrustChainComplianceCheck,
+            "tc_compliance":    TrustChainComplianceCheck,
+            "chain_status":     TrustChainChainStatus,
+            "tc_chain_status":  TrustChainChainStatus,
+            "execution_graph":  TrustChainExecutionGraph,
+            "tc_graph":         TrustChainExecutionGraph,
+            "analytics":        TrustChainAnalyticsSnapshot,
+            "tc_analytics":     TrustChainAnalyticsSnapshot,
+            # Full class names also work
+            "TrustChainVerify":           TrustChainVerify,
+            "TrustChainAuditReport":      TrustChainAuditReport,
+            "TrustChainComplianceCheck":  TrustChainComplianceCheck,
+            "TrustChainChainStatus":      TrustChainChainStatus,
+            "TrustChainExecutionGraph":   TrustChainExecutionGraph,
+            "TrustChainAnalyticsSnapshot": TrustChainAnalyticsSnapshot,
+        })
+    return _TOOL_ALIASES
+
+
+class TrustChainRunbook(BaseTool):
+    """Execute a YAML-defined security runbook (Standard Operating Procedure).
+    Each step in the runbook calls a registered TrustChain tool with specified
+    parameters.  Use this when the user provides a YAML workflow, asks to run
+    an audit playbook, or wants to execute a multi-step security procedure.
+
+    Example YAML:
+      name: "SOC2 Nightly Audit"
+      workflow:
+        - step: 1
+          action: "Check chain integrity"
+          tool: "chain_status"
+        - step: 2
+          action: "Run SOC2 compliance"
+          tool: "compliance"
+          params:
+            framework: "soc2"
+        - step: 3
+          action: "Generate audit report"
+          tool: "audit_report"
+
+    Available tools: verify, audit_report, compliance, chain_status,
+    execution_graph, analytics."""
+
+    yaml_content: str = Field(
+        ...,
+        description="YAML runbook content defining the workflow steps.  "
+                    "Each step must have 'tool' (tool name) and optionally "
+                    "'params' (dict of parameters) and 'condition' ('always' "
+                    "or 'on_success').",
+    )
+
+    async def run(self, context: Optional[ToolContext] = None) -> str:
+        import yaml as _yaml
+
+        # Parse YAML
+        try:
+            runbook = _yaml.safe_load(self.yaml_content)
+        except Exception as e:
+            return f"❌ Invalid YAML: {e}"
+
+        if not isinstance(runbook, dict):
+            return "❌ Runbook must be a YAML mapping with 'workflow' key."
+
+        name = runbook.get("name", "Unnamed Runbook")
+        description = runbook.get("description", "")
+        steps = runbook.get("workflow", [])
+
+        if not steps:
+            return "❌ Runbook has no workflow steps."
+
+        aliases = _get_tool_aliases()
+        results: list[str] = [
+            f"## 📋 Runbook: {name}\n",
+        ]
+        if description:
+            results.append(f"_{description}_\n")
+        results.append(f"**Steps:** {len(steps)}\n")
+        results.append("---\n")
+
+        all_passed = True
+        for step_def in steps:
+            step_num = step_def.get("step", "?")
+            action = step_def.get("action", f"Step {step_num}")
+            tool_name = step_def.get("tool") or step_def.get("require_tool", "")
+            params = step_def.get("params", {})
+            condition = step_def.get("condition", "on_success")
+
+            # Skip if previous failed and condition is not "always"
+            if not all_passed and condition != "always":
+                results.append(
+                    f"### Step {step_num}: {action}\n"
+                    f"⏭️ **Skipped** (previous step failed)\n\n---\n"
+                )
+                continue
+
+            # Resolve tool
+            tool_cls = aliases.get(tool_name)
+            if tool_cls is None:
+                results.append(
+                    f"### Step {step_num}: {action}\n"
+                    f"❌ **Unknown tool:** `{tool_name}`\n"
+                    f"Available: {', '.join(sorted(set(aliases.keys())))}\n\n---\n"
+                )
+                all_passed = False
+                continue
+
+            # Execute tool
+            try:
+                tool_instance = tool_cls(**params)
+                output = await tool_instance.run(context=context)
+                results.append(
+                    f"### Step {step_num}: {action}\n"
+                    f"🔧 `{tool_name}` → ✅ Success\n\n"
+                    f"{output}\n\n---\n"
+                )
+            except Exception as e:
+                results.append(
+                    f"### Step {step_num}: {action}\n"
+                    f"🔧 `{tool_name}` → ❌ Failed: {e}\n\n---\n"
+                )
+                all_passed = False
+
+        # Summary
+        status = "✅ All steps passed" if all_passed else "⚠️ Some steps failed"
+        results.append(f"\n**Result:** {status}")
+
+        return "\n".join(results)
+
