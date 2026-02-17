@@ -461,5 +461,72 @@ def my_tool(query: str) -> dict:
 ### Тесты
 
 ```
-93 tests passing (21 PKI + 72 existing)
+460 tests passing (21 PKI + 32 Verifiable Log + 407 existing)
 ```
+
+---
+
+## Part 9: Verifiable Append-Only Log — Certificate Transparency — 2026-02-17
+
+### Проблема
+
+Наивный `FileStorage` хранил каждую операцию как отдельный файл (`op_0001.json`, `op_0002.json`, ...). На 1000+ операций это создаёт нагрузку на FS, O(n) на verify, невозможно доказать аудитору что лог не подменён.
+
+### Архитектура (CQRS)
+
+```mermaid
+flowchart TD
+    Sign["tc.sign()"] -->|"append"| Log["chain.log\n(binary, append-only)"]
+    Log -->|"leaf hash"| MT["MerkleTree\n(in-memory)"]
+    MT -->|"root"| HEAD["HEAD\n(root hash)"]
+    Log -->|"sync"| IDX["index.db\n(SQLite, WAL)"]
+
+    subgraph "Read Path (O(log n))"
+        CLI["tc log / blame / show"] --> IDX
+        Verify["tc chain-verify"] --> MT
+    end
+
+    subgraph "Proofs"
+        Incl["inclusion_proof(op)"] --> MT
+        Cons["consistency_proof(old, new)"] --> MT
+    end
+```
+
+### Новые файлы
+
+| Файл | Описание |
+|---|---|
+| [verifiable_log.py](file:///Users/edcher/Documents/GitHub/trust_chain/trustchain/v2/verifiable_log.py) | `VerifiableChainStore`, `InclusionProof`, binary log format |
+| [test_verifiable_log.py](file:///Users/edcher/Documents/GitHub/trust_chain/tests/test_verifiable_log.py) | 32 теста: append, Merkle, proofs, tamper, rebuild, perf |
+
+### Ключевые решения
+
+| Решение | До (FileStorage) | После (VerifiableChainStore) |
+|---|---|---|
+| Хранение | 1000+ файлов `op_NNNN.json` | 1 файл `chain.log` |
+| Verify | O(n) scan всех файлов | O(1) сравнение Merkle root |
+| ID | Последовательный `op_0001` | Content-addressable `sha256[:12]` |
+| Proof | Отдать всю цепочку | O(log n) inclusion proof |
+| Запросы | Полный перебор | SQLite (indexed) |
+
+### Как это работает
+
+```python
+from trustchain import TrustChain, TrustChainConfig
+
+# Verifiable log — дефолт с v2.4.0
+tc = TrustChain(TrustChainConfig(chain_storage="verifiable"))
+signed = tc.sign("audit_tool", {"event": "login", "user": "admin"})
+
+# O(1) верификация
+assert tc.chain.verify()["valid"] is True
+
+# O(log n) inclusion proof для аудитора
+ops = tc.chain.log()
+proof = tc.chain.inclusion_proof(ops[0]["id"])
+print(proof.to_dict())  # Can send to external auditor
+
+# Доказать что историю не переписали
+consistency = tc.chain.consistency_proof(old_length=5, old_root="abc...")
+```
+
