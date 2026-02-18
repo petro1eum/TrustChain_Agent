@@ -999,6 +999,13 @@ export class MCPClientService {
     }
 
     /**
+     * Get all current connections (for checking Playwright availability etc.)
+     */
+    getConnections(): MCPServerConnection[] {
+        return Array.from(this.connections.values());
+    }
+
+    /**
      * Количество подключённых серверов
      */
     get connectedCount(): number {

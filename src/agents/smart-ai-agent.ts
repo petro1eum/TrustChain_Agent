@@ -919,7 +919,7 @@ export class SmartAIAgent extends AIAgent {
     // ── Browser Panel Tools: route to browserActionService ──
     if (BROWSER_PANEL_TOOL_NAMES.has(name)) {
       try {
-        return await executeBrowserPanelTool(name, args);
+        return await executeBrowserPanelTool(name, args, this.mcpClientService);
       } catch (panelError: any) {
         return { error: `Browser panel error: ${panelError.message}` };
       }
