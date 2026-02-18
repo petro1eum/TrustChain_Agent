@@ -955,3 +955,85 @@ npx tsc --noEmit  # → 0 errors
 - ✅ Ошибка для non-embeddable + "Open in new tab"
 - ✅ Покупки >$1000 → `pending_approval`
 
+---
+
+## Part 14: Hybrid Browser — Headed Playwright MCP (2026-02-18)
+
+### Проблема
+
+Part 13 реализовал Browser Panel с iframe. Но:
+- **Cross-origin блокировка** — большинство сайтов блокируют `contentDocument` access из iframe
+- **Рассинхрон** — iframe показывает одно, headless Playwright делает другое
+- Ed не мог кликать, заполнять формы или читать содержимое большинства сайтов
+
+### Решение: Headed Playwright MCP
+
+```
+Ed (browser JS) → fetch() → Playwright MCP (port 8931) → Chrome window (user видит)
+```
+
+**Одно окно Chrome, один источник правды:**
+- Пользователь видит реальное окно Chrome на экране
+- Ed управляет этим же окном через Playwright MCP
+- Playwright MCP headed по умолчанию — `--headless` только при явном указании
+
+### Архитектура
+
+```mermaid
+flowchart LR
+    Agent["SmartAIAgent"] -->|"executeBrowserPanelTool()"| BPT["browserPanelTools.ts"]
+    BPT -->|"callPlaywright() via MCP"| PMCP["Playwright MCP\nport 8931"]
+    BPT -->|"iframe fallback\n(same-origin only)"| IFrame["BrowserPanel iframe"]
+    PMCP -->|"headed mode"| Chrome["Chrome Window\n(user sees)"]
+    
+    Agent -->|"mcpClientService"| MCP["MCPClientService"]
+    MCP -->|"getConnections()"| BPT
+    
+    style PMCP fill:#ff6b6b,color:#fff
+    style Chrome fill:#69db7c,color:#fff
+```
+
+### Изменённые файлы
+
+| Файл | Изменения |
+|------|-----------|
+| [browserPanelTools.ts](file:///Users/edcher/Documents/GitHub/TrustChain_Agent/src/tools/browserPanelTools.ts) | Полная переработка: Playwright-first для click/fill/scroll/read, +`browser_panel_snapshot`, +`browser_panel_screenshot` |
+| [mcpClientService.ts](file:///Users/edcher/Documents/GitHub/TrustChain_Agent/src/services/agents/mcpClientService.ts) | +`getConnections()` — проверка доступности Playwright MCP |
+| [smart-ai-agent.ts](file:///Users/edcher/Documents/GitHub/TrustChain_Agent/src/agents/smart-ai-agent.ts) | Передача `mcpClientService` в `executeBrowserPanelTool()` |
+| [start-playwright.sh](file:///Users/edcher/Documents/GitHub/TrustChain_Agent/start-playwright.sh) | Скрипт запуска Playwright MCP (headed, port 8931) |
+
+### Новые Browser Panel Tools
+
+| Tool | Источник | Описание |
+|------|----------|----------|
+| `browser_panel_open` | Playwright + iframe | Навигация (оба синхронизированы) |
+| `browser_panel_click` | Playwright → iframe fallback | Клик по CSS-селектору |
+| `browser_panel_fill` | Playwright → iframe fallback | Ввод текста в поле |
+| `browser_panel_scroll` | Playwright → iframe fallback | Скролл вверх/вниз |
+| `browser_panel_read` | Playwright → iframe fallback | Чтение текста страницы |
+| `browser_panel_snapshot` | Playwright only | Accessibility tree (a11y) |
+| `browser_panel_screenshot` | Playwright only | Скриншот текущей страницы |
+
+### Как запустить
+
+```bash
+# Терминал 1: Playwright MCP (headed — Chrome откроется при навигации)
+bash start-playwright.sh
+
+# Терминал 2: TrustChain Agent (auto-discovers через Vite proxy)
+npm run dev
+```
+
+Vite proxy: `/playwright-mcp` → `http://localhost:8931/mcp`
+
+### Верификация
+
+```bash
+npx tsc --noEmit  # → 0 errors
+```
+
+- ✅ Playwright MCP: порт 8931, headed mode
+- ✅ Wikipedia навигация + чтение через Playwright
+- ✅ `callPlaywright()` → JSON-RPC через fetch → MCP
+- ✅ Коммиты: `e4e1892`, `621675e` на master
+
