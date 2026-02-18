@@ -38,11 +38,12 @@ export const browserPanelTools = [
         type: 'function' as const,
         function: {
             name: 'browser_panel_search',
-            description: 'Search the web and show results in the embedded browser panel. Uses DuckDuckGo.',
+            description: 'Search the web and show results in the embedded browser panel. Uses Google by default.',
             parameters: {
                 type: 'object',
                 properties: {
                     query: { type: 'string', description: 'Search query' },
+                    engine: { type: 'string', enum: ['google', 'duckduckgo', 'yandex'], description: 'Search engine (default: google)' },
                 },
                 required: ['query'],
             },
@@ -278,14 +279,25 @@ export async function executeBrowserPanelTool(
             const query = args.query as string;
             if (!query) return { success: false, message: 'Search query is required' };
 
-            const searchUrl = `https://duckduckgo.com/?q=${encodeURIComponent(query)}`;
+            const engine = (args.engine as string) || 'google';
+            let searchUrl: string;
+            switch (engine) {
+                case 'duckduckgo':
+                    searchUrl = `https://duckduckgo.com/?q=${encodeURIComponent(query)}`;
+                    break;
+                case 'yandex':
+                    searchUrl = `https://yandex.ru/search/?text=${encodeURIComponent(query)}`;
+                    break;
+                default:
+                    searchUrl = `https://www.google.com/search?q=${encodeURIComponent(query)}`;
+            }
             await browserActionService.navigate(searchUrl);
             browserActionService.dispatchCommand({ type: 'search', url: searchUrl, query });
 
             // Sync Playwright
             await callPlaywright(mcpClient, 'browser_navigate', { url: searchUrl });
 
-            return { success: true, url: searchUrl, message: `Searching "${query}" (signed).` };
+            return { success: true, url: searchUrl, engine, message: `Searching "${query}" via ${engine} (signed).` };
         }
 
         case 'browser_panel_back': {

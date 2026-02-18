@@ -80,11 +80,12 @@ export const UNIVERSAL_TOOLS = new Set([
   'analyze_code_structure', 'search_code_symbols', 'get_code_dependencies',
   // Browser (3) — Headless web browsing via Playwright
   'browser_navigate', 'browser_screenshot', 'browser_extract',
-  // Browser Panel (11) — Agent-controlled embedded browser in UI
+  // Browser Panel (13) — Agent-controlled embedded browser in UI
   'browser_panel_open', 'browser_panel_search', 'browser_panel_close',
   'browser_panel_back', 'browser_panel_forward', 'browser_panel_refresh',
   'browser_panel_click', 'browser_panel_scroll', 'browser_panel_fill',
   'browser_panel_read', 'browser_panel_status',
+  'browser_panel_snapshot', 'browser_panel_screenshot',
   // Sub-Agents (3) — Spawn and manage background sub-agent sessions
   'session_spawn', 'session_status', 'session_result',
 ]);

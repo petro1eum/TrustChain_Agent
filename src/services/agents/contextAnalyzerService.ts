@@ -11,12 +11,12 @@ export interface ContextAnalyzerServiceDependencies {
 }
 
 export class ContextAnalyzerService {
-  constructor(private deps: ContextAnalyzerServiceDependencies) {}
+  constructor(private deps: ContextAnalyzerServiceDependencies) { }
 
   /**
    * Анализ доступного контекста для SELF-AWARENESS
    */
-  async analyzeAvailableContext(userPrompt: string): Promise<{summary: string, details: string, canAnswerDirectly: boolean}> {
+  async analyzeAvailableContext(userPrompt: string): Promise<{ summary: string, details: string, canAnswerDirectly: boolean }> {
     try {
       // БЫСТРАЯ ПРОВЕРКА: простые запросы не требуют анализа файлов
       const simplePatterns = [
@@ -25,9 +25,9 @@ export class ContextAnalyzerService {
         /^пока|^до свидания|^bye/i,
         /^как дела|^how are you/i
       ];
-      
+
       const isSimpleGreeting = simplePatterns.some(pattern => pattern.test(userPrompt.trim()));
-      
+
       if (isSimpleGreeting) {
         return {
           summary: "Простое приветствие/благодарность",
@@ -35,19 +35,19 @@ export class ContextAnalyzerService {
           canAnswerDirectly: true
         };
       }
-      
+
       // Анализируем что у нам есть в контексте приложения
       if (!this.deps.appActions) {
         return {
-          summary: "Доступна навигация по фронтенду и API бэкенда",
-          details: "Используй инструменты: get_app_structure, navigate_to_tab, backend_api_call, get_yaml_file",
+          summary: "Доступна навигация, API бэкенда и встроенный браузер",
+          details: "Используй инструменты: get_app_structure, navigate_to_tab, backend_api_call, get_yaml_file, browser_panel_open, browser_panel_click, browser_panel_fill, browser_panel_read, browser_panel_scroll, browser_panel_search, browser_panel_snapshot, browser_panel_screenshot, web_search, web_fetch, bash_tool",
           canAnswerDirectly: false
         };
       }
 
       // Попытаемся получить информацию о файлах через appActions
       let availableFiles: any[] = [];
-      
+
       try {
         availableFiles = await this.deps.appActions.getAvailableFiles();
       } catch (e) {
@@ -55,14 +55,14 @@ export class ContextAnalyzerService {
       }
 
       // Анализируем запрос пользователя
-      const isStructureRequest = userPrompt.toLowerCase().includes('список таблиц') || 
-                                userPrompt.toLowerCase().includes('структура') ||
-                                userPrompt.toLowerCase().includes('поля') ||
-                                userPrompt.toLowerCase().includes('tables') ||
-                                userPrompt.toLowerCase().includes('схема');
+      const isStructureRequest = userPrompt.toLowerCase().includes('список таблиц') ||
+        userPrompt.toLowerCase().includes('структура') ||
+        userPrompt.toLowerCase().includes('поля') ||
+        userPrompt.toLowerCase().includes('tables') ||
+        userPrompt.toLowerCase().includes('схема');
 
       const isFileSpecific = userPrompt.toLowerCase().includes('cable.mdb') ||
-                            userPrompt.toLowerCase().includes('файл');
+        userPrompt.toLowerCase().includes('файл');
 
       let summary = '';
       let details = '';
@@ -70,11 +70,11 @@ export class ContextAnalyzerService {
 
       if (availableFiles.length > 0) {
         const fileWithContent = availableFiles.find(f => f.hasContent);
-        
+
         if (fileWithContent && isStructureRequest) {
           summary = `У меня есть загруженный файл ${fileWithContent.name} со структурой`;
           details = `Файл: ${fileWithContent.name}, ID: ${fileWithContent.id}, записей: ${fileWithContent.rows || 'неизвестно'}`;
-          
+
           // Пытаемся получить структуру файла
           try {
             const metadata = await this.deps.appActions.getFileMetadata(fileWithContent.id.toString());
