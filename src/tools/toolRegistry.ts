@@ -18,6 +18,7 @@ export type ToolCategory =
     | 'Web'
     | 'Code Analysis'
     | 'Browser'
+    | 'Browser Panel'
     | 'MCP'
     | 'Data Processing'
     | 'Memory'
@@ -57,6 +58,7 @@ const CATEGORY_DESCRIPTIONS: Record<ToolCategory, string> = {
     'Web': 'Web search and page fetching',
     'Code Analysis': 'AST-level code analysis — structure, symbols, dependencies',
     'Browser': 'Headless browser — navigate, screenshot, extract (Playwright)',
+    'Browser Panel': 'Agent-controlled embedded browser in UI — open, search, navigate, click, scroll, fill, read',
     'MCP': 'Model Context Protocol — dynamic tool servers (stdio/sse/http)',
     'Data Processing': 'Text processing, semantic analysis, data quality, normalization',
     'Memory': 'Persistent memory — cross-session knowledge, facts, preferences',
@@ -71,6 +73,7 @@ const CATEGORY_RISK: Record<ToolCategory, RiskLevel> = {
     'Web': 'safe',
     'Code Analysis': 'safe',
     'Browser': 'moderate',
+    'Browser Panel': 'safe',
     'MCP': 'moderate',
     'Data Processing': 'safe',
     'Memory': 'safe',
@@ -164,6 +167,19 @@ const TOOL_REGISTRY: ToolMeta[] = [
     t('browser_navigate', 'Navigate', 'Navigate to a URL in headless browser', 'Browser'),
     t('browser_screenshot', 'Screenshot', 'Take a screenshot of the current page', 'Browser'),
     t('browser_extract', 'Extract', 'Extract content from the current page', 'Browser'),
+
+    // ── Browser Panel (11) — Embedded browser in UI ──
+    t('browser_panel_open', 'Open URL', 'Open a URL in the embedded browser panel', 'Browser Panel', { locked: true }),
+    t('browser_panel_search', 'Search', 'Search the web via DuckDuckGo in browser panel', 'Browser Panel', { locked: true }),
+    t('browser_panel_back', 'Back', 'Navigate back in browser panel history', 'Browser Panel', { locked: true }),
+    t('browser_panel_forward', 'Forward', 'Navigate forward in browser panel history', 'Browser Panel', { locked: true }),
+    t('browser_panel_refresh', 'Refresh', 'Reload the current page in browser panel', 'Browser Panel', { locked: true }),
+    t('browser_panel_close', 'Close', 'Close the browser panel', 'Browser Panel', { locked: true }),
+    t('browser_panel_click', 'Click', 'Click an element by selector or coordinates in browser panel', 'Browser Panel', { locked: true }),
+    t('browser_panel_scroll', 'Scroll', 'Scroll the page in browser panel (up/down/top/bottom)', 'Browser Panel', { locked: true }),
+    t('browser_panel_fill', 'Fill', 'Fill a form field by CSS selector in browser panel', 'Browser Panel', { locked: true }),
+    t('browser_panel_read', 'Read Page', 'Read visible text content from the browser panel page', 'Browser Panel', { locked: true }),
+    t('browser_panel_status', 'Status', 'Get current URL, title, loading state of browser panel', 'Browser Panel', { locked: true }),
 
     // ── MCP — Model Context Protocol (3) ──
     t('mcp_connect', 'MCP Connect', 'Connect to an MCP server (stdio/sse/http)', 'MCP'),

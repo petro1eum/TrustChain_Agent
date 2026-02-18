@@ -35,6 +35,7 @@ import {
 } from '../services/agents';
 import { getAllSmartAgentTools, UNIVERSAL_TOOLS } from '../tools';
 import { pageTools, PAGE_TOOL_NAMES } from '../tools/pageTools';
+import { BROWSER_PANEL_TOOL_NAMES, executeBrowserPanelTool } from '../tools/browserPanelTools';
 import { HostBridgeService } from '../services/hostBridgeService';
 import { appActionsRegistry } from '../services/appActionsRegistry';
 import { SystemPrompts } from './base/systemPrompts';
@@ -596,14 +597,21 @@ export class SmartAIAgent extends AIAgent {
 
       // === ЭТАП 3: ВАЛИДАЦИЯ ОТВЕТА (Post-flight check) ===
       // Проверяем, что ответ действительно отвечает на вопрос пользователя
+      // Skip validation retry for browser_panel tools — they are side-effect actions, not info queries
+      const usedBrowserPanel = result.messages.some(m =>
+        m.name && m.name.startsWith('browser_panel_')
+      );
+
       try {
         const toolResults = result.result?.toolResults || [];
-        const validation = await this.answerValidationService.validateAnswer(
-          originalInstruction,
-          result.messages,
-          toolResults,
-          progressCallback
-        );
+        const validation = usedBrowserPanel
+          ? { isComplete: true, suggestedAction: 'none', explanation: 'Browser panel action completed', retryQuery: undefined as string | undefined }
+          : await this.answerValidationService.validateAnswer(
+            originalInstruction,
+            result.messages,
+            toolResults,
+            progressCallback
+          );
 
         // ⚡ Hard-coded check: if bash_tool was used but create_artifact wasn't,
         // force artifact creation regardless of LLM validation result
@@ -905,6 +913,15 @@ export class SmartAIAgent extends AIAgent {
           message: 'Альтернатива для search_ui',
           reasoning_text: suggestion
         });
+      }
+    }
+
+    // ── Browser Panel Tools: route to browserActionService ──
+    if (BROWSER_PANEL_TOOL_NAMES.has(name)) {
+      try {
+        return await executeBrowserPanelTool(name, args);
+      } catch (panelError: any) {
+        return { error: `Browser panel error: ${panelError.message}` };
       }
     }
 
@@ -1410,13 +1427,46 @@ export class SmartAIAgent extends AIAgent {
 `;
     }
 
+    // Инструкции для browser panel tools
+    const browserPanelSection = `
+# 🌐 BROWSER PANEL (ВСТРОЕННЫЙ БРАУЗЕР)
+
+У тебя есть набор инструментов для управления встроенным браузером, который пользователь видит на правой панели.
+
+## Навигация
+- **browser_panel_open** — открыть URL во встроенном браузере (user видит!)
+- **browser_panel_search** — поиск в DuckDuckGo
+- **browser_panel_back** / **browser_panel_forward** — навигация по истории
+- **browser_panel_refresh** — перезагрузить страницу
+- **browser_panel_close** — закрыть панель
+
+## Взаимодействие
+- **browser_panel_click** — кликнуть по элементу (CSS-селектор или координаты)
+- **browser_panel_scroll** — прокрутить страницу (up/down/top/bottom)
+- **browser_panel_fill** — заполнить поле формы (CSS-селектор + значение)
+
+## Наблюдение
+- **browser_panel_read** — прочитать текст страницы
+- **browser_panel_status** — узнать текущий URL, заголовок, состояние
+
+## Когда использовать
+- Пользователь просит "открой", "зайди на сайт", "покажи страницу" → **browser_panel_open**
+- Пользователь спрашивает "какая страница открыта?" → **browser_panel_status**
+- Пользователь просит "поищи в интернете / на вики" → **browser_panel_search** или **browser_panel_open** с конкретным URL
+- Пользователь просит что-то кликнуть, заполнить, прокрутить → используй соответствующий инструмент
+- Для чтения контента загруженной страницы → **browser_panel_read**
+
+**ВАЖНО:** Эти инструменты управляют видимым браузером в UI. Всегда используй их когда пользователь просит показать что-то в браузере.
+`;
+
+
     try {
       // Gap #4: Динамическая сборка промпта — включает только релевантные секции
       const userQuery = this.context?.lastInstruction || '';
       const baseSystemPrompt = userQuery
         ? SystemPrompts.getSmartAgentSystemPromptDynamic(safeSkillsSection, basePrompt, userQuery)
         : SystemPrompts.getSmartAgentSystemPrompt(safeSkillsSection, basePrompt);
-      return nativeSearchSection + baseSystemPrompt;
+      return nativeSearchSection + browserPanelSection + baseSystemPrompt;
     } catch (error) {
       console.error('Ошибка формирования системного промпта SmartAIAgent:', {
         message: (error as Error).message,
@@ -1424,7 +1474,7 @@ export class SmartAIAgent extends AIAgent {
         relevantSkillsCount: relevantSkillsMetadata?.length
       });
       // Фоллбек: возвращаем базовый промпт без секции skills, чтобы не блокировать работу агента
-      const fallbackPrompt = `${nativeSearchSection}${basePrompt}
+      const fallbackPrompt = `${nativeSearchSection}${browserPanelSection}${basePrompt}
 
 # ⚠️ Skills metadata недоступно
 Не удалось сформировать раздел с релевантными skills. Продолжай работу, используя доступные инструменты и общие инструкции.`;

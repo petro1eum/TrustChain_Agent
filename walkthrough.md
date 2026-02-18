@@ -772,3 +772,186 @@ cd TrustChain_Agent && npx tsc --noEmit
 4. Результаты должны прийти асинхронно, каждый с подписью sub-agent'а
 5. В audit log (`.trustchain/`) должна быть видна цепочка: `main_agent → sub_agent_1 → bash_tool`
 
+---
+
+## Part 12: Virtual Storage Mounts (2026-02-18)
+
+### Обзор
+
+Интеграция Skills и Tools как виртуальных маунтов в File Manager. Навыки и инструменты теперь доступны для просмотра рядом с обычным Storage, с read-only защитой для системных ресурсов.
+
+### Архитектура
+
+```mermaid
+flowchart LR
+    FM["FileManagerView"] --> VSS["virtualStorageService"]
+    VSS --> SK["skills://"]
+    VSS --> TL["tools://"]
+    
+    SK --> SYS["system (21 skill, read-only)"]
+    SK --> USR["user (read-write)"]
+    
+    TL --> BI["built-in (от toolRegistry, read-only)"]
+    TL --> CU["custom (localStorage, read-write)"]
+    
+    SYS --> PUB["public: docx, pdf, pptx, xlsx, product-self-knowledge"]
+    SYS --> KBT["kb-tools: view, bash, create-file, str-replace, web-search, web-fetch"]
+    SYS --> EX["examples: 9 навыков (skill-creator, web-artifacts-builder, ...)"]
+    SYS --> BR["browser: playwright-browser"]
+
+    style FM fill:#4c6ef5,color:#fff
+    style VSS fill:#ff6b6b,color:#fff
+    style SK fill:#be4bdb,color:#fff
+    style TL fill:#f59f00,color:#fff
+```
+
+### Созданные / изменённые файлы
+
+| Файл | Действие | Описание |
+|------|:---:|---------|
+| [virtualStorageService.ts](file:///Users/edcher/Documents/GitHub/TrustChain_Agent/src/services/storage/virtualStorageService.ts) | NEW | Виртуальная FS — `skills://`, `tools://`, статический реестр 21 навыка |
+| [FileManagerView.tsx](file:///Users/edcher/Documents/GitHub/TrustChain_Agent/src/ui/components/FileManagerView.tsx) | MOD | Sidebar: 3 маунта (Storage/Skills/Tools), breadcrumbs, read-only badge |
+| [ArtifactsPanel.tsx](file:///Users/edcher/Documents/GitHub/TrustChain_Agent/src/ui/components/ArtifactsPanel.tsx) | MOD | `readOnly` prop — прячет Edit/Save для read-only ресурсов |
+| [TrustChainAgentApp.tsx](file:///Users/edcher/Documents/GitHub/TrustChain_Agent/src/ui/TrustChainAgentApp.tsx) | MOD | Wiring: `virtualStorageService.isReadOnly()` → `ArtifactsPanel.readOnly` |
+| [index.ts](file:///Users/edcher/Documents/GitHub/TrustChain_Agent/src/services/storage/index.ts) | MOD | Экспорт `virtualStorageService`, `MOUNT_SKILLS`, `MOUNT_TOOLS` |
+
+### Статический реестр навыков
+
+**Проблема:** `SkillsLoaderService` возвращал пустой массив без Docker-бэкенда — навыки не отображались.
+
+**Решение:** `STATIC_SKILLS_REGISTRY` — 21 навык с метаданными, категориями и описаниями. Работает всегда, даже без Docker. При наличии бэкенда — мерджится с Docker-данными через `getEffectiveSkills()`.
+
+| Категория | Навыки | Кол-во |
+|-----------|--------|:---:|
+| **public** | DOCX, PDF, PPTX, XLSX, Product Self-Knowledge | 5 |
+| **kb-tools** | View, Bash Tool, Create File, Str Replace, Web Search, Web Fetch | 6 |
+| **examples** | Skill Creator, Web Artifacts Builder, Algorithmic Art, Brand Guidelines, Canvas Design, Internal Comms, MCP Builder, Slack GIF Creator, Theme Factory | 9 |
+| **browser** | Playwright Browser | 1 |
+
+### Чтение навыков — каскад fallback
+
+1. **Local fetch** (`/skills/public/docx/SKILL.md`) — через Vite dev server
+2. **Docker** (`dockerAgentService.view()`) — через Docker API
+3. **Summary card** — сгенерированная карточка с метаданными
+
+### Верификация
+
+```bash
+# TypeScript compilation — 0 errors
+npx tsc --noEmit
+```
+
+**Браузерная проверка:**
+- ✅ Sidebar: Storage 💾, Skills 🧩, Tools 🔧
+- ✅ Skills → system → 4 категории (browser, examples, kb-tools, public)
+- ✅ public → 5 навыков (docx.md, pdf.md, pptx.md, xlsx.md, product-self-knowledge.md)
+- ✅ examples → 9 навыков
+- ✅ Открытие docx.md — полное содержимое SKILL.md (197 строк)
+- ✅ Read-only badge + скрытая кнопка Edit в ArtifactsPanel
+- ✅ Built-in tools → 11 категорий → JSON определения
+
+---
+
+## Part 12: Multi-Party Chat — Каналы, Контакты, Групповой Чат
+
+### Обзор
+
+Реализована полная инфраструктура multi-party чата с Ed25519-подписями:
+
+- **Типы каналов:** Agent, DM, Group, Swarm
+- **Идентификация:** Ed25519 keypair через Web Crypto API + IndexedDB
+- **Контакты:** CRUD + поиск + статус присутствия
+- **Каналы:** Создание / чтение / подпись сообщений
+- **UI:** ChannelList, ChannelHeader, PeopleTab, обновлённый MessageBubble
+
+### Новые файлы
+
+| Файл | Описание |
+|------|----------|
+| [channelTypes.ts](file:///Users/edcher/Documents/GitHub/TrustChain_Agent/src/types/channelTypes.ts) | Типы: `Channel`, `ChannelMessage`, `Participant`, `Contact` |
+| [identityService.ts](file:///Users/edcher/Documents/GitHub/TrustChain_Agent/src/services/identity/identityService.ts) | Ed25519 keypair, sign/verify через Web Crypto |
+| [contactService.ts](file:///Users/edcher/Documents/GitHub/TrustChain_Agent/src/services/contacts/contactService.ts) | CRUD контактов + localStorage + поиск |
+| [channelService.ts](file:///Users/edcher/Documents/GitHub/TrustChain_Agent/src/services/channels/channelService.ts) | Каналы + сообщения + подпись + демо-данные |
+| [ChannelHeader.tsx](file:///Users/edcher/Documents/GitHub/TrustChain_Agent/src/ui/components/ChannelHeader.tsx) | Заголовок канала: иконка, E2E, trust score |
+| [ChannelList.tsx](file:///Users/edcher/Documents/GitHub/TrustChain_Agent/src/ui/components/ChannelList.tsx) | Список каналов + создание Agent/DM/Group |
+| [PeopleTab.tsx](file:///Users/edcher/Documents/GitHub/TrustChain_Agent/src/ui/components/PeopleTab.tsx) | Вкладка People: identity card, контакты |
+
+### Критический фикс: клик по каналам
+
+**Проблема:** `onSelectChannel` вызывал `setActiveConversation(chId)`, но `messages` оставался пустой — ChatArea показывала «New Chat».
+
+**Решение:** Добавлен `loadChannel()` в `TrustChainAgentApp.tsx` — конвертирует `ChannelMessage[]` → `Message[]` через `channelService.getMessages()`.
+
+### Фикс: 4 вкладки не влезали
+
+Активная вкладка показывает иконку + текст, неактивные — только иконку. Gap уменьшен до `gap-0.5`.
+
+### Верификация
+
+```bash
+npx tsc --noEmit  # → 0 errors
+```
+
+- ✅ Клик по каналу загружает сообщения
+- ✅ DM: 2 сообщения от Alice Chen с аватаром «AC»
+- ✅ Group: Bob Smith + Alice Chen + Agent с execution steps
+- ✅ 4 вкладки помещаются в 260px сайдбар
+
+---
+
+## Part 13: TrustChain Browser Panel — "Audit-Grade Browser for AI"
+
+### Обзор
+
+Встроенный браузер в правой панели с криптографической подписью **каждого действия** — навигация, клики, заполнение форм. Реализует паттерн **"The Signed Click"**: Evidence Collection + Policy Enforcement + Intent Signing.
+
+### Архитектура
+
+```
+[Sidebar] — [Chat + Agent] — [Browser Panel]
+   Chats       Agent → browse    iframe + URL bar
+   People      Action log        TrustChain overlay
+   Agent       "Go to URL"       Ed25519 signed actions
+```
+
+### Новые файлы
+
+| Файл | Описание |
+|------|----------|
+| [browserActionService.ts](file:///Users/edcher/Documents/GitHub/TrustChain_Agent/src/services/browserActionService.ts) | SHA-256 evidence hashing, policy enforcement ($1000 → human approval), intent capture |
+| [BrowserPanel.tsx](file:///Users/edcher/Documents/GitHub/TrustChain_Agent/src/ui/components/BrowserPanel.tsx) | URL bar, iframe, quick-launch, signed action log, error handling |
+
+### Изменённые файлы
+
+| Файл | Изменения |
+|------|-----------|
+| [ChatHeader.tsx](file:///Users/edcher/Documents/GitHub/TrustChain_Agent/src/ui/components/ChatHeader.tsx) | Globe toggle, `onToggleBrowser` + `showBrowser` props |
+| [TrustChainAgentApp.tsx](file:///Users/edcher/Documents/GitHub/TrustChain_Agent/src/ui/TrustChainAgentApp.tsx) | `showBrowser` state, BrowserPanel в правой колонке |
+
+### "The Signed Click" — каждое действие → транзакция
+
+```typescript
+// Каждое действие в браузере создаёт:
+{
+  action: "browser.navigate",
+  url: "https://example.com",
+  intent: "Researching API docs",
+  evidenceHash: "a3b8d1...",    // SHA-256 DOM
+  signature: "Ed25519...",       // Криптоподпись
+  policyCheck: "passed"          // или "pending_approval" для >$1000
+}
+```
+
+### Верификация
+
+```bash
+npx tsc --noEmit  # → 0 errors
+```
+
+- ✅ Globe toggle открывает/закрывает браузер
+- ✅ Welcome screen с 6 quick-launch сайтами
+- ✅ iframe загружает whitelisted сайты
+- ✅ Action trail: подписанная навигация со Shield
+- ✅ Ошибка для non-embeddable + "Open in new tab"
+- ✅ Покупки >$1000 → `pending_approval`
+

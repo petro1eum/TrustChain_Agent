@@ -1,8 +1,9 @@
-import React, { useState, useRef, useEffect } from 'react';
-import { Download, Copy, Maximize2, Minimize2, X, Eye, Code, Play, AlertTriangle } from 'lucide-react';
+import React, { useState, useRef, useEffect, useCallback } from 'react';
+import { Download, Copy, Maximize2, Minimize2, X, Eye, Code, Play, AlertTriangle, Edit3, Save, Table, FileJson } from 'lucide-react';
 import type { Artifact } from './types';
 import { ARTIFACT_META } from './constants';
 import { renderFullMarkdown } from './MarkdownRenderer';
+import { userStorageService } from '../../services/storage';
 
 /**
  * Detect if artifact content is renderable HTML/React
@@ -35,23 +36,73 @@ export const ArtifactsPanel: React.FC<{
     onClose: () => void;
     isMaximized: boolean;
     onToggleMaximize: () => void;
-}> = ({ artifact, onClose, isMaximized, onToggleMaximize }) => {
+    onArtifactUpdate?: (artifact: Artifact) => void;
+    readOnly?: boolean;
+}> = ({ artifact, onClose, isMaximized, onToggleMaximize, onArtifactUpdate, readOnly = false }) => {
     const meta = ARTIFACT_META[artifact.type];
     const renderable = isRenderableHTML(artifact.content);
     const reactRenderable = isRenderableReact(artifact.content);
     const canRender = renderable || reactRenderable;
+    const isFileBacked = !!artifact.storagePath;
+    const fileExt = artifact.storagePath?.split('.').pop()?.toLowerCase() || '';
+    const isCsv = fileExt === 'csv';
+    const isJson = fileExt === 'json' || fileExt === 'jsonl';
+    const isMarkdown = fileExt === 'md';
 
-    const [viewMode, setViewMode] = useState<'preview' | 'code'>(canRender ? 'preview' : 'code');
+    const [viewMode, setViewMode] = useState<'preview' | 'code' | 'edit'>(
+        canRender ? 'preview' : (isMarkdown || isCsv) ? 'preview' : 'code'
+    );
+    const [editContent, setEditContent] = useState(artifact.content);
+    const [saving, setSaving] = useState(false);
+    const [saved, setSaved] = useState(false);
     const [iframeHeight, setIframeHeight] = useState(500);
     const [iframeError, setIframeError] = useState<string | null>(null);
     const iframeRef = useRef<HTMLIFrameElement>(null);
+    const textareaRef = useRef<HTMLTextAreaElement>(null);
 
-    // Reset view mode when artifact changes
+    // Reset view mode and edit content when artifact changes
     useEffect(() => {
         const newCanRender = isRenderableHTML(artifact.content) || isRenderableReact(artifact.content);
-        setViewMode(newCanRender ? 'preview' : 'code');
+        const ext = artifact.storagePath?.split('.').pop()?.toLowerCase() || '';
+        const md = ext === 'md';
+        const csv = ext === 'csv';
+        setViewMode(newCanRender ? 'preview' : (md || csv) ? 'preview' : 'code');
+        setEditContent(artifact.content);
         setIframeError(null);
-    }, [artifact.id]);
+        setSaved(false);
+    }, [artifact.id, artifact.storagePath]);
+
+    // Save handler for file-backed artifacts
+    const handleSave = useCallback(async () => {
+        if (!artifact.storagePath) return;
+        setSaving(true);
+        try {
+            await userStorageService.writeFile(artifact.storagePath, editContent);
+            // Update artifact in parent state
+            if (onArtifactUpdate) {
+                onArtifactUpdate({ ...artifact, content: editContent });
+            }
+            setSaved(true);
+            setTimeout(() => setSaved(false), 2000);
+        } catch (err) {
+            console.error('[ArtifactsPanel] Save failed:', err);
+        } finally {
+            setSaving(false);
+        }
+    }, [artifact, editContent, onArtifactUpdate]);
+
+    // Ctrl+S / Cmd+S to save
+    useEffect(() => {
+        if (!isFileBacked || viewMode !== 'edit') return;
+        const handler = (e: KeyboardEvent) => {
+            if ((e.metaKey || e.ctrlKey) && e.key === 's') {
+                e.preventDefault();
+                handleSave();
+            }
+        };
+        window.addEventListener('keydown', handler);
+        return () => window.removeEventListener('keydown', handler);
+    }, [isFileBacked, viewMode, handleSave]);
 
     // Build HTML for React content
     const getIframeContent = (): string => {
@@ -146,31 +197,58 @@ export const ArtifactsPanel: React.FC<{
                         <span className="text-[10px] tc-text-muted mr-2">v{artifact.version}</span>
                     )}
 
-                    {/* Preview / Code toggle */}
-                    {canRender && (
+                    {/* View mode toggle */}
+                    {(canRender || isFileBacked) && (
                         <div className="flex items-center mr-2 rounded-lg overflow-hidden border"
                             style={{ borderColor: 'var(--tc-border, rgba(55,55,80,0.6))' }}>
-                            <button
-                                onClick={() => setViewMode('preview')}
-                                className={`flex items-center gap-1 px-2 py-1 text-[10px] font-medium transition-colors ${viewMode === 'preview'
-                                    ? 'bg-violet-500/20 text-violet-300'
-                                    : 'tc-text-muted hover:text-gray-300'
-                                    }`}
-                                title="Live Preview"
-                            >
-                                <Play size={10} /> Preview
-                            </button>
+                            {(canRender || isMarkdown || isCsv) && (
+                                <button
+                                    onClick={() => setViewMode('preview')}
+                                    className={`flex items-center gap-1 px-2 py-1 text-[10px] font-medium transition-colors ${viewMode === 'preview'
+                                        ? 'bg-violet-500/20 text-violet-300'
+                                        : 'tc-text-muted hover:text-gray-300'
+                                        }`}
+                                    title="Preview"
+                                >
+                                    <Eye size={10} /> Preview
+                                </button>
+                            )}
                             <button
                                 onClick={() => setViewMode('code')}
                                 className={`flex items-center gap-1 px-2 py-1 text-[10px] font-medium transition-colors ${viewMode === 'code'
                                     ? 'bg-violet-500/20 text-violet-300'
                                     : 'tc-text-muted hover:text-gray-300'
                                     }`}
-                                title="Source Code"
+                                title="Source"
                             >
-                                <Code size={10} /> Code
+                                <Code size={10} /> Source
                             </button>
+                            {isFileBacked && !readOnly && (
+                                <button
+                                    onClick={() => { setViewMode('edit'); setEditContent(artifact.content); }}
+                                    className={`flex items-center gap-1 px-2 py-1 text-[10px] font-medium transition-colors ${viewMode === 'edit'
+                                        ? 'bg-emerald-500/20 text-emerald-300'
+                                        : 'tc-text-muted hover:text-gray-300'
+                                        }`}
+                                    title="Edit"
+                                >
+                                    <Edit3 size={10} /> Edit
+                                </button>
+                            )}
                         </div>
+                    )}
+
+                    {/* Save button (edit mode) */}
+                    {viewMode === 'edit' && isFileBacked && !readOnly && (
+                        <button
+                            onClick={handleSave}
+                            disabled={saving}
+                            className="flex items-center gap-1 px-2.5 py-1 text-[10px] font-semibold bg-emerald-500 text-white rounded-lg hover:bg-emerald-600 transition-colors disabled:opacity-50 mr-1"
+                            title="Save (⌘S)"
+                        >
+                            <Save size={10} />
+                            {saving ? 'Saving...' : saved ? 'Saved ✓' : 'Save'}
+                        </button>
                     )}
 
                     <button
@@ -218,8 +296,18 @@ export const ArtifactsPanel: React.FC<{
 
             {/* Content */}
             <div className="flex-1 overflow-auto tc-scrollbar" style={{ padding: viewMode === 'preview' ? 0 : '1.25rem' }}>
-                {viewMode === 'preview' && canRender ? (
-                    /* ═══ Live Preview ═══ */
+                {viewMode === 'edit' ? (
+                    /* ═══ Edit Mode ═══ */
+                    <textarea
+                        ref={textareaRef}
+                        value={editContent}
+                        onChange={e => setEditContent(e.target.value)}
+                        className="w-full h-full min-h-[400px] p-4 text-[13px] font-mono leading-relaxed tc-text tc-surface resize-none focus:outline-none tc-scrollbar"
+                        style={{ background: 'transparent', border: 'none' }}
+                        spellCheck={false}
+                    />
+                ) : viewMode === 'preview' && canRender ? (
+                    /* ═══ Live Preview (HTML/React) ═══ */
                     <iframe
                         ref={iframeRef}
                         className="w-full border-0"
@@ -234,13 +322,66 @@ export const ArtifactsPanel: React.FC<{
                         sandbox="allow-scripts allow-same-origin allow-popups"
                         srcDoc={getIframeContent()}
                     />
+                ) : viewMode === 'preview' && isCsv ? (
+                    /* ═══ CSV Table Preview ═══ */
+                    <div className="overflow-auto tc-scrollbar">
+                        {(() => {
+                            const lines = artifact.content.trim().split('\n');
+                            if (lines.length === 0) return <div className="text-sm tc-text-muted p-4">Empty CSV</div>;
+                            const header = lines[0].split(',').map(h => h.trim().replace(/^"|"$/g, ''));
+                            const rows = lines.slice(1).map(l => l.split(',').map(c => c.trim().replace(/^"|"$/g, '')));
+                            return (
+                                <table className="w-full text-[12px] border-collapse">
+                                    <thead>
+                                        <tr className="border-b tc-border">
+                                            {header.map((h, i) => (
+                                                <th key={i} className="text-left px-3 py-2 font-semibold tc-text-heading bg-white/[0.03] whitespace-nowrap">{h}</th>
+                                            ))}
+                                        </tr>
+                                    </thead>
+                                    <tbody>
+                                        {rows.map((row, ri) => (
+                                            <tr key={ri} className="border-b border-white/[0.04] hover:bg-white/[0.02]">
+                                                {row.map((cell, ci) => (
+                                                    <td key={ci} className="px-3 py-1.5 tc-text whitespace-nowrap">{cell}</td>
+                                                ))}
+                                            </tr>
+                                        ))}
+                                    </tbody>
+                                </table>
+                            );
+                        })()}
+                    </div>
+                ) : viewMode === 'preview' && (isMarkdown || isJson) ? (
+                    /* ═══ Markdown / JSON Preview ═══ */
+                    <div className="p-5">
+                        {isJson ? (
+                            <pre className="tc-code rounded-xl p-4 overflow-x-auto text-[13px] font-mono leading-relaxed border tc-scrollbar-h">
+                                <code>{(() => {
+                                    try { return JSON.stringify(JSON.parse(artifact.content), null, 2); }
+                                    catch { return artifact.content; }
+                                })()}</code>
+                            </pre>
+                        ) : (
+                            <div className="tc-prose prose-sm max-w-none
+                                [&_h1]:text-xl [&_h1]:font-semibold [&_h1]:mb-4 [&_h1]:pb-2 [&_h1]:border-b
+                                [&_h2]:text-base [&_h2]:font-semibold [&_h2]:mt-6 [&_h2]:mb-3
+                                [&_h3]:text-sm [&_h3]:font-semibold [&_h3]:mt-4 [&_h3]:mb-2
+                                [&_p]:leading-relaxed
+                                [&_code]:px-1.5 [&_code]:py-0.5 [&_code]:rounded [&_code]:text-xs [&_code]:font-mono
+                                [&_pre]:rounded-xl [&_pre]:border
+                                [&_input[type=checkbox]]:mr-2 [&_input[type=checkbox]]:accent-violet-500">
+                                {renderFullMarkdown(artifact.content)}
+                            </div>
+                        )}
+                    </div>
                 ) : artifact.type === 'code' || viewMode === 'code' ? (
                     /* ═══ Source Code ═══ */
                     <div className="relative">
                         <div className="flex items-center justify-between mb-3">
                             <div className="flex items-center gap-2">
                                 <span className="text-[11px] tc-text-secondary tc-surface px-2 py-0.5 rounded font-mono">
-                                    {artifact.language || (renderable ? 'html' : reactRenderable ? 'jsx' : 'plaintext')}
+                                    {artifact.language || fileExt || (renderable ? 'html' : reactRenderable ? 'jsx' : 'plaintext')}
                                 </span>
                             </div>
                         </div>
@@ -249,7 +390,7 @@ export const ArtifactsPanel: React.FC<{
                         </pre>
                     </div>
                 ) : (
-                    /* ═══ Markdown / Text ═══ */
+                    /* ═══ Markdown / Text fallback ═══ */
                     <div className="tc-prose prose-sm max-w-none
             [&_h1]:text-xl [&_h1]:font-semibold [&_h1]:mb-4 [&_h1]:pb-2 [&_h1]:border-b
             [&_h2]:text-base [&_h2]:font-semibold [&_h2]:mt-6 [&_h2]:mb-3
@@ -268,18 +409,18 @@ export const ArtifactsPanel: React.FC<{
                 <span>{artifact.createdAt.toLocaleTimeString()}</span>
                 <span>·</span>
                 <span>{artifact.content.split('\n').length} lines</span>
-                {canRender && viewMode === 'preview' && (
+                {isFileBacked && (
                     <>
                         <span>·</span>
-                        <span className="text-emerald-400/80 flex items-center gap-1">
-                            <Play size={8} /> Live
+                        <span className="text-blue-400/80 font-mono truncate max-w-[200px]" title={artifact.storagePath}>
+                            {artifact.storagePath}
                         </span>
                     </>
                 )}
-                {artifact.type === 'code' && artifact.language && (
+                {viewMode === 'edit' && (
                     <>
                         <span>·</span>
-                        <span>{artifact.language}</span>
+                        <span className="text-amber-400/80">⌘S to save</span>
                     </>
                 )}
             </div>

@@ -16,6 +16,8 @@ export interface Artifact {
     signature?: string;
     version: number;
     tier?: Tier;
+    /** If set, artifact is a file from user storage — enables edit + save */
+    storagePath?: string;
 }
 
 export interface ExecutionStep {
@@ -35,7 +37,7 @@ export interface ExecutionStep {
 
 export interface Message {
     id: string;
-    role: 'user' | 'assistant' | 'system';
+    role: 'user' | 'assistant' | 'system' | 'participant';
     content: string;
     timestamp: Date;
     signature?: string;
@@ -45,6 +47,12 @@ export interface Message {
     artifactId?: string;
     artifactIds?: string[];
     executionSteps?: ExecutionStep[];
+    /** Multi-party: sender identifier */
+    senderId?: string;
+    /** Multi-party: sender display name */
+    senderName?: string;
+    /** Multi-party: sender type (user or agent) */
+    senderType?: 'user' | 'agent';
 }
 
 export interface ToolCall {

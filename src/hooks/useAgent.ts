@@ -132,8 +132,8 @@ export function useAgent(): UseAgentReturn {
                 defaultFuzzyThreshold: 0.7,
                 defaultTimeIntervalHours: 24,
                 streamingLimits: {
-                    maxThinkIterations: 5,
-                    maxPlanIterations: 3,
+                    maxThinkIterations: 500,
+                    maxPlanIterations: 300,
                 },
             };
 

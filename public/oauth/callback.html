@@ -1,0 +1,31 @@
+<!DOCTYPE html>
+<html>
+<head><title>OAuth Callback</title></head>
+<body>
+<script>
+/**
+ * OAuth2 callback handler.
+ * Extracts the access_token from the URL hash fragment and posts it
+ * back to the opener window via postMessage.
+ */
+(function() {
+    const hash = window.location.hash.substring(1);
+    const params = new URLSearchParams(hash);
+    const access_token = params.get('access_token');
+    const expires_in = params.get('expires_in');
+
+    if (window.opener) {
+        window.opener.postMessage({
+            type: 'oauth-callback',
+            access_token,
+            expires_in,
+        }, window.location.origin);
+    }
+
+    // Close this popup after a short delay
+    document.body.innerHTML = '<p style="font-family:sans-serif;text-align:center;padding:2em">Authenticating...</p>';
+    setTimeout(() => window.close(), 1500);
+})();
+</script>
+</body>
+</html>

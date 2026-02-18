@@ -22,16 +22,26 @@ export const ChainStatusBar: React.FC = () => {
 
     useEffect(() => {
         let mounted = true;
+        let intervalId: ReturnType<typeof setInterval> | null = null;
         const base = getBackendUrl();
+        let backendDown = false;
 
         async function fetchStats() {
+            if (backendDown) return;
             try {
                 const [chainRes, proRes] = await Promise.all([
-                    fetch(`${base}/api/trustchain/stats`).then(r => r.ok ? r.json() : null),
-                    fetch(`${base}/api/trustchain-pro/status`).then(r => r.ok ? r.json() : null),
+                    fetch(`${base}/api/trustchain/stats`).then(r => r.ok ? r.json() : null).catch(() => null),
+                    fetch(`${base}/api/trustchain-pro/status`).then(r => r.ok ? r.json() : null).catch(() => null),
                 ]);
 
                 if (!mounted) return;
+
+                // If both failed, backend is down — stop polling to avoid console spam
+                if (!chainRes && !proRes) {
+                    backendDown = true;
+                    if (intervalId) clearInterval(intervalId);
+                    return;
+                }
 
                 setStats({
                     chainLength: chainRes?.total_operations ?? 0,
@@ -41,13 +51,14 @@ export const ChainStatusBar: React.FC = () => {
                     totalModules: proRes?.total_count ?? 0,
                 });
             } catch {
-                // Backend unavailable — hide bar
+                backendDown = true;
+                if (intervalId) clearInterval(intervalId);
             }
         }
 
         fetchStats();
-        const interval = setInterval(fetchStats, 10000); // poll every 10s
-        return () => { mounted = false; clearInterval(interval); };
+        intervalId = setInterval(fetchStats, 10000);
+        return () => { mounted = false; if (intervalId) clearInterval(intervalId); };
     }, []);
 
     if (!stats) return null;

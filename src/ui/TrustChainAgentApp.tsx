@@ -17,6 +17,8 @@ import { ToolManager } from './ToolManager';
 import { MCPManager } from './MCPManager';
 import { SkillsManager } from './SkillsManager';
 import { chatHistoryService } from '../services/chatHistoryService';
+import { channelService } from '../services/channels/channelService';
+import type { Channel } from '../types/channelTypes';
 import { licensingService, type LicenseInfo } from '../services/licensingService';
 import { dockerAgentService, type AgentStreamEvent } from '../services/dockerAgentService';
 import { postProcessAgentResponse } from '../utils/trustchainPostProcess';
@@ -36,12 +38,18 @@ import {
 } from './components/constants';
 import { MessageBubble } from './components/MessageBubble';
 import { ArtifactsPanel } from './components/ArtifactsPanel';
+import { virtualStorageService } from '../services/storage';
 import ProSettingsPanel from './components/ProSettingsPanel';
 import { ChatSidebar } from './components/ChatSidebar';
 import { ChatHeader } from './components/ChatHeader';
 import { ChatArea } from './components/ChatArea';
 import { InputPanel } from './components/InputPanel';
 import { ChainStatusBar } from './components/ChainStatusBar';
+import { FileManagerView } from './components/FileManagerView';
+import { ChannelHeader } from './components/ChannelHeader';
+import { BrowserPanel } from './components/BrowserPanel';
+import { RightPanelTabs, type PanelTab } from './components/RightPanelTabs';
+import { browserActionService } from '../services/browserActionService';
 
 /* Types imported from ./components/types */
 
@@ -537,10 +545,14 @@ const TrustChainAgentApp: React.FC = () => {
     // ── UI state ──
     const [sidebarOpen, setSidebarOpen] = useState(true);
     const isEmbedded = typeof window !== 'undefined' && new URLSearchParams(window.location.search).get('embed') === 'true';
-    const [activeSection, setActiveSection] = useState<'chats' | 'agent' | 'trust'>('chats');
+    const [activeSection, setActiveSection] = useState<'chats' | 'agent' | 'trust' | 'people'>('chats');
     const [theme, setTheme] = useState<ThemeMode>('light');
     const [showSettings, setShowSettings] = useState(false);
     const [showRunbook, setShowRunbook] = useState(false);
+    const [showFileManager, setShowFileManager] = useState(false);
+    const [showBrowser, setShowBrowser] = useState(false);
+    const [openPanelTabs, setOpenPanelTabs] = useState<string[]>([]);
+    const [activeRightTab, setActiveRightTab] = useState<string | null>(null);
 
     const [runbookYaml, setRunbookYaml] = useState(() => localStorage.getItem('tc_runbook_yaml') || `name: "SOC2 Nightly Audit"
 description: "Automated compliance and integrity check"
@@ -634,6 +646,88 @@ workflow:
     /** Merge demo + dynamic artifacts for lookup */
     const allArtifacts = useMemo(() => ({ ...DEMO_ARTIFACTS, ...dynamicArtifacts }), [dynamicArtifacts]);
     const activeArtifact = activeArtifactId ? allArtifacts[activeArtifactId] : null;
+
+    // ── Open artifact tab when activeArtifactId changes ──
+    useEffect(() => {
+        if (activeArtifactId) {
+            setOpenPanelTabs(prev => prev.includes(activeArtifactId) ? prev : [...prev, activeArtifactId]);
+            setActiveRightTab(activeArtifactId);
+        }
+    }, [activeArtifactId]);
+
+    // ── Open browser tab when showBrowser changes ──
+    useEffect(() => {
+        if (showBrowser) {
+            setOpenPanelTabs(prev => prev.includes('__browser__') ? prev : [...prev, '__browser__']);
+            setActiveRightTab('__browser__');
+        }
+    }, [showBrowser]);
+
+    // ── Auto-activate browser tab when agent dispatches navigate/search commands ──
+    useEffect(() => {
+        return browserActionService.onCommand((cmd) => {
+            if (cmd.type === 'navigate' || cmd.type === 'search') {
+                setShowBrowser(true);
+                setOpenPanelTabs(prev => prev.includes('__browser__') ? prev : [...prev, '__browser__']);
+                setActiveRightTab('__browser__');
+            }
+        });
+    }, []);
+
+    // ── Build tab list ──
+    const rightPanelTabs: PanelTab[] = useMemo(() => {
+        return openPanelTabs.map(id => {
+            if (id === '__browser__') {
+                return { id: '__browser__', type: 'browser' as const, label: 'Browser' };
+            }
+            const art = allArtifacts[id];
+            return {
+                id,
+                type: 'artifact' as const,
+                label: art?.title || 'Artifact',
+                artifactType: art?.type,
+            };
+        }).filter(tab => tab.type === 'browser' || allArtifacts[tab.id]);
+    }, [openPanelTabs, allArtifacts]);
+
+    const handleSelectTab = useCallback((id: string) => {
+        setActiveRightTab(id);
+        if (id === '__browser__') {
+            setShowBrowser(true);
+            setActiveArtifactId(null);
+        } else {
+            setActiveArtifactId(id);
+            setShowBrowser(false);
+        }
+    }, [setActiveArtifactId]);
+
+    const handleCloseTab = useCallback((id: string) => {
+        setOpenPanelTabs(prev => prev.filter(t => t !== id));
+        if (id === '__browser__') {
+            setShowBrowser(false);
+        } else if (id === activeArtifactId) {
+            setActiveArtifactId(null);
+            setArtifactMaximized(false);
+        }
+        // Switch to next available tab
+        setOpenPanelTabs(prev => {
+            const remaining = prev.filter(t => t !== id);
+            if (remaining.length > 0 && activeRightTab === id) {
+                const next = remaining[remaining.length - 1];
+                setActiveRightTab(next);
+                if (next === '__browser__') {
+                    setShowBrowser(true);
+                    setActiveArtifactId(null);
+                } else {
+                    setActiveArtifactId(next);
+                    setShowBrowser(false);
+                }
+            } else if (remaining.length === 0) {
+                setActiveRightTab(null);
+            }
+            return remaining;
+        });
+    }, [activeArtifactId, activeRightTab, setActiveArtifactId, setArtifactMaximized]);
 
     /** Detect artifacts created by the real agent in tool result events */
     const extractArtifactsFromEvents = useCallback((events: MessageEvent[]): { artifactIds: string[]; newArtifacts: Record<string, Artifact> } => {
@@ -1069,6 +1163,34 @@ workflow:
 
     const isNewChat = messages.length === 0;
 
+    // ── Active channel ──
+    const [activeChannel, setActiveChannel] = useState<Channel | null>(null);
+
+    const loadChannel = useCallback(async (channelId: string) => {
+        await channelService.init();
+        const channel = channelService.getChannel(channelId);
+        if (!channel) return;
+
+        const channelMsgs = channelService.getMessages(channelId);
+        const converted: Message[] = channelMsgs.map(cm => ({
+            id: cm.id,
+            role: (cm.senderType === 'agent' ? 'assistant' : 'participant') as Message['role'],
+            content: cm.content,
+            timestamp: new Date(cm.timestamp),
+            senderId: cm.senderId,
+            senderName: cm.senderName,
+            senderType: cm.senderType,
+            ...(cm.executionSteps ? { executionSteps: cm.executionSteps } : {}),
+            ...(cm.signature ? { signature: cm.signature } : {}),
+            ...(cm.verified !== undefined ? { verified: cm.verified } : {}),
+        }));
+
+        setMessages(converted);
+        setActiveConversation(channelId);
+        setActiveChannel(channel);
+        channelService.markRead(channelId);
+    }, [setMessages, setActiveConversation]);
+
     return (
         <div data-theme={theme} className="h-screen w-screen flex tc-app overflow-hidden">
 
@@ -1077,7 +1199,7 @@ workflow:
                 sidebarOpen ? (
                     <ChatSidebar
                         activeConversation={activeConversation}
-                        setActiveConversation={setActiveConversation}
+                        setActiveConversation={(id) => { setActiveConversation(id); if (!id || !id.startsWith('ch-')) setActiveChannel(null); }}
                         messages={messages}
                         setMessages={setMessages}
                         activeSection={activeSection}
@@ -1094,10 +1216,12 @@ workflow:
                         toolsByCategory={toolsByCategory}
                         demoMessages={DEMO_MESSAGES}
                         sessions={sessions}
-                        onLoadSession={loadSession}
+                        onLoadSession={(sessionId) => { setActiveChannel(null); loadSession(sessionId); }}
                         onDeleteSession={deleteSessionFn}
                         onDownloadSession={downloadSession}
-                        onNewChat={startNewChat}
+                        onNewChat={() => { setActiveChannel(null); startNewChat(); }}
+                        onOpenFileManager={() => setShowFileManager(true)}
+                        onLoadChannel={loadChannel}
                     />
                 ) : (
                     /* ── Collapsed sidebar strip ── */
@@ -1129,49 +1253,105 @@ workflow:
                     agent={agent}
                     setShowSettings={setShowSettings}
                     onOpenRunbook={() => setShowRunbook(true)}
+                    onToggleBrowser={() => setShowBrowser(!showBrowser)}
+                    showBrowser={showBrowser}
                 />}
 
                 {/* Content area — split when artifact is open */}
                 <div className="flex-1 flex min-h-0 min-w-0 overflow-hidden">
-                    {/* Chat column — messages + input stacked vertically */}
+                    {/* Chat column OR File Manager — messages + input stacked vertically */}
                     <div className={`flex flex-col min-w-0 overflow-hidden ${activeArtifact && !artifactMaximized ? 'w-[45%] min-w-[360px]' : 'flex-1'}
                         ${artifactMaximized ? 'hidden' : ''}`}>
-                        <ChatArea
-                            messages={messages}
-                            isNewChat={isNewChat}
-                            isTyping={isTyping}
-                            activeArtifactId={activeArtifactId}
-                            allArtifacts={allArtifacts}
-                            artifactMaximized={artifactMaximized}
-                            activeArtifact={activeArtifact}
-                            messagesEndRef={messagesEndRef}
-                            inputRef={inputRef}
-                            setActiveArtifactId={setActiveArtifactId}
-                            setInputValue={setInputValue}
-                            streamingEvents={agent.streamingEvents}
-                            streamingText={agent.streamingText}
-                        />
-                        <InputPanel
-                            inputValue={inputValue}
-                            setInputValue={setInputValue}
-                            inputRef={inputRef}
-                            isTyping={isTyping}
-                            onSend={handleSend}
-                            onKeyDown={handleKeyDown}
-                            onInput={handleInput}
-                        />
-
+                        {showFileManager ? (
+                            <FileManagerView
+                                onClose={() => setShowFileManager(false)}
+                                onOpenFileArtifact={(path, content) => {
+                                    const ext = path.split('.').pop()?.toLowerCase() || '';
+                                    const typeMap: Record<string, Artifact['type']> = {
+                                        json: 'code', jsonl: 'code', ts: 'code', tsx: 'code',
+                                        js: 'code', jsx: 'code', py: 'code', sh: 'code',
+                                        css: 'code', html: 'code', csv: 'table',
+                                        md: 'document', txt: 'document', log: 'document',
+                                    };
+                                    const langMap: Record<string, string> = {
+                                        json: 'json', jsonl: 'json', ts: 'typescript', tsx: 'tsx',
+                                        js: 'javascript', jsx: 'jsx', py: 'python', sh: 'bash',
+                                        css: 'css', html: 'html', csv: 'csv', md: 'markdown',
+                                    };
+                                    const fileName = path.split('/').pop() || path;
+                                    const artifactId = `file:${path}`;
+                                    const artifact: Artifact = {
+                                        id: artifactId,
+                                        type: typeMap[ext] || 'document',
+                                        title: fileName,
+                                        language: langMap[ext],
+                                        content,
+                                        createdAt: new Date(),
+                                        version: 1,
+                                        storagePath: path,
+                                    };
+                                    setDynamicArtifacts(prev => ({ ...prev, [artifactId]: artifact }));
+                                    setActiveArtifactId(artifactId);
+                                }}
+                            />
+                        ) : (
+                            <>
+                                <ChatArea
+                                    messages={messages}
+                                    isNewChat={isNewChat}
+                                    isTyping={isTyping}
+                                    activeArtifactId={activeArtifactId}
+                                    allArtifacts={allArtifacts}
+                                    artifactMaximized={artifactMaximized}
+                                    activeArtifact={activeArtifact}
+                                    messagesEndRef={messagesEndRef}
+                                    inputRef={inputRef}
+                                    setActiveArtifactId={setActiveArtifactId}
+                                    setInputValue={setInputValue}
+                                    streamingEvents={agent.streamingEvents}
+                                    streamingText={agent.streamingText}
+                                />
+                                <InputPanel
+                                    inputValue={inputValue}
+                                    setInputValue={setInputValue}
+                                    inputRef={inputRef}
+                                    isTyping={isTyping}
+                                    onSend={handleSend}
+                                    onKeyDown={handleKeyDown}
+                                    onInput={handleInput}
+                                />
+                            </>
+                        )}
                     </div>
 
-                    {/* ═══ ARTIFACT PANEL (right) ═══ */}
-                    {activeArtifact && (
-                        <div className={`${artifactMaximized ? 'flex-1' : 'w-[55%]'} min-w-[400px]`}>
-                            <ArtifactsPanel
-                                artifact={activeArtifact}
-                                onClose={() => { setActiveArtifactId(null); setArtifactMaximized(false); }}
-                                isMaximized={artifactMaximized}
-                                onToggleMaximize={() => setArtifactMaximized(!artifactMaximized)}
+                    {/* ═══ RIGHT PANEL: Tabs + Artifact/Browser ═══ */}
+                    {rightPanelTabs.length > 0 && (
+                        <div className={`${artifactMaximized ? 'flex-1' : 'w-[55%]'} min-w-[400px] flex flex-col border-l tc-border`}>
+                            <RightPanelTabs
+                                tabs={rightPanelTabs}
+                                activeTabId={activeRightTab}
+                                onSelectTab={handleSelectTab}
+                                onCloseTab={handleCloseTab}
                             />
+                            <div className="flex-1 min-h-0 flex flex-col">
+                                <div className={activeRightTab === '__browser__' ? 'h-full flex flex-col' : 'hidden'}>
+                                    <BrowserPanel
+                                        onClose={() => handleCloseTab('__browser__')}
+                                    />
+                                </div>
+                                {activeRightTab && activeRightTab !== '__browser__' && activeArtifact && (
+                                    <ArtifactsPanel
+                                        artifact={activeArtifact}
+                                        onClose={() => handleCloseTab(activeRightTab)}
+                                        isMaximized={artifactMaximized}
+                                        onToggleMaximize={() => setArtifactMaximized(!artifactMaximized)}
+                                        onArtifactUpdate={(updated) => {
+                                            setDynamicArtifacts(prev => ({ ...prev, [updated.id]: updated }));
+                                        }}
+                                        readOnly={activeArtifact.storagePath ? virtualStorageService.isReadOnly(activeArtifact.storagePath) : false}
+                                    />
+                                )}
+                            </div>
                         </div>
                     )}
                 </div>

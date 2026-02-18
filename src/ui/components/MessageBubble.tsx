@@ -18,27 +18,50 @@ export const MessageBubble: React.FC<{
     allArtifacts: Record<string, Artifact>;
 }> = ({ message, activeArtifactId, onOpenArtifact, allArtifacts }) => {
     const isUser = message.role === 'user';
+    const isParticipant = message.role === 'participant';
+    const isAgent = message.role === 'assistant' || (isParticipant && message.senderType === 'agent');
+    const isOtherUser = isParticipant && message.senderType === 'user';
     const artifact = message.artifactId ? allArtifacts[message.artifactId] : null;
     const normalizedContent = normalizeTrustChainMarkup(message.content || '');
+
+    // Avatar gradient based on sender type
+    const avatarGradient = isUser
+        ? 'bg-gradient-to-br from-blue-500 to-blue-600'
+        : isOtherUser
+            ? 'bg-gradient-to-br from-slate-400 to-slate-600'
+            : 'bg-gradient-to-br from-violet-500 to-purple-600';
+
+    // Bubble style based on sender type
+    const bubbleClass = isUser
+        ? 'tc-user-bubble rounded-br-md inline-block'
+        : isOtherUser
+            ? 'tc-assistant-bubble border rounded-bl-md bg-slate-50/50 dark:bg-slate-800/30'
+            : 'tc-assistant-bubble border rounded-bl-md';
+
+    // Avatar content
+    const avatarContent = isUser
+        ? <User size={16} className="text-white" />
+        : isOtherUser && message.senderName
+            ? <span className="text-white text-[10px] font-bold">{message.senderName.split(' ').map(w => w[0]).join('').slice(0, 2).toUpperCase()}</span>
+            : <Bot size={16} className="text-white" />;
 
     return (
         <div className={`flex gap-3 ${isUser ? 'flex-row-reverse' : ''} group`}>
             {/* Avatar */}
-            <div className={`w-8 h-8 rounded-xl flex items-center justify-center shrink-0 mt-1 shadow-lg
-        ${isUser
-                    ? 'bg-gradient-to-br from-blue-500 to-blue-600'
-                    : 'bg-gradient-to-br from-violet-500 to-purple-600'
-                }`}>
-                {isUser ? <User size={16} className="text-white" /> : <Bot size={16} className="text-white" />}
+            <div className={`w-8 h-8 rounded-xl flex items-center justify-center shrink-0 mt-1 shadow-lg ${avatarGradient}`}>
+                {avatarContent}
             </div>
 
             {/* Content */}
             <div className={`flex-1 min-w-0 overflow-hidden ${isUser ? 'max-w-[75%]' : 'max-w-[85%]'} ${isUser ? 'text-right' : ''}`}>
-                <div className={`text-left rounded-2xl px-4 py-3 text-sm leading-relaxed max-w-full
-          ${isUser
-                        ? 'tc-user-bubble rounded-br-md inline-block'
-                        : 'tc-assistant-bubble border rounded-bl-md'
-                    }`}
+                {/* Sender name for multi-party */}
+                {isParticipant && message.senderName && (
+                    <div className={`text-[10px] font-semibold mb-0.5 ${isOtherUser ? 'text-slate-500' : 'text-purple-500'}`}>
+                        {message.senderName}
+                        {message.senderType === 'agent' && <span className="ml-1 text-[8px] px-1 py-0 rounded bg-purple-500/10 text-purple-500">agent</span>}
+                    </div>
+                )}
+                <div className={`text-left rounded-2xl px-4 py-3 text-sm leading-relaxed max-w-full ${bubbleClass}`}
                     style={{ overflowWrap: 'anywhere' }}>
                     {/* Execution timeline (new agent-style) */}
                     {!isUser && message.executionSteps && message.executionSteps.length > 0 && (

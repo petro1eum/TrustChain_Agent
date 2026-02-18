@@ -1,6 +1,6 @@
 import React from 'react';
 import {
-    PanelLeft, Hash, Sun, Moon, Settings, BookOpen,
+    PanelLeft, Hash, Sun, Moon, Settings, BookOpen, Globe,
     ChevronDown, Sparkles, Loader2, AlertCircle
 } from 'lucide-react';
 import type { ThemeMode } from './types';
@@ -16,6 +16,8 @@ interface ChatHeaderProps {
     agent: { status: string; isInitialized: boolean };
     setShowSettings: (show: boolean) => void;
     onOpenRunbook?: () => void;
+    onToggleBrowser?: () => void;
+    showBrowser?: boolean;
 }
 
 function getConversationTitle(id: string | null): string {
@@ -34,7 +36,7 @@ export const ChatHeader: React.FC<ChatHeaderProps> = ({
     activeConversation,
     theme, toggleTheme,
     agent, setShowSettings,
-    onOpenRunbook,
+    onOpenRunbook, onToggleBrowser, showBrowser,
 }) => (
     <header className="h-12 shrink-0 border-b tc-border flex items-center px-4 gap-3">
         <div className="flex-1 flex items-center gap-2">
@@ -69,6 +71,14 @@ export const ChatHeader: React.FC<ChatHeaderProps> = ({
                     title="Security Runbooks">
                     <BookOpen size={16} />
                     <span className="text-xs hidden sm:inline">Runbooks</span>
+                </button>
+            )}
+            {onToggleBrowser && (
+                <button onClick={onToggleBrowser}
+                    className={`tc-text-muted hover:tc-text p-1.5 rounded-lg tc-btn-hover transition-colors flex items-center gap-1
+                        ${showBrowser ? 'text-cyan-400 bg-cyan-500/10' : ''}`}
+                    title="TrustChain Browser">
+                    <Globe size={16} />
                 </button>
             )}
             <button onClick={() => setShowSettings(true)}

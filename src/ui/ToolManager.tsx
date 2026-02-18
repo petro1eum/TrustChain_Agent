@@ -85,6 +85,7 @@ const CATEGORY_ICON_MAP: Record<ToolCategory, React.FC<{ size?: number; classNam
     'Web': Globe,
     'Code Analysis': GitBranch,
     'Browser': Monitor,
+    'Browser Panel': Globe,
     'MCP': Plug,
     'Data Processing': Database,
     'Memory': Brain,
