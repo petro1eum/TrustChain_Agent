@@ -205,6 +205,8 @@ describe('3. Tool routing coverage', () => {
         'browser_navigate', 'browser_screenshot', 'browser_extract',
         // File ops — handled by toolHandlers/appActionsRegistry via default case
         'search_files_by_name', 'read_project_file', 'get_synonyms_preview',
+        // Sub-Agent session spawn tools — handled via executeSessionSpawnTool
+        'session_spawn', 'session_status', 'session_result',
     ]);
 
     const ALL_ROUTED = new Set([...SWITCH_ROUTED_TOOLS, ...PRE_ROUTED_TOOLS]);

@@ -323,7 +323,11 @@ export class AIAgent {
 
     let output: any;
     let error: any = null;
-    const toolExecutionTimeout = this.config.toolExecutionTimeout || 35000;
+    // session_spawn tools await sub-agent completion — need up to 5 min
+    const isSessionTool = toolName.startsWith('session_');
+    const toolExecutionTimeout = isSessionTool
+      ? 5 * 60 * 1000
+      : (this.config.toolExecutionTimeout || 35000);
     let timeoutId: NodeJS.Timeout | undefined;
 
     try {

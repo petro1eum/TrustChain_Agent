@@ -541,6 +541,7 @@ const TrustChainAgentApp: React.FC = () => {
     const [theme, setTheme] = useState<ThemeMode>('light');
     const [showSettings, setShowSettings] = useState(false);
     const [showRunbook, setShowRunbook] = useState(false);
+
     const [runbookYaml, setRunbookYaml] = useState(() => localStorage.getItem('tc_runbook_yaml') || `name: "SOC2 Nightly Audit"
 description: "Automated compliance and integrity check"
 workflow:
@@ -1159,6 +1160,7 @@ workflow:
                             onKeyDown={handleKeyDown}
                             onInput={handleInput}
                         />
+
                     </div>
 
                     {/* ═══ ARTIFACT PANEL (right) ═══ */}

@@ -15,6 +15,7 @@ import { codeExecutionTools } from './codeExecutionTools';
 import { webTools } from './webTools';
 import { fileTools } from './fileTools';
 import { codeAnalysisTools } from './codeAnalysisTools';
+import { SESSION_SPAWN_TOOLS } from './sessionSpawnTools';
 import { BrowserService } from '../services/agents/browserService';
 
 // Browser tools from BrowserService
@@ -22,7 +23,7 @@ const _browserSvc = new BrowserService();
 const browserTools = _browserSvc.getToolDefinitions();
 
 // Re-export for external use
-export { codeExecutionTools, webTools, fileTools, codeAnalysisTools, browserTools };
+export { codeExecutionTools, webTools, fileTools, codeAnalysisTools, browserTools, SESSION_SPAWN_TOOLS };
 
 /**
  * All universal toolsets (project-agnostic)
@@ -54,6 +55,7 @@ export function getAllSmartAgentTools() {
     ...fileTools,
     ...codeAnalysisTools,
     ...browserTools,
+    ...SESSION_SPAWN_TOOLS,
   ];
 }
 
@@ -75,6 +77,8 @@ export const UNIVERSAL_TOOLS = new Set([
   'analyze_code_structure', 'search_code_symbols', 'get_code_dependencies',
   // Browser (3) — Headless web browsing via Playwright
   'browser_navigate', 'browser_screenshot', 'browser_extract',
+  // Sub-Agents (3) — Spawn and manage background sub-agent sessions
+  'session_spawn', 'session_status', 'session_result',
 ]);
 
 // Legacy alias for backward compatibility during migration

@@ -89,6 +89,7 @@ const CATEGORY_ICON_MAP: Record<ToolCategory, React.FC<{ size?: number; classNam
     'Data Processing': Database,
     'Memory': Brain,
     'TrustChain': Shield,
+    'Sub-Agents': Wand2,
 };
 
 // ── Helpers ──

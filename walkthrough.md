@@ -535,3 +535,240 @@ assert agent.verify_against(platform).valid is False
 492 tests passing (32 X.509 + 32 Verifiable Log + 428 existing)
 ```
 
+---
+
+## Part 11: Sub-Agent Session Spawn — Implementation Plan (2026-02-18)
+
+> Вдохновлено анализом OpenClaw (`session_spawn`, async sub-agents, Cron Jobs) и OpenAI Codex App (multi-thread agents, parallel execution).
+
+### Проблема
+
+Текущий `AgentOrchestratorService` декомпозирует задачи и выполняет sub-task'и, но **все используют одну LLM-сессию** через `executor` callback. Нет настоящих изолированных sub-agent'ов с собственным контекстом, system prompt и набором tools. OpenClaw решает это через `session_spawn` — запуск независимой LLM-сессии, которая работает асинхронно и возвращает `run_id`.
+
+### Целевая архитектура
+
+```mermaid
+flowchart TD
+    User[User] --> MainAgent["Main Agent\n(SmartAIAgent)"]
+    
+    MainAgent -->|"spawn(config)"| SSS["SessionSpawnService"]
+    SSS -->|"register_agent(parent_id)"| Platform["Platform MCP\nX.509 cert issued"]
+    SSS -->|"creates"| S1["Sub-Agent Session 1\nown context + tools\nrun_id: abc123"]
+    SSS -->|"creates"| S2["Sub-Agent Session 2\nown context + tools\nrun_id: def456"]
+    
+    S1 -->|"signs with own cert"| VLog["Verifiable Log\nparent_agent → sub_agent_1 → tool_X"]
+    S2 -->|"signs with own cert"| VLog
+    
+    S1 -->|"result + signature"| TQ["TaskQueueService\ncheckpoint/resume"]
+    S2 -->|"result + signature"| TQ
+    
+    TQ -->|"push result"| MainAgent
+    MainAgent -->|"display"| UI["Multi-Thread UI\nparallel progress bars"]
+```
+
+### Компоненты (5 модулей)
+
+---
+
+#### 11.1 SessionSpawnService — Ядро
+
+**Файл:** `src/services/agents/sessionSpawnService.ts` [NEW]
+
+Основной сервис для создания изолированных sub-agent сессий:
+
+```typescript
+interface SpawnConfig {
+  sessionId: string;               // уникальный ID сессии
+  instruction: string;             // задача для sub-agent'а
+  systemPrompt?: string;           // кастомный system prompt
+  tools?: string[];                // whitelist инструментов
+  model?: string;                  // можно другую модель
+  parentAgentId?: string;          // для PKI цепочки
+  maxIterations?: number;          // лимит итераций
+  timeout?: number;                // таймаут в ms
+}
+
+interface SpawnedSession {
+  runId: string;                   // уникальный run ID
+  status: 'pending' | 'running' | 'completed' | 'failed';
+  progress: number;                // 0-100
+  result?: any;                    // результат после завершения
+  signature?: string;              // Ed25519 подпись результата
+  certificate?: string;            // X.509 serial sub-agent'а
+}
+```
+
+**Логика:**
+1. `spawn(config)` → создаёт новый `SmartAIAgent` instance с ограниченным набором tools
+2. Регистрирует sub-agent через Platform MCP `register_agent(parent_agent_id)`
+3. Получает X.509 сертификат для sub-agent'а
+4. Делегирует выполнение в `TaskQueueService.runInBackground()`
+5. Возвращает `runId` немедленно — main agent продолжает работу
+6. По завершении: результат подписывается cert'ом sub-agent'а, pushится в основной чат
+7. Sub-agent decommission: `decommission_agent()` через MCP
+
+**Ключевое отличие от OpenClaw:** каждый sub-agent **криптографически изолирован** — собственный X.509 cert, подпись результата верифицируема, в audit log видна полная цепочка.
+
+---
+
+#### 11.2 Sub-Agent Tool — Интерфейс для LLM
+
+**Файл:** `src/tools/sessionSpawnTool.ts` [NEW]
+
+Tool definition для OpenRouter / Claude / GPT, чтобы main agent мог вызывать spawn через function calling:
+
+```typescript
+{
+  name: "session_spawn",
+  description: "Запустить фоновую sub-agent сессию для долгой или независимой задачи. " +
+    "Sub-agent работает асинхронно, не блокируя текущий разговор. " +
+    "Возвращает run_id для отслеживания.",
+  parameters: {
+    instruction: { type: "string", description: "Задача для sub-agent'а" },
+    tools: { type: "array", items: { type: "string" }, description: "Whitelist инструментов" },
+    priority: { type: "string", enum: ["low", "normal", "high"] }
+  }
+}
+```
+
+Также `session_status` tool для проверки статуса по `runId` и `session_result` для получения результата.
+
+---
+
+#### 11.3 Multi-Thread UI Panel
+
+**Файл:** `src/ui/components/ThreadPanel.tsx` [NEW]
+
+Визуализация параллельных sub-agent сессий (как в Codex App):
+
+```
+┌─ Active Threads ──────────────────────────────┐
+│                                               │
+│ 🧵 code-review (run_abc)   [████████░░] 80%  │
+│    Analyzing docker_agent.py · 2m elapsed     │
+│    🔒 cert: SN#4821 · signed: 12 ops         │
+│                                               │
+│ 🧵 web-research (run_def)  [██░░░░░░░░] 20%  │
+│    Searching Brave API · 45s elapsed          │
+│    🔒 cert: SN#4822 · signed: 3 ops          │
+│                                               │
+│ 🧵 transcription (run_ghi) [██████████] Done  │
+│    ✅ Result ready · click to expand          │
+│    🔒 cert: SN#4820 · signed: 8 ops · ✓ OK   │
+│                                               │
+│ [+ Spawn New Thread]                          │
+└───────────────────────────────────────────────┘
+```
+
+**Интеграция:** Встраивается как collapsible панель в `TrustChainAgentApp.tsx` справа от основного чата.
+
+---
+
+#### 11.4 Scheduled Tasks (Cron Jobs)
+
+**Файл:** `src/services/agents/schedulerService.ts` [NEW]  
+**Файл:** `backend/routers/scheduler.py` [NEW]
+
+Автоматизации по расписанию (как OpenClaw Cron Jobs):
+
+```typescript
+interface ScheduledJob {
+  id: string;
+  name: string;
+  schedule: string;              // cron expression: "0 9 * * *"
+  instruction: string;           // промпт для агента
+  tools?: string[];              // whitelist
+  channel?: string;              // куда отправить результат
+  enabled: boolean;
+  lastRun?: number;
+  nextRun?: number;
+}
+```
+
+**Backend:** FastAPI router с endpoints:
+- `POST /api/scheduler/jobs` — создать job
+- `GET /api/scheduler/jobs` — список jobs
+- `DELETE /api/scheduler/jobs/{id}` — удалить
+- `POST /api/scheduler/jobs/{id}/run` — запустить вручную
+
+**Frontend:** Секция в Settings → Scheduler tab с визуальным конструктором cron.
+
+**Хранение:** `.trustchain/jobs/` — JSON файлы, каждый execution подписывается.
+
+---
+
+#### 11.5 Skills Marketplace с TrustChain-подписью
+
+**Файл:** `src/services/skills/skillMarketplace.ts` [NEW]
+
+Расширение текущего `SkillsLoaderService`:
+
+- **Discover:** Поиск skills в remote registry (GitHub repos / npm packages)
+- **Verify:** Каждый skill-пакет должен быть подписан автором (Ed25519)
+- **Install:** Скачать + верифицировать подпись + добавить в `skills/`
+- **Rate:** Оценка skills с хранением в Platform
+
+**Отличие от OpenClaw ClawHub:** TrustChain верифицирует **подлинность** каждого skill через криптографическую подпись автора. Нет скама — нет неподписанных skills.
+
+---
+
+### Зависимости между компонентами
+
+```mermaid
+flowchart LR
+    A["11.1 SessionSpawnService"] --> B["11.2 session_spawn Tool"]
+    A --> C["11.3 ThreadPanel UI"]
+    A --> D["TaskQueueService\n(existing)"]
+    A --> E["Platform MCP\n(existing)"]
+    
+    F["11.4 SchedulerService"] --> A
+    F --> G["11.5 SkillMarketplace"]
+    
+    style A fill:#ff6b6b,color:#fff
+    style B fill:#ffa94d
+    style C fill:#ffa94d
+    style D fill:#69db7c
+    style E fill:#69db7c
+    style F fill:#74c0fc
+    style G fill:#74c0fc
+```
+
+Красный = ядро (реализуется первым), оранжевый = зависит от ядра, зелёный = уже есть, синий = отдельные модули.
+
+---
+
+### Порядок реализации
+
+| Фаза | Компонент | Оценка | Зависимости |
+|:---:|---|---|---|
+| **1** | `SessionSpawnService` (11.1) | 2-3 часа | `TaskQueueService`, Platform MCP |
+| **2** | `session_spawn` Tool (11.2) | 1 час | SessionSpawnService |
+| **3** | `ThreadPanel` UI (11.3) | 2 часа | SessionSpawnService |
+| **4** | `SchedulerService` (11.4) | 2-3 часа | SessionSpawnService |
+| **5** | `SkillMarketplace` (11.5) | 3-4 часа | SkillsLoaderService |
+
+**Общая оценка: 10-13 часов**
+
+---
+
+### Верификация
+
+**Автоматические тесты:**
+```bash
+# Frontend (vitest) — добавить тесты для нового сервиса
+cd TrustChain_Agent && npx vitest run
+
+# Backend (pytest) — тесты для scheduler router
+cd TrustChain_Agent && python3 -m pytest backend/tests/ -q
+
+# TypeScript compilation
+cd TrustChain_Agent && npx tsc --noEmit
+```
+
+**Ручная проверка:**
+1. Отправить агенту сообщение: "Проанализируй docker_agent.py и одновременно найди в интернете best practices для Docker security"
+2. Убедиться, что агент вызвал `session_spawn` дважды (code-review + web-research)
+3. В ThreadPanel должны появиться 2 параллельных прогресс-бара
+4. Результаты должны прийти асинхронно, каждый с подписью sub-agent'а
+5. В audit log (`.trustchain/`) должна быть видна цепочка: `main_agent → sub_agent_1 → bash_tool`
+

@@ -1,8 +1,12 @@
 import React, { useState, useCallback, useEffect } from 'react';
-import { Zap, ChevronRight, Sparkles, FileText, CheckCircle, Download } from 'lucide-react';
+import { Zap, ChevronRight, Sparkles, FileText, CheckCircle, Download, Bot } from 'lucide-react';
 import type { ExecutionStep, Artifact } from './types';
 import { ARTIFACT_META, TierBadge } from './constants';
 import { normalizeTrustChainMarkup, renderInline } from './MarkdownRenderer';
+import {
+    sessionSpawnService,
+    type SpawnedSession,
+} from '../../services/agents/sessionSpawnService';
 
 /**
  * Downloads the execution trace as a JSON file.
@@ -205,14 +209,19 @@ const StepRow: React.FC<{
         );
     }
 
-    // Tool step
+    // Tool step — with special rendering for session_spawn
+    const isSpawnTool = step.toolName === 'session_spawn';
+
     return (
         <div className="border-b tc-border-light">
             <button onClick={() => setOpen(!open)}
                 style={{ cursor: 'pointer' }}
                 className="w-full px-3 py-2 flex items-center gap-2 text-left tc-surface-hover transition-colors">
                 <span className="text-[10px] tc-text-muted w-4 text-right">{index}.</span>
-                <Zap size={11} className="text-amber-400" />
+                {isSpawnTool
+                    ? <Bot size={11} className="text-teal-400" />
+                    : <Zap size={11} className="text-amber-400" />
+                }
                 <span className="text-[11px] text-blue-500 font-mono flex-1">{step.toolName}</span>
                 {step.tier && <TierBadge tier={step.tier} />}
                 {step.latencyMs != null && step.latencyMs > 0 && <span className="text-[10px] tc-text-muted">{step.latencyMs}ms</span>}
@@ -227,7 +236,9 @@ const StepRow: React.FC<{
                             <span className="font-mono">{JSON.stringify(step.args)}</span>
                         </div>
                     )}
-                    {step.result && (
+                    {/* Sub-agent inline sessions for session_spawn */}
+                    {isSpawnTool && <SubAgentInline />}
+                    {step.result && !isSpawnTool && (
                         <div className="tc-text">
                             <span className="tc-text-muted">Result: </span>{step.result}
                         </div>
@@ -239,6 +250,126 @@ const StepRow: React.FC<{
                     )}
                 </div>
             )}
+        </div>
+    );
+};
+
+/** Inline sub-agent sessions — renders inside the session_spawn accordion */
+const SubAgentInline: React.FC = () => {
+    const [sessions, setSessions] = useState<SpawnedSession[]>([]);
+    const [expandedId, setExpandedId] = useState<string | null>(null);
+
+    useEffect(() => {
+        const update = () => setSessions(sessionSpawnService.getAllSessions());
+        update();
+        const unsub = sessionSpawnService.onAny(() => update());
+        const iv = setInterval(update, 1500);
+        return () => { unsub(); clearInterval(iv); };
+    }, []);
+
+    if (sessions.length === 0) {
+        return <div className="tc-text-muted py-1">No sub-agent sessions spawned yet.</div>;
+    }
+
+    const statusColor = (s: string) =>
+        s === 'completed' ? 'var(--tc-verified-text)'
+            : s === 'running' ? 'var(--tc-send-active)'
+                : s === 'failed' ? 'var(--tc-unverified-text)'
+                    : 'var(--tc-text-muted)';
+
+    return (
+        <div className="mt-1 space-y-1.5">
+            {sessions.map(s => {
+                const elapsed = s.elapsedMs
+                    ? s.elapsedMs >= 60000
+                        ? `${(s.elapsedMs / 60000).toFixed(1)}m`
+                        : `${(s.elapsedMs / 1000).toFixed(1)}s`
+                    : '';
+                const isActive = s.status === 'running' || s.status === 'pending';
+                const isExpanded = expandedId === s.runId;
+
+                return (
+                    <div
+                        key={s.runId}
+                        className="rounded-md border tc-border-light tc-surface overflow-hidden"
+                        style={{ boxShadow: 'var(--tc-shadow-sm)' }}
+                    >
+                        {/* Session header */}
+                        <button
+                            onClick={() => setExpandedId(isExpanded ? null : s.runId)}
+                            className="w-full px-2.5 py-1.5 flex items-center gap-2 text-left tc-surface-hover transition-colors"
+                            style={{ cursor: 'pointer' }}
+                        >
+                            <span
+                                style={{
+                                    width: 7, height: 7, borderRadius: '50%',
+                                    backgroundColor: statusColor(s.status),
+                                    flexShrink: 0,
+                                    ...(isActive ? { animation: 'pulse 1.5s ease-in-out infinite' } : {}),
+                                }}
+                            />
+                            <Bot size={10} className="tc-text-secondary" />
+                            <span className="text-[11px] font-medium tc-text flex-1">{s.name}</span>
+                            {elapsed && <span className="text-[10px] tc-text-muted">{elapsed}</span>}
+                            {s.signedOpsCount > 0 && (
+                                <span className="text-[9px]" style={{ color: 'var(--tc-verified-text)' }}>
+                                    🔒{s.signedOpsCount}
+                                </span>
+                            )}
+                            <ChevronRight size={9} className={`tc-text-muted transition-transform ${isExpanded ? 'rotate-90' : ''}`} />
+                        </button>
+
+                        {/* Progress bar */}
+                        <div style={{
+                            height: 2,
+                            background: 'var(--tc-border)',
+                        }}>
+                            <div style={{
+                                height: '100%',
+                                width: `${s.progress}%`,
+                                background: statusColor(s.status),
+                                transition: 'width 0.3s ease',
+                            }} />
+                        </div>
+
+                        {/* Current step label */}
+                        {s.currentStep && (
+                            <div className="px-2.5 py-1 text-[10px] tc-text-muted" style={{ borderTop: '1px solid var(--tc-border-light)' }}>
+                                {s.currentStep}
+                            </div>
+                        )}
+
+                        {/* Expanded: result/error */}
+                        {isExpanded && s.status === 'completed' && s.result && (
+                            <div
+                                className="px-2.5 py-2 text-[11px] tc-text leading-relaxed"
+                                style={{
+                                    borderTop: '1px solid var(--tc-border-light)',
+                                    background: 'var(--tc-expanded-bg)',
+                                    maxHeight: 160,
+                                    overflowY: 'auto',
+                                    whiteSpace: 'pre-wrap',
+                                    wordBreak: 'break-word',
+                                }}
+                            >
+                                {s.result}
+                            </div>
+                        )}
+                        {isExpanded && s.status === 'failed' && s.error && (
+                            <div
+                                className="px-2.5 py-2 text-[11px] leading-relaxed"
+                                style={{
+                                    borderTop: '1px solid var(--tc-border-light)',
+                                    background: 'var(--tc-expanded-bg)',
+                                    color: 'var(--tc-unverified-text)',
+                                }}
+                            >
+                                {s.error}
+                            </div>
+                        )}
+                    </div>
+                );
+            })}
         </div>
     );
 };

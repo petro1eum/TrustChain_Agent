@@ -21,7 +21,8 @@ export type ToolCategory =
     | 'MCP'
     | 'Data Processing'
     | 'Memory'
-    | 'TrustChain';
+    | 'TrustChain'
+    | 'Sub-Agents';
 
 export type RiskLevel = 'safe' | 'moderate' | 'dangerous';
 
@@ -60,6 +61,7 @@ const CATEGORY_DESCRIPTIONS: Record<ToolCategory, string> = {
     'Data Processing': 'Text processing, semantic analysis, data quality, normalization',
     'Memory': 'Persistent memory — cross-session knowledge, facts, preferences',
     'TrustChain': 'Cryptographic signing, verification, compliance, analytics — OSS/PRO/ENT tiers',
+    'Sub-Agents': 'Spawn and manage background sub-agent sessions for parallel task execution',
 };
 
 const CATEGORY_RISK: Record<ToolCategory, RiskLevel> = {
@@ -73,6 +75,7 @@ const CATEGORY_RISK: Record<ToolCategory, RiskLevel> = {
     'Data Processing': 'safe',
     'Memory': 'safe',
     'TrustChain': 'moderate',
+    'Sub-Agents': 'moderate',
 };
 
 // ── Registry ──
@@ -200,6 +203,25 @@ const TOOL_REGISTRY: ToolMeta[] = [
     t('tc_tsa_timestamp', 'TSA Timestamp', 'Generate RFC 3161 timestamp', 'TrustChain'),
     t('tc_tsa_verify', 'TSA Verify', 'Verify TSA timestamp', 'TrustChain'),
     t('tc_airgap_status', 'Air-Gap Status', 'Check air-gap capabilities', 'TrustChain'),
+
+    // ── Sub-Agents (3) ──
+    t('session_spawn', 'Spawn Session', 'Spawn a background sub-agent session for parallel tasks', 'Sub-Agents', {
+        locked: true,
+        params: [
+            p('name', 'string', 'Short name for the session'),
+            p('instruction', 'string', 'Task instruction for the sub-agent'),
+            p('tools', 'array', 'Whitelist of tool names', false),
+            p('priority', 'string', 'Execution priority (low/normal/high)', false),
+        ],
+    }),
+    t('session_status', 'Session Status', 'Check status/progress of spawned sub-agent sessions', 'Sub-Agents', {
+        locked: true,
+        params: [p('run_id', 'string', 'Run ID of the session (omit for all)', false)],
+    }),
+    t('session_result', 'Session Result', 'Get final result of completed sub-agent session', 'Sub-Agents', {
+        locked: true,
+        params: [p('run_id', 'string', 'Run ID of the completed session')],
+    }),
 ];
 
 // ── Public API ──

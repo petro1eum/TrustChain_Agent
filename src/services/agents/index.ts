@@ -21,3 +21,5 @@ export { TestRunnerService, type TestResult, type TestFailure } from './testRunn
 export { AgentOrchestratorService, type SubTask, type DecompositionResult, type CustomSpecialty } from './agentOrchestratorService';
 export { BrowserService, type BrowserAction, type BrowserResult } from './browserService';
 export { EventTriggerService, type EventTrigger, type EventPayload } from './eventTriggerService';
+export { SessionSpawnService, sessionSpawnService, type SpawnedSession, type SpawnConfig, type SessionEvent, type SessionStatus } from './sessionSpawnService';
+export { SchedulerService, schedulerService, type ScheduledJob } from './schedulerService';
