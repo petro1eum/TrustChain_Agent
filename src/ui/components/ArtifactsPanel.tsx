@@ -1,4 +1,5 @@
 import React, { useState, useRef, useEffect, useCallback } from 'react';
+import RFB from '@novnc/novnc/core/rfb';
 import { Download, Copy, Maximize2, Minimize2, X, Eye, Code, Play, AlertTriangle, Edit3, Save, Table, FileJson } from 'lucide-react';
 import type { Artifact } from './types';
 import { ARTIFACT_META } from './constants';
@@ -27,6 +28,63 @@ function isRenderableReact(content: string): boolean {
     );
 }
 
+
+// ── Embedded VNC viewer (same RFB approach as BrowserPanel) ──
+const VncViewer: React.FC = () => {
+    const containerRef = useRef<HTMLDivElement>(null);
+    const rfbRef = useRef<any>(null);
+    const [status, setStatus] = useState<'connecting' | 'connected' | 'error'>('connecting');
+
+    useEffect(() => {
+        if (!containerRef.current) return;
+        const wsProtocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+        const url = `${wsProtocol}//${window.location.hostname}:6080`;
+        try {
+            const rfb = new RFB(containerRef.current, url, { credentials: { password: '' } });
+            rfb.addEventListener('connect', () => {
+                rfb.scaleViewport = true;
+                rfb.resizeSession = false;
+                rfb.clipViewport = true;
+                rfb.viewOnly = false;
+                setStatus('connected');
+            });
+            rfb.addEventListener('disconnect', () => setStatus('error'));
+            rfbRef.current = rfb;
+        } catch (e) {
+            console.error('[VncViewer] RFB error:', e);
+            setStatus('error');
+        }
+        return () => {
+            try { rfbRef.current?.disconnect?.(); } catch { }
+        };
+    }, []);
+
+    return (
+        <div
+            ref={containerRef}
+            className="flex-1 w-full relative bg-black flex items-center justify-center overflow-hidden"
+            style={{ minHeight: '500px' }}
+        >
+            {status === 'connecting' && (
+                <div className="absolute inset-0 flex items-center justify-center bg-[#1a1b2e] z-10 pointer-events-none">
+                    <div className="text-[12px] tc-text-muted animate-pulse">Подключение к LibreOffice...</div>
+                </div>
+            )}
+            {status === 'error' && (
+                <div className="absolute inset-0 flex flex-col items-center justify-center bg-[#1a1b2e] z-10 gap-3">
+                    <div className="text-[13px] tc-text-muted">VNC недоступен</div>
+                    <button
+                        className="text-[11px] text-blue-400 underline"
+                        onClick={() => window.open(`http://${window.location.hostname}:6080/vnc.html?autoconnect=true`, '_blank')}
+                    >
+                        Открыть в новой вкладке
+                    </button>
+                </div>
+            )}
+        </div>
+    );
+};
+
 /**
  * ArtifactsPanel — Right-side panel for viewing artifact content.
  * Supports live rendering of HTML/React artifacts with Preview/Code toggle.
@@ -46,17 +104,19 @@ export const ArtifactsPanel: React.FC<{
     const isFileBacked = !!artifact.storagePath;
     const fileExt = artifact.storagePath?.split('.').pop()?.toLowerCase() || '';
     const isCsv = fileExt === 'csv';
+    const isSpreadsheet = ['xlsx', 'xls', 'xlsm', 'xlsb', 'ods'].includes(fileExt);
     const isJson = fileExt === 'json' || fileExt === 'jsonl';
     const isMarkdown = fileExt === 'md';
 
     const [viewMode, setViewMode] = useState<'preview' | 'code' | 'edit'>(
-        canRender ? 'preview' : (isMarkdown || isCsv) ? 'preview' : 'code'
+        canRender ? 'preview' : (isMarkdown || isCsv || isSpreadsheet) ? 'preview' : 'code'
     );
     const [editContent, setEditContent] = useState(artifact.content);
     const [saving, setSaving] = useState(false);
     const [saved, setSaved] = useState(false);
     const [iframeHeight, setIframeHeight] = useState(500);
     const [iframeError, setIframeError] = useState<string | null>(null);
+    const libreOpenedRef = useRef<string | null>(null);
     const iframeRef = useRef<HTMLIFrameElement>(null);
     const textareaRef = useRef<HTMLTextAreaElement>(null);
 
@@ -66,11 +126,27 @@ export const ArtifactsPanel: React.FC<{
         const ext = artifact.storagePath?.split('.').pop()?.toLowerCase() || '';
         const md = ext === 'md';
         const csv = ext === 'csv';
-        setViewMode(newCanRender ? 'preview' : (md || csv) ? 'preview' : 'code');
+        const spreadsheet = ['xlsx', 'xls', 'xlsm', 'xlsb', 'ods'].includes(ext);
+        setViewMode(newCanRender ? 'preview' : (md || csv || spreadsheet) ? 'preview' : 'code');
         setEditContent(artifact.content);
         setIframeError(null);
         setSaved(false);
     }, [artifact.id, artifact.storagePath]);
+
+    // ── Auto-launch LibreOffice when xlsx artifact is opened ──
+    useEffect(() => {
+        if (!isSpreadsheet || !artifact.storagePath) return;
+        // Guard: only launch once per artifact
+        const key = `${artifact.id}:${artifact.storagePath}`;
+        if (libreOpenedRef.current === key) return;
+        libreOpenedRef.current = key;
+        const containerPath = `/mnt/user-data/default/${artifact.storagePath}`;
+        fetch('/api/sandbox/open', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ path: containerPath }),
+        }).catch(err => console.warn('[ArtifactsPanel] LibreOffice auto-open error:', err));
+    }, [isSpreadsheet, artifact.storagePath, artifact.id]);
 
     // Save handler for file-backed artifacts
     const handleSave = useCallback(async () => {
@@ -201,7 +277,7 @@ export const ArtifactsPanel: React.FC<{
                     {(canRender || isFileBacked) && (
                         <div className="flex items-center mr-2 rounded-lg overflow-hidden border"
                             style={{ borderColor: 'var(--tc-border, rgba(55,55,80,0.6))' }}>
-                            {(canRender || isMarkdown || isCsv) && (
+                            {(canRender || isMarkdown || isCsv || isSpreadsheet) && (
                                 <button
                                     onClick={() => setViewMode('preview')}
                                     className={`flex items-center gap-1 px-2 py-1 text-[10px] font-medium transition-colors ${viewMode === 'preview'
@@ -322,6 +398,9 @@ export const ArtifactsPanel: React.FC<{
                         sandbox="allow-scripts allow-same-origin allow-popups"
                         srcDoc={getIframeContent()}
                     />
+                ) : viewMode === 'preview' && isSpreadsheet ? (
+                    /* ═══ Spreadsheet — Embedded LibreOffice via VNC (direct RFB) ═══ */
+                    <VncViewer key={artifact.id} />
                 ) : viewMode === 'preview' && isCsv ? (
                     /* ═══ CSV Table Preview ═══ */
                     <div className="overflow-auto tc-scrollbar">
