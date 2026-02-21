@@ -25,6 +25,7 @@ from backend.tools.built_in.knowledge_tools import (
 )
 from backend.tools.built_in.openapi_bridge import OpenAPIBridgeTool
 from backend.tools.built_in.enterprise_demo import SimulateBackgroundCheck, ApproveLoan, SendSecureEmail
+from backend.tools.built_in.vault_tool import VaultReadTool, VaultListTool
 
 # TrustChain built-in tools (LLM auto-invokes via openai_schema)
 from backend.tools.built_in.trustchain_tools import (
@@ -77,6 +78,9 @@ class ToolRegistry:
             SimulateBackgroundCheck,
             ApproveLoan,
             SendSecureEmail,
+            # Phase 5: Encrypted Credential Vault
+            VaultReadTool,
+            VaultListTool,
         ]:
             self.register(tool_cls)
 

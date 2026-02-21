@@ -11,12 +11,14 @@ from contextlib import asynccontextmanager
 
 from backend.database.queue_db import init_db
 from backend.services.queue_worker import start_queue_worker
+from backend.database.vault_db import init_vault_table
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     # Startup Events
     print("🚀 Initializing TrustChain Durable Task Engine...")
     init_db()                   # Create SQLite Schema if not exists
+    init_vault_table()          # Create encryption credentials table
     start_queue_worker()        # Spawn the Asyncio polling loop
     yield
     # Shutdown Events
@@ -76,6 +78,7 @@ from backend.routers.skills import router as skills_router
 from backend.routers.browser_proxy import router as browser_proxy_router
 from backend.routers.scheduler import router as scheduler_router
 from backend.routers.swarm_ops import router as swarm_ops_router
+from backend.routers.vault import router as vault_router
 from backend.routers.triggers import router as triggers_router
 
 try:
@@ -95,6 +98,7 @@ app.include_router(skills_router, dependencies=[Depends(verify_local_api_key)])
 app.include_router(browser_proxy_router, dependencies=[Depends(verify_local_api_key)])
 app.include_router(scheduler_router, dependencies=[Depends(verify_local_api_key)])
 app.include_router(swarm_ops_router, dependencies=[Depends(verify_local_api_key)])
+app.include_router(vault_router, dependencies=[Depends(verify_local_api_key)])
 
 # Triggers are public webhooks, so they DO NOT receive the internal local API key guard.
 # They are guarded by the WebhookExecutor RBAC role instead.
