@@ -1234,3 +1234,93 @@ This brings the underlying "Git for AI" concept to life in a graphical timeline.
 - **Dead Letter Queue (DLQ):** В случае фатальной ошибки (сбой OpenAI API, бантаун Pydantic), задача не испарится! Она надежно перейдет в статус `FAILED`, а полный Python-traceback будет сохранен в колонку `error` для ручного разбора администратором (Swarm Ops).
 
 Эта третья фаза завершает стратегию **"Kill Zapier"**, делая платформу TrustChain полностью автономным, защищенным от атак (как инъекционных, так и DDoS) и высокопроизводительным корпоративным RPA-решением следующего поколения.
+
+---
+
+## Phase 5: Enterprise Hardening — SSE-Стриминг и Ключи Идемпотентности
+
+### SSE вместо поллинга
+
+Первоначальный `SwarmOpsDashboard` делал `setInterval(fetchData, 3000)`. При 10 открытых вкладках — **12 000 HTTP-запросов/час** в режиме простоя. Решение — Server-Sent Events:
+
+| | Polling 3s (×10 вкладок) | SSE |
+|---|---|---|
+| HTTP-запросов/час | 12 000 | 0 (idle) |
+| Соединений | 12 000 | 10 постоянных |
+| Нагрузка на SQLite | Непрерывная | Только при изменении |
+
+**`queue_db.py`** — модуль-уровневый `_sse_subscribers: Set[asyncio.Queue]`. Каждый `update_task_status()` делает `put_nowait(event)` всем подписчикам.  
+**`swarm_ops.py`** — `GET /api/v1/swarm/stream` (`EventSourceResponse` через `sse-starlette`). Keepalive ping каждые 15 секунд.  
+**`SwarmOpsDashboard.tsx`** — `new EventSource(...)` вместо `setInterval`. Partial row update — обновляет только изменённую строку. Индикатор `Wifi`/`WifiOff` показывает статус соединения.
+
+### Ключи Идемпотентности (Безопасный Retry)
+
+Без идемпотентности Retry после частичного выполнения (Stripe оплата прошла, email упал) запускает задачу заново → **двойное списание**.
+
+**`backend/database/idempotency_store.py`** — SQLite-таблица `idempotency_log` с циклом `STARTED` → `COMPLETED`.  
+**`queue_worker.py`** — инжектирует в промпт агента:
+```
+🔑 IDEMPOTENCY PROTOCOL: передавай Idempotency-Key: {task_id} во все внешние API
+```
+**При Retry** — `swarm_ops.py` читает `COMPLETED`-шаги и добавляет в промпт список `SKIP COMPLETED STEPS`. Stripe нативно дедуплицирует по `Idempotency-Key` заголовку.
+
+### Коммиты Phase 5
+- `a1a953b` — feat(enterprise): sse push streaming + idempotency keys for safe retry semantics
+- `506b18a` — fix(ui): resolve typescript errors in SwarmOpsDashboard
+- `1849cda` — fix(ui): wrap Lucide icons in span to fix TS2322 title prop error
+
+---
+
+## Phase 6: Encrypted Credential Vault (AES-256-GCM)
+
+Для Enterprise-продаж корпорации задают вопрос: *«Где лежат ключи от нашего продакшена?»*. Ответ «в `.env`» неприемлем. Реализован собственный Vault.
+
+### Модель безопасности
+
+```
+VAULT_MASTER_KEY (hex-64, 32 байта) ← из .env или vault.key (dev)
+        │
+        ▼
+AES-256-GCM + 96-bit random nonce (per secret)
+        │ ciphertext = encrypted || GCM auth tag (16 байт)
+        ▼
+SQLite table: credentials (id, name, service, ciphertext, created_at)
+        │
+        └─ Plaintext НИКОГДА не касается диска
+```
+
+### API
+
+| Эндпоинт | Действие |
+|---|---|
+| `POST /api/v1/vault/secrets` | Зашифровать и сохранить |
+| `GET /api/v1/vault/secrets` | Список метаданных (без plaintext) |
+| `GET /api/v1/vault/secrets/{name}/reveal` | Расшифровать в RAM |
+| `DELETE /api/v1/vault/secrets/{name}` | Удалить навсегда |
+| `GET /api/v1/vault/keygen` | Сгенерировать production VAULT_MASTER_KEY |
+
+### Agent Tool
+
+`VaultReadTool` — агент вызывает `vault_read(secret_name="stripe_key")` → получает `inject_as` (raw value) в рабочий контекст. В TrustChain audit log попадает только `chain_safe_preview = "sk_live_****"`.
+
+### UI
+
+Панель `VaultPanel.tsx` открывается по кнопке 🔒 в хедере. Цветные `ServiceBadge` (Stripe=purple, OpenAI=green, Slack=amber). Reveal + Copy одним кликом. `vault.key` и `*.db` добавлены в `.gitignore`.
+
+### Коммит Phase 6
+- `7467732` — feat(vault): AES-256-GCM encrypted credential vault with REST API, agent tool, and UI panel
+
+---
+
+## Kill-Zapier: итоговый чеклист
+
+| Функциональность | Статус |
+|---|---|
+| Headless Webhook Triggers + RBAC WebhookExecutor | ✅ |
+| At-Least-Once Delivery (SQLite WAL queue) | ✅ |
+| Dead Letter Queue (DLQ + traceback в БД) | ✅ |
+| Swarm Command Center UI | ✅ |
+| SSE Real-Time Dashboard (zero idle polling) | ✅ |
+| Idempotency Keys (безопасный Retry) | ✅ |
+| Encrypted Credential Vault (AES-256-GCM) | ✅ |
+
