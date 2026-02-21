@@ -1037,3 +1037,43 @@ npx tsc --noEmit  # → 0 errors
 - ✅ `callPlaywright()` → JSON-RPC через fetch → MCP
 - ✅ Коммиты: `e4e1892`, `621675e` на master
 
+---
+
+## Part 15: TODO: Dynamic Knowledge Units Generation (Agent Knowledge Graph)
+
+### Направление SOTA (Февраль 2026)
+Системы переходят от разовых RAG (векторных БД) к долговременному самообучению агентов (Persistent Meta-Learning) через строгие Markdown-артефакты (Knowledge Units), которые могут исполняться (Runnable Markdown) и обмениваться между субагентами.
+
+### План внедрения "Agent Knowledge Graph"
+
+1. **Новый инструмент `KnowledgeSynthesisTool` (Python Backend):**
+   - Инструмент, позволяющий агенту (atau verification-критику) формализовать успешно решенный комплексный тикет или гайдлайн в `.md` файл.
+   - Место сохранения: `knowledge/` или `.tc_knowledge/`.
+   - Файл должен содержать жесткую структуру (Metadata/Frontmatter, Context, Solution, Executable/Runnable Action).
+
+2. **Semantic Knowledge Router:**
+   - Хук в начале сессии бэкенда (или инструмент `search_knowledge`), который читает index `knowledge/` директории.
+   - Главный агент при получении задачи сначала ищет релевантные MD-памятки, и только затем вызывает инструменты выполнения.
+
+3. **Human-in-the-Loop:**
+   - Markdown Knowledge Units хранятся в файловой системе (в Git).
+   - Инженеры могут руками править логику навыков ИИ-системы, коммитить их, и все будущие сессии агентов мгновенно обновят свое поведение.
+
+**Elevator Pitch:** "Агенты учатся и передают опыт не через непрозрачные веса, а через читаемые и исполняемые Markdown-рецепты, образуя базу знаний корпорации."
+
+---
+
+## Part 16: Agency Swarm — P2P Messaging & Collective Memory (Февраль 2026)
+
+В ответ на эволюцию индустрии мультиагентных систем (от монолитного промптинга к ролевой изоляции, см. VRSEN's Agency-Swarm), мы реализовали две новые парадигмы в `TrustChain_Agent`.
+
+### 1. Cross-Agent Collective Memory (The Blackboard)
+Вместо того чтобы захламлять контекстное окно копипастами или передавать длинные сообщения, параллельные агенты теперь разделяют **единый пул памяти (Dict/KV Store)** на уровне Python Бэкенда (`agent_runtime.py`). 
+*   **`WriteMemoryTool`**: Записывает любые переменные окружения, API-ключи, или находки (например `discovered_api_key` = `123xx`).
+*   **`ReadMemoryTool`**: Позволяет любому другому субагенту вытащить эти данные по ключу. Главное правило: не повторяйся — ссылайся на `Shared Memory`.
+
+### 2. MessageAgentTool (P2P Коммуникация)
+Агенты теперь могут общаться друг с другом "по горизонтали". 
+Инструмент `MessageAgentTool` позволяет запустить независимого субагента (в *синхронном* режиме) со строгой специализацией (Role). 
+*   **Role Constraint:** Мы добавили поддержку аргумента `role` (CEO, Developer, Researcher). В системный промпт принудительно инжектируется ограничение: `"YOU ARE A SPECIALIZED SUB-AGENT. YOUR ROLE IS: {ROLE}. You must strictly focus on the task delegated to you."`
+*   Это позволяет Главному Агенту поручить "написать код сортировки" агенту-`Developer`, и дождаться прямого ответа без засорения своей памяти.

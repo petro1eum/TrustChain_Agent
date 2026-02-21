@@ -543,6 +543,51 @@ export class ToolHandlersService {
     }
   }
 
+  // ─── Subagent Handlers ───
+
+  async handleSessionSpawn(args: any): Promise<any> {
+    const dockerAgentServiceModule = await import('../dockerAgentService');
+    const dockerAgentService = dockerAgentServiceModule.dockerAgentService;
+
+    try {
+      return await dockerAgentService.sessionSpawn({
+        name: args.name || 'sub-agent',
+        instruction: args.instruction,
+        tools: args.tools,
+        priority: args.priority,
+        sync: args.sync
+      });
+    } catch (error: any) {
+      return { success: false, error: error.message || 'Ошибка session_spawn' };
+    }
+  }
+
+  async handleSessionStatus(args: any): Promise<any> {
+    const dockerAgentServiceModule = await import('../dockerAgentService');
+    const dockerAgentService = dockerAgentServiceModule.dockerAgentService;
+
+    try {
+      return await dockerAgentService.sessionStatus({
+        run_id: args.run_id
+      });
+    } catch (error: any) {
+      return { success: false, error: error.message || 'Ошибка session_status' };
+    }
+  }
+
+  async handleSessionResult(args: any): Promise<any> {
+    const dockerAgentServiceModule = await import('../dockerAgentService');
+    const dockerAgentService = dockerAgentServiceModule.dockerAgentService;
+
+    try {
+      return await dockerAgentService.sessionResult({
+        run_id: args.run_id
+      });
+    } catch (error: any) {
+      return { success: false, error: error.message || 'Ошибка session_result' };
+    }
+  }
+
   async handleCreateArtifact(args: any): Promise<any> {
     const dockerAgentServiceModule = await import('../dockerAgentService');
     const dockerAgentService = dockerAgentServiceModule.dockerAgentService;

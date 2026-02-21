@@ -29,7 +29,6 @@ import {
   MCPClientService,
   TaskQueueService,
   TestRunnerService,
-  AgentOrchestratorService,
   BrowserService,
   EventTriggerService,
 } from '../services/agents';
@@ -47,8 +46,6 @@ import { ObservabilityService } from '../services/observability';
 import { getLockedToolIds } from '../tools/toolRegistry';
 import { trustchainService } from '../services/trustchainService';
 import { getAgentContext, getAgentInstance } from '../services/agentContext';
-import { executeSessionSpawnTool, type SessionSpawnToolResult } from '../tools/sessionSpawnTools';
-import type { SpawnedSession, SpawnConfig } from '../services/agents/sessionSpawnService';
 
 // ── Helpers to prevent UI freeze ──
 
@@ -86,7 +83,7 @@ export class SmartAIAgent extends AIAgent {
   private _mcpReadyPromise: Promise<any[]> | null = null;
   private taskQueueService: TaskQueueService;
   private testRunnerService: TestRunnerService;
-  private agentOrchestrator: AgentOrchestratorService;
+  // Agent tools
   private browserService: BrowserService;
   private eventTriggerService: EventTriggerService;
   private internalReasoningService?: InternalReasoningService;
@@ -235,9 +232,6 @@ export class SmartAIAgent extends AIAgent {
 
     // Gap E: Test-driven self-correction after code changes
     this.testRunnerService = new TestRunnerService();
-
-    // Gap F: Multi-agent task decomposition
-    this.agentOrchestrator = new AgentOrchestratorService();
 
     // Gap G: Headless browser for JS-heavy pages
     this.browserService = new BrowserService();
@@ -541,26 +535,7 @@ export class SmartAIAgent extends AIAgent {
           : 'Использую встроенное reasoning модели через function calling'
       });
 
-      // Gap F: Multi-agent decomposition for complex tasks
-      try {
-        const toolNames = this.getToolsSpecification().map(t => t.function?.name).filter(Boolean) as string[];
-        const decomposition = this.agentOrchestrator.decompose(instruction);
-        if (decomposition.subTasks.length > 3) {
-          // Complex task — enrich instruction with structured decomposition
-          const subtaskList = decomposition.subTasks
-            .map((st, i) => `${i + 1}. [${st.specialist}] ${st.description}`)
-            .join('\n');
-          instruction = `${instruction}\n\n[Декомпозиция задачи (${decomposition.subTasks.length} подзадач, стратегия: ${decomposition.strategy}):\n${subtaskList}]`;
-
-          progressCallback?.({
-            type: 'reasoning_step',
-            message: `🔀 Декомпозиция: ${decomposition.subTasks.length} подзадач (${decomposition.strategy})`,
-            reasoning_text: subtaskList
-          });
-        }
-      } catch {
-        // Orchestrator decomposition is optional
-      }
+      // Orchestrator decomposition is optional (Removed)
 
       // ReAct анализ - модель сама думает, выбирает инструменты и выполняет их
       // Передаем метаданные skills для включения в system prompt
@@ -961,67 +936,7 @@ export class SmartAIAgent extends AIAgent {
       }
     }
 
-    // ── Session Spawn Tools: route to SessionSpawnService ──
-    const SESSION_SPAWN_TOOL_NAMES = ['session_spawn', 'session_status', 'session_result'];
-    if (SESSION_SPAWN_TOOL_NAMES.includes(name)) {
-      const executor = async (
-        session: SpawnedSession,
-        config: SpawnConfig,
-        onProgress: (progress: number, step: string) => void
-      ) => {
-        onProgress(5, 'Initializing sub-agent...');
-        try {
-          const result = await this.reactService.reactAnalyze(
-            config.instruction,
-            [], // fresh chat history for sub-agent
-            (event) => {
-              if (event.type === 'tool_call') {
-                onProgress(
-                  Math.min(90, session.progress + 10),
-                  `🔧 ${event.event_data?.name || event.message || 'executing'}`,
-                );
-              } else if (event.type === 'reasoning_step') {
-                onProgress(
-                  Math.min(50, session.progress + 5),
-                  event.message || 'Reasoning...',
-                );
-              } else if (event.type === 'tool_response') {
-                onProgress(
-                  Math.min(92, session.progress + 5),
-                  `✓ ${event.event_data?.name || 'tool'} done`,
-                );
-              }
-            },
-          );
-          const text = result.messages?.[result.messages.length - 1]?.content
-            || JSON.stringify(result.result);
-
-          // Extract actually-used tool names from ReAct messages
-          const usedTools = result.messages
-            ?.filter((m: any) => m.tool_calls || m.role === 'tool_response')
-            .flatMap((m: any) => m.tool_calls
-              ? m.tool_calls.map((tc: any) => tc.function?.name).filter(Boolean)
-              : [m.name].filter(Boolean))
-            || [];
-
-          // TrustChain: Ed25519-sign the sub-agent result
-          let signature: string | undefined;
-          try {
-            const { trustchainService } = await import('../services/trustchainService');
-            const envelope = await trustchainService.sign(
-              `sub-agent:${config.name}`, { result: text }
-            );
-            signature = envelope?.signature;
-          } catch { /* signing optional — TrustChain may not be initialized */ }
-
-          return { result: text, signature, toolsUsed: [...new Set(usedTools)] };
-        } catch (err: any) {
-          throw new Error(`Sub-agent failed: ${err.message}`);
-        }
-      };
-      const spawnResult = await executeSessionSpawnTool(name, args, executor);
-      return spawnResult;
-    }
+    // session_spawn tools now fall through to the backend (ToolExecutionService -> dockerAgentService tunnel)
 
     // Legacy fallback: model may output plain domain tool name (e.g. list_documents)
     // even though platform tools are exposed as mcp_<serverId>_<tool>.

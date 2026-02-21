@@ -8,11 +8,20 @@
  */
 
 import React, { useState, useEffect, useCallback } from 'react';
-import {
-    sessionSpawnService,
-    type SpawnedSession,
-    type SessionEvent,
-} from '../../services/agents/sessionSpawnService';
+import { dockerAgentService } from '../../services/dockerAgentService';
+
+export interface SpawnedSession {
+    runId: string;
+    name: string;
+    status: 'pending' | 'running' | 'completed' | 'failed' | 'cancelled';
+    progress: number;
+    elapsedMs?: number;
+    signedOpsCount: number;
+    currentStep?: string;
+    result?: string;
+    error?: string;
+    signature?: string;
+}
 
 // ─── Styles ───
 
@@ -284,27 +293,36 @@ export const ThreadPanel: React.FC<ThreadPanelProps> = ({ visible = true, onClos
 
     // Subscribe to session events
     useEffect(() => {
-        const update = () => setSessions(sessionSpawnService.getAllSessions());
+        const update = async () => {
+            try {
+                const res = await dockerAgentService.sessionStatus({});
+                if (res && res.sessions) {
+                    setSessions(res.sessions.map((s: any) => ({
+                        runId: s.run_id,
+                        name: s.name,
+                        status: s.status,
+                        progress: s.progress || 0,
+                        currentStep: s.current_step,
+                        error: s.error,
+                        signedOpsCount: 0
+                    })));
+                }
+            } catch { }
+        };
 
         // Initial load
         update();
 
-        // Listen for changes
-        const unsub = sessionSpawnService.onAny((_event: SessionEvent) => {
-            update();
-        });
-
-        // Poll as fallback (for progress updates)
+        // Poll for progress updates
         const interval = setInterval(update, 2000);
 
         return () => {
-            unsub();
             clearInterval(interval);
         };
     }, []);
 
     const handleCancel = useCallback((runId: string) => {
-        sessionSpawnService.cancel(runId);
+        console.warn('[ThreadPanel] Cancel not implemented for backend subagents');
     }, []);
 
     const handleToggle = useCallback((runId: string) => {

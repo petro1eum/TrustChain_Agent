@@ -3,10 +3,19 @@ import { Zap, ChevronRight, Sparkles, FileText, CheckCircle, Download, Bot } fro
 import type { ExecutionStep, Artifact } from './types';
 import { ARTIFACT_META, TierBadge } from './constants';
 import { normalizeTrustChainMarkup, renderInline } from './MarkdownRenderer';
-import {
-    sessionSpawnService,
-    type SpawnedSession,
-} from '../../services/agents/sessionSpawnService';
+import { dockerAgentService } from '../../services/dockerAgentService';
+
+export interface SpawnedSession {
+    runId: string;
+    name: string;
+    status: 'pending' | 'running' | 'completed' | 'failed';
+    progress?: number;
+    elapsedMs?: number;
+    signedOpsCount: number;
+    currentStep?: string;
+    result?: string;
+    error?: string;
+}
 
 /**
  * Downloads the execution trace as a JSON file.
@@ -260,11 +269,25 @@ const SubAgentInline: React.FC = () => {
     const [expandedId, setExpandedId] = useState<string | null>(null);
 
     useEffect(() => {
-        const update = () => setSessions(sessionSpawnService.getAllSessions());
+        const update = async () => {
+            try {
+                const res = await dockerAgentService.sessionStatus({});
+                if (res && res.sessions) {
+                    setSessions(res.sessions.map((s: any) => ({
+                        runId: s.run_id,
+                        name: s.name,
+                        status: s.status,
+                        progress: s.progress,
+                        currentStep: s.current_step,
+                        error: s.error,
+                        signedOpsCount: 0
+                    })));
+                }
+            } catch { }
+        };
         update();
-        const unsub = sessionSpawnService.onAny(() => update());
-        const iv = setInterval(update, 1500);
-        return () => { unsub(); clearInterval(iv); };
+        const iv = setInterval(update, 2000);
+        return () => clearInterval(iv);
     }, []);
 
     if (sessions.length === 0) {

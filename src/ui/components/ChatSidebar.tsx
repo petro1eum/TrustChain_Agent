@@ -14,8 +14,17 @@ import { TierBadge, AGENT_TOOLS, AGENT_POLICIES, DEMO_CONVERSATIONS } from './co
 import type { AgentTool } from '../../hooks/useAgent';
 import type { ChatSession } from '../../services/chatHistoryService';
 import { schedulerService, type ScheduledJob } from '../../services/agents/schedulerService';
-import { sessionSpawnService, type SpawnedSession } from '../../services/agents/sessionSpawnService';
+import { dockerAgentService } from '../../services/dockerAgentService';
 import { userStorageService, LocalFolderBackend, DockerVolumeBackend, GoogleDriveBackend, type StorageUsage } from '../../services/storage';
+
+export interface SpawnedSession {
+    runId: string;
+    name: string;
+    status: 'pending' | 'running' | 'completed' | 'failed';
+    startedAt?: number;
+    completedAt?: number;
+    progress?: number;
+}
 import { FileManagerPanel } from './FileManagerPanel';
 
 interface ChatSidebarProps {
@@ -188,12 +197,24 @@ const AgentAccordionPanel: React.FC<{
         setOpenCategories(prev => ({ ...prev, [cat]: !prev[cat] }));
     }, []);
 
-    // Sub-agent sessions (live from service)
+    // Sub-agent sessions (live from backend)
     const [sessions, setSessions] = useState<SpawnedSession[]>([]);
     useEffect(() => {
-        const refresh = () => setSessions(sessionSpawnService.getActiveSessions());
+        const refresh = async () => {
+            try {
+                const res = await dockerAgentService.sessionStatus({});
+                if (res && res.sessions) {
+                    setSessions(res.sessions.map((s: any) => ({
+                        runId: s.run_id,
+                        name: s.name,
+                        status: s.status,
+                        progress: s.progress
+                    })));
+                }
+            } catch { }
+        };
         refresh();
-        const id = setInterval(refresh, 2000);
+        const id = setInterval(refresh, 5000);
         return () => clearInterval(id);
     }, []);
 

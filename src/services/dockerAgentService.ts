@@ -56,6 +56,22 @@ export interface StrReplaceRequest {
   description: string;
 }
 
+export interface SessionSpawnRequest {
+  name: string;
+  instruction: string;
+  tools?: string[];
+  priority?: string;
+  sync?: boolean;
+}
+
+export interface SessionStatusRequest {
+  run_id?: string;
+}
+
+export interface SessionResultRequest {
+  run_id: string;
+}
+
 export interface ContainerStatus {
   available: boolean;
   container_id?: string;
@@ -233,6 +249,35 @@ class DockerAgentService {
       return (unwrapped.data || response) as { success: boolean; path: string; message: string };
     } catch (error: any) {
       throw new Error(`Ошибка замены строки: ${error.message}`);
+    }
+  }
+
+  // ─── Subagent Tools ───
+
+  async sessionSpawn(request: SessionSpawnRequest): Promise<any> {
+    try {
+      const response = await backendApiService.callEndpoint('docker_agent/session_spawn', undefined, request);
+      return this.unwrapTrustChain(response).data || response;
+    } catch (error: any) {
+      throw new Error(`Ошибка session_spawn: ${error.message}`);
+    }
+  }
+
+  async sessionStatus(request: SessionStatusRequest): Promise<any> {
+    try {
+      const response = await backendApiService.callEndpoint('docker_agent/session_status', undefined, request || {});
+      return this.unwrapTrustChain(response).data || response;
+    } catch (error: any) {
+      throw new Error(`Ошибка session_status: ${error.message}`);
+    }
+  }
+
+  async sessionResult(request: SessionResultRequest): Promise<any> {
+    try {
+      const response = await backendApiService.callEndpoint('docker_agent/session_result', undefined, request);
+      return this.unwrapTrustChain(response).data || response;
+    } catch (error: any) {
+      throw new Error(`Ошибка session_result: ${error.message}`);
     }
   }
 

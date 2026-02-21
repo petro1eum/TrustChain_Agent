@@ -11,7 +11,7 @@
  *   - Persisted in localStorage (and optionally .trustchain/jobs/)
  */
 
-import { sessionSpawnService, type SpawnConfig, type SpawnedSession } from './sessionSpawnService';
+import { dockerAgentService } from '../dockerAgentService';
 
 // ─── Types ───
 
@@ -146,21 +146,13 @@ export class SchedulerService {
     private jobs: Map<string, ScheduledJob> = new Map();
     private config: SchedulerConfig;
     private checkInterval: ReturnType<typeof setInterval> | null = null;
-    private executor?: (
-        session: SpawnedSession,
-        config: SpawnConfig,
-        onProgress: (progress: number, step: string) => void
-    ) => Promise<{ result: string; signature?: string; toolsUsed?: string[] }>;
 
     constructor(config?: Partial<SchedulerConfig>) {
         this.config = { ...DEFAULT_CONFIG, ...config };
         this.loadJobs();
     }
 
-    /** Set the executor function (must be called before jobs can run). */
-    setExecutor(executor: typeof this.executor): void {
-        this.executor = executor;
-    }
+    // Not needed since we run natively via dockerAgentService
 
     /** Start the scheduler loop. */
     start(): void {
@@ -255,39 +247,26 @@ export class SchedulerService {
         return this.jobs.get(jobId);
     }
 
-    /** Run a job immediately (manual trigger). */
-    runJob(jobId: string): string | null {
+    async runJob(jobId: string): Promise<string | null> {
         const job = this.jobs.get(jobId);
         if (!job) return null;
-        if (!this.executor) {
-            console.warn('[Scheduler] No executor set — cannot run job');
-            return null;
-        }
-
-        const config: SpawnConfig = {
-            name: `cron:${job.name}`,
-            instruction: job.instruction,
-            tools: job.tools,
-            priority: 'normal',
-        };
 
         try {
-            const session = sessionSpawnService.spawn(config, this.executor);
-            job.lastRunAt = Date.now();
-            job.runCount++;
-            job.lastRunId = session.runId;
-            job.nextRunAt = getNextRun(job.schedule);
-
-            // Track completion
-            sessionSpawnService.on(session.runId, (event) => {
-                if (event.type === 'completed' || event.type === 'failed') {
-                    job.lastRunStatus = event.type === 'completed' ? 'completed' : 'failed';
-                    this.saveJobs();
-                }
+            const result = await dockerAgentService.sessionSpawn({
+                name: `cron:${job.name}`,
+                instruction: job.instruction,
+                tools: job.tools,
+                priority: 'normal',
+                sync: false
             });
 
+            job.lastRunAt = Date.now();
+            job.runCount++;
+            job.lastRunId = result.run_id;
+            job.nextRunAt = getNextRun(job.schedule);
+
             this.saveJobs();
-            return session.runId;
+            return result.run_id;
         } catch (err: any) {
             console.error(`[Scheduler] Failed to run job "${job.name}": ${err.message}`);
             return null;

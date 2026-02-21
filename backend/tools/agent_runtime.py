@@ -21,8 +21,6 @@ import httpx
 from dotenv import load_dotenv
 from pydantic import BaseModel, Field
 
-from backend.tools.tool_registry import registry
-
 logger = logging.getLogger(__name__)
 
 # Load env
@@ -219,8 +217,27 @@ def load_skills(skills_dir: str | Path) -> str:
             skills.append(f"### Skill: {skill_name} ({category})\n{content}")
 
     if not skills:
-        return ""
-    return "## Available Skills\n\n" + "\n\n---\n\n".join(skills)
+        skills_text = ""
+    else:
+        skills_text = "## Available Skills\n\n" + "\n\n---\n\n".join(skills)
+        
+    # Semantic Knowledge Router (inject newly formed knowledge units)
+    knowledge_dir = skills_dir.parent / ".tc_knowledge"
+    knowledge_text = ""
+    if knowledge_dir.exists():
+        knowledge_units = []
+        for kw_path in sorted(knowledge_dir.rglob("*.md")):
+            try:
+                content = kw_path.read_text("utf-8", errors="replace").strip()
+                if content:
+                    knowledge_units.append(f"### Knowledge Unit: {kw_path.name}\n{content}")
+            except Exception as e:
+                logger.error(f"Failed to read knowledge unit {kw_path}: {e}")
+                
+        if knowledge_units:
+            knowledge_text = "\n\n## Operational Knowledge (Meta-Learning)\nThe following knowledge units apply to your current operational context:\n\n" + "\n\n---\n\n".join(knowledge_units)
+
+    return skills_text + knowledge_text
 
 
 def list_skill_files(skills_dir: str | Path) -> list[dict]:
@@ -264,11 +281,28 @@ _active_tasks: dict[str, AgentTask] = {}
 _task_histories: dict[str, list[AgentTask]] = defaultdict(list)
 MAX_HISTORY = 20
 
+# ── Cross-Agent Collective Memory (Blackboard) ──
+# This allows parallel and serial Subagents to share findings globally
+_collective_memory: dict[str, str] = {}
+
+def get_collective_memory() -> dict[str, str]:
+    return _collective_memory
+
+def set_collective_memory(key: str, value: str) -> None:
+    _collective_memory[key] = value
+
+def delete_collective_memory(key: str) -> bool:
+    if key in _collective_memory:
+        del _collective_memory[key]
+        return True
+    return False
+
 
 # ── OpenAI Tools Spec from Registry ──
 
 def _build_tools_spec() -> list[dict]:
     """Convert ToolRegistry tools into OpenAI function-calling format."""
+    from backend.tools.tool_registry import registry
     tools = registry.list_tools()
     return [
         {
@@ -295,10 +329,16 @@ You can execute bash commands, read files, and present results using the tools b
 
 {skills_context}
 
+## Cross-Agent Collective Memory
+You operate in a multi-agent environment where other agents may run in parallel or sequence. 
+Access the Shared Blackboard Collective Memory using the **ReadMemoryTool** and **WriteMemoryTool**.
+Use this memory to share important discoveries, API keys, or task context with the rest of the swarm instead of repeating yourself.
+
 ## Guidelines
 - Use PersistentShellTool for all bash/code execution
 - Break complex tasks into steps
 - Always verify results after execution
+- Use the Collective Memory Tools to coordinate and pass state between complex sub-tasks
 - If a command fails, analyze the error and try a different approach
 - Respond in the same language as the user's instruction
 """
@@ -312,12 +352,15 @@ async def run_agent(
     model: str = DEFAULT_MODEL,
     max_iterations: int = MAX_ITERATIONS,
     skills_dir: str | Path = "skills",
+    role: str = "CEO",
 ) -> AgentTask:
     """
     Run the LLM agent with tool-calling loop.
     This is the core runtime — adapted from kb-catalog's _run_agent_task.
     """
     global _active_tasks, _task_histories
+
+    from backend.tools.tool_registry import registry
 
     # Resolve model
     model = MODEL_MAP.get(model, model)
@@ -342,7 +385,14 @@ async def run_agent(
 
         # Build system prompt
         system_prompt = SYSTEM_PROMPT_TEMPLATE.format(skills_context=skills_context)
-
+        
+        if role != "CEO":
+            # For specialized agents, we constrain their behavior.
+            system_prompt = f"YOU ARE A SPECIALIZED SUB-AGENT. YOUR ROLE IS: {role.upper()}.\n" \
+                            "You must strictly focus on the task delegated to you by the main agent. " \
+                            "Do not attempt to solve the overall user objective. Return your specific sub-task result directly.\n\n" \
+                            + system_prompt
+                            
         # LLM config
         base_url = os.getenv("VITE_OPENAI_BASE_URL") or os.getenv("OPENAI_BASE_URL", "")
         api_key = os.getenv("VITE_OPENAI_API_KEY") or os.getenv("OPENAI_API_KEY", "")
@@ -613,3 +663,10 @@ def get_current_task(session_id: str = "default") -> Optional[AgentTask]:
 
 def get_task_history(session_id: str = "default", limit: int = 10) -> list[AgentTask]:
     return _task_histories[session_id][-limit:]
+
+def get_all_tasks() -> list[AgentTask]:
+    """Retrieve all tasks across all session IDs."""
+    all_tasks = []
+    for tasks in _task_histories.values():
+        all_tasks.extend(tasks)
+    return sorted(all_tasks, key=lambda t: t.started_at or "", reverse=True)

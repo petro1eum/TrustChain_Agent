@@ -389,6 +389,7 @@ export class ToolExecutionService {
       // === Docker Agent инструменты ===
       case 'bash_tool': case 'view': case 'create_file':
       case 'create_artifact': case 'str_replace':
+      case 'session_spawn': case 'session_status': case 'session_result':
         result = await this.routeDockerTool(toolName, args);
         break;
 
@@ -443,7 +444,7 @@ export class ToolExecutionService {
 
   // ========== Доменные методы маршрутизации ==========
 
-  /** Docker container tools: bash_tool, view, create_file, create_artifact, str_replace */
+  /** Docker container tools: bash_tool, view, create_file, create_artifact, str_replace, session_spawn, session_status, session_result */
   private async routeDockerTool(toolName: string, args: any): Promise<any> {
     switch (toolName) {
       case 'bash_tool': return this.deps.toolHandlers.handleBashTool(args);
@@ -451,6 +452,9 @@ export class ToolExecutionService {
       case 'create_file': return this.deps.toolHandlers.handleCreateFile(args);
       case 'create_artifact': return this.deps.toolHandlers.handleCreateArtifact(args);
       case 'str_replace': return this.deps.toolHandlers.handleStrReplace(args);
+      case 'session_spawn': return this.deps.toolHandlers.handleSessionSpawn(args);
+      case 'session_status': return this.deps.toolHandlers.handleSessionStatus(args);
+      case 'session_result': return this.deps.toolHandlers.handleSessionResult(args);
       default: throw new Error(`Unknown docker tool: ${toolName}`);
     }
   }

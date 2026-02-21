@@ -12,6 +12,17 @@ from backend.tools.built_in.present_files import PresentFiles
 from backend.tools.built_in.load_file import LoadFileAttachment
 from backend.tools.built_in.web_search import WebSearchTool
 from backend.tools.built_in.execute_js import ExecuteJavascriptTool
+from backend.tools.built_in.subagent_tools import (
+    SessionSpawnTool,
+    SessionStatusTool,
+    SessionResultTool,
+    MessageAgentTool,
+)
+from backend.tools.built_in.knowledge_tools import (
+    KnowledgeSynthesisTool,
+    ReadMemoryTool,
+    WriteMemoryTool,
+)
 
 # TrustChain built-in tools (LLM auto-invokes via openai_schema)
 from backend.tools.built_in.trustchain_tools import (
@@ -44,6 +55,13 @@ class ToolRegistry:
             LoadFileAttachment,
             WebSearchTool,
             ExecuteJavascriptTool,
+            SessionSpawnTool,
+            SessionStatusTool,
+            SessionResultTool,
+            MessageAgentTool,
+            KnowledgeSynthesisTool,
+            ReadMemoryTool,
+            WriteMemoryTool,
             # TrustChain audit & compliance tools
             TrustChainVerify,
             TrustChainAuditReport,

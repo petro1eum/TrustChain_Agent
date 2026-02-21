@@ -1121,3 +1121,126 @@ async def list_skills():
     project_root = Path(__file__).resolve().parents[2]
     return list_skill_files(project_root / "skills")
 
+
+# ═══════════════════════════════════════════
+#  Subagent Session Tools API
+# ═══════════════════════════════════════════
+
+class SessionSpawnRequest(BaseModel):
+    name: str = Field(..., description="Short name for the session")
+    instruction: str = Field(..., description="Detailed task instruction")
+    tools: Optional[List[str]] = Field(None, description="Whitelist of tool names")
+    priority: Optional[str] = Field("normal", description="Execution priority")
+    sync: Optional[bool] = Field(False, description="Whether to wait synchronously")
+
+class SessionStatusRequest(BaseModel):
+    run_id: Optional[str] = Field(None, description="Run ID of the session")
+
+class SessionResultRequest(BaseModel):
+    run_id: str = Field(..., description="Run ID of the completed session")
+
+@router.post("/session_spawn")
+async def session_spawn(request: SessionSpawnRequest, background_tasks: BackgroundTasks):
+    import uuid
+    from backend.tools.agent_runtime import run_agent, get_task_history
+    
+    run_id = f"subagent_{uuid.uuid4().hex[:8]}"
+    
+    async def _spawn_subagent():
+        try:
+            await run_agent(
+                instruction=request.instruction,
+                session_id=run_id,
+                model="gemini-2.0-flash",
+                max_iterations=25,
+            )
+        except Exception as e:
+            # Errors are captured in the task status inside agent_runtime
+            pass
+            
+    if request.sync:
+        # If synchronous, we just await the execution right now
+        await run_agent(
+            instruction=request.instruction,
+            session_id=run_id,
+            model="gemini-2.0-flash",
+            max_iterations=25,
+        )
+        from backend.tools.agent_runtime import get_all_tasks
+        task = next((t for t in get_all_tasks() if t.task_id == run_id), None)
+        if not task:
+            raise HTTPException(status_code=500, detail="Synchronous subagent execution failed to return a result")
+            
+        return {
+            "run_id": run_id,
+            "name": request.name,
+            "status": task.status,
+            "result": task.result or task.error or "No output produced",
+            "tools_used": [tc["tool"] for tc in task.tool_calls],
+        }
+    else:
+        # Fire and forget in the background
+        background_tasks.add_task(_spawn_subagent)
+        return {
+            "run_id": run_id,
+            "name": request.name,
+            "status": "pending",
+            "message": "Sub-agent spawned successfully in background."
+        }
+
+@router.post("/session_status")
+async def session_status(request: SessionStatusRequest):
+    from backend.tools.agent_runtime import get_all_tasks
+    history = get_all_tasks()
+    
+    if request.run_id:
+        task = next((t for t in history if t.task_id == request.run_id), None)
+        if not task:
+            raise HTTPException(status_code=404, detail=f"Session not found: {request.run_id}")
+            
+        return {
+            "run_id": task.task_id,
+            "name": f"Session {task.task_id}",
+            "status": task.status,
+            "progress": 100 if task.status == "completed" else 50,
+            "current_step": f"Iteration {task.iterations}",
+            "has_result": task.status == "completed",
+            "error": task.error
+        }
+    else:
+        # Summary of all active/recent sessions
+        sessions = [
+            {
+                "run_id": t.task_id,
+                "name": f"Session {t.task_id}",
+                "status": t.status,
+                "progress": 100 if t.status == "completed" else 50,
+            }
+            for t in history
+        ]
+        active_count = sum(1 for s in sessions if s["status"] in ("pending", "running"))
+        return {
+            "active_count": active_count,
+            "sessions": sessions[:10]
+        }
+
+@router.post("/session_result")
+async def session_result(request: SessionResultRequest):
+    from backend.tools.agent_runtime import get_all_tasks
+    history = get_all_tasks()
+    
+    task = next((t for t in history if t.task_id == request.run_id), None)
+    if not task:
+        raise HTTPException(status_code=404, detail=f"Session not found: {request.run_id}")
+        
+    if task.status != "completed":
+        raise HTTPException(status_code=400, detail=f"Session '{task.task_id}' is {task.status}, not completed yet.")
+        
+    return {
+        "run_id": task.task_id,
+        "name": f"Session {task.task_id}",
+        "result": task.result,
+        "tools_used": [tc["tool"] for tc in task.tool_calls],
+    }
+
+

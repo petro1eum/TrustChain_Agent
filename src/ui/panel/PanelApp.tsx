@@ -889,23 +889,19 @@ workflow:
                 });
             }
 
-            // Host can inject agent specializations for the orchestrator
+            // Host can inject agent specializations
             if (e.data.type === 'trustchain:agent_config') {
-                import('../../services/agents/agentOrchestratorService').then(({ AgentOrchestratorService }) => {
-                    // The orchestrator is instantiated per-agent, but config is shared via
-                    // a module-level singleton that agent reads on next decomposition.
-                    const sharedConfig = (window as any).__trustchain_agent_config = (window as any).__trustchain_agent_config || {};
-                    if (Array.isArray(e.data.specialties)) {
-                        sharedConfig.specialties = e.data.specialties;
-                        console.log('[PanelApp] Received agent specialties:', e.data.specialties.length);
-                    }
-                    if (Array.isArray(e.data.complexityKeywords)) {
-                        sharedConfig.complexityKeywords = e.data.complexityKeywords;
-                    }
-                    if (typeof e.data.greeting === 'string') {
-                        sharedConfig.greeting = e.data.greeting;
-                    }
-                });
+                const sharedConfig = (window as any).__trustchain_agent_config = (window as any).__trustchain_agent_config || {};
+                if (Array.isArray(e.data.specialties)) {
+                    sharedConfig.specialties = e.data.specialties;
+                    console.log('[PanelApp] Received agent specialties:', e.data.specialties.length);
+                }
+                if (Array.isArray(e.data.complexityKeywords)) {
+                    sharedConfig.complexityKeywords = e.data.complexityKeywords;
+                }
+                if (typeof e.data.greeting === 'string') {
+                    sharedConfig.greeting = e.data.greeting;
+                }
             }
         };
         window.addEventListener('message', handleMessage);
