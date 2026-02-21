@@ -5,6 +5,7 @@ Persistent cwd tracked per agent session.
 """
 
 from typing import Optional
+import asyncio
 
 import docker
 from pydantic import Field
@@ -48,7 +49,8 @@ class PersistentShellTool(BaseTool):
         if cmd_stripped.startswith("cd ") and not any(op in self.command for op in ["&&", "||", ";", "|"]):
             new_dir = cmd_stripped[3:].strip().strip("'\"")
             # Resolve path inside container
-            check_result = container.exec_run(
+            check_result = await asyncio.to_thread(
+                container.exec_run,
                 f"bash -c 'cd {cwd} && cd {new_dir} && pwd'",
                 workdir=cwd,
             )
@@ -66,7 +68,8 @@ class PersistentShellTool(BaseTool):
 
         # Execute command in container
         try:
-            result = container.exec_run(
+            result = await asyncio.to_thread(
+                container.exec_run,
                 f"bash -c {self.command!r}",
                 workdir=cwd,
                 demux=True,

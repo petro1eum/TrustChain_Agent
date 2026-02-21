@@ -324,7 +324,7 @@ async def run_agent(
 
     # Create task
     task = AgentTask(
-        instruction=instruction[:500],
+        instruction=instruction[:10000],
         model=model,
         status="running",
         started_at=datetime.now().isoformat(),
@@ -425,8 +425,10 @@ async def run_agent(
                         tool_name = tc["function"]["name"]
                         try:
                             tool_args = json.loads(tc["function"].get("arguments", "{}") or "{}")
-                        except json.JSONDecodeError:
+                            json_error = None
+                        except json.JSONDecodeError as e:
                             tool_args = {}
+                            json_error = f"Invalid JSON arguments from LLM: {str(e)}"
 
                         logger.info(f"   → {tool_name}({json.dumps(tool_args, ensure_ascii=False)[:200]})")
                         _emit({"type": "tool_call", "iteration": iteration + 1, "tool": tool_name, "args": tool_args, "timestamp": datetime.now().isoformat()})
@@ -442,6 +444,7 @@ async def run_agent(
 
                         # ── TrustChain Pro: PolicyEngine pre-flight ──
                         policy_engine = _get_policy_engine()
+                        policy_denied = False
                         if policy_engine:
                             try:
                                 evaluation = policy_engine.evaluate(
@@ -456,15 +459,21 @@ async def run_agent(
                                 if hasattr(evaluation, 'allowed') and not evaluation.allowed:
                                     logger.warning(f"🛡️ Policy DENIED tool {tool_name}: {evaluation.violations}")
                                     _emit({"type": "policy_violation", "tool": tool_name, "violations": tool_record["policy_result"]["violations"], "timestamp": datetime.now().isoformat()})
+                                    policy_denied = True
                             except Exception as ex:
                                 logger.debug(f"PolicyEngine evaluate failed: {ex}")
 
-                        # Execute via registry
-                        tool_result = await registry.run_tool(
-                            tool_name=tool_name,
-                            params=tool_args,
-                            agent_name=agent_name,
-                        )
+                        if json_error:
+                            tool_result = {"error": json_error}
+                        elif policy_denied:
+                            tool_result = {"error": f"POLICY DENIED: {tool_record['policy_result']['violations']} - Execution blocked."}
+                        else:
+                            # Execute via registry
+                            tool_result = await registry.run_tool(
+                                tool_name=tool_name,
+                                params=tool_args,
+                                agent_name=agent_name,
+                            )
                         latency_ms = (time.monotonic() - t_start) * 1000
 
                         # Normalize result to string
@@ -473,7 +482,7 @@ async def run_agent(
                         else:
                             result_str = str(tool_result)
 
-                        tool_record["result"] = result_str[:2000]
+                        tool_record["result"] = result_str[:32000]
                         tool_record["success"] = "error" not in (tool_result if isinstance(tool_result, dict) else {})
 
                         # ── TrustChain: sign the operation (real Ed25519) ──
@@ -541,7 +550,7 @@ async def run_agent(
                         messages.append({
                             "role": "tool",
                             "tool_call_id": tc["id"],
-                            "content": result_str[:4000],
+                            "content": result_str[:32000],
                         })
                 else:
                     # No tool calls — agent is done
