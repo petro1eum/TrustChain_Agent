@@ -6,6 +6,7 @@ import type { Message, Artifact, ToolCall } from './types';
 import { ThinkingContainer } from './ThinkingContainer';
 import { ArtifactCard } from './ArtifactCard';
 import { normalizeTrustChainMarkup, renderInline, renderFullMarkdown } from './MarkdownRenderer';
+import { TrustChainExplorerModal } from './TrustChainExplorerModal';
 
 /**
  * MessageBubble — Renders a single chat message with optional execution steps,
@@ -23,6 +24,8 @@ export const MessageBubble: React.FC<{
     const isOtherUser = isParticipant && message.senderType === 'user';
     const artifact = message.artifactId ? allArtifacts[message.artifactId] : null;
     const normalizedContent = normalizeTrustChainMarkup(message.content || '');
+
+    const [isExplorerOpen, setIsExplorerOpen] = useState(false);
 
     // Avatar gradient based on sender type
     const avatarGradient = isUser
@@ -114,7 +117,7 @@ export const MessageBubble: React.FC<{
 
                 {/* Signature badge */}
                 {!isUser && message.verified !== undefined && message.signature && (
-                    <div className="mt-1.5">
+                    <div className="mt-1.5" onClick={() => setIsExplorerOpen(true)} style={{ cursor: 'pointer' }}>
                         <SignatureBadge signature={message.signature} verified={message.verified} />
                     </div>
                 )}
@@ -131,6 +134,13 @@ export const MessageBubble: React.FC<{
                     )}
                 </div>
             </div>
+
+            <TrustChainExplorerModal
+                isOpen={isExplorerOpen}
+                onClose={() => setIsExplorerOpen(false)}
+                steps={message.executionSteps}
+                toolCalls={message.tool_calls}
+            />
         </div>
     );
 };
@@ -138,6 +148,7 @@ export const MessageBubble: React.FC<{
 /* ── Signature Badge ── */
 const SignatureBadge: React.FC<{ signature: string; verified: boolean }> = ({ signature, verified }) => (
     <div className={`inline-flex items-center gap-1.5 text-[11px] px-2.5 py-1 rounded-full border
+        hover:opacity-80 transition-opacity
         ${verified ? 'tc-verified' : 'tc-unverified'}`}>
         {verified ? <Shield size={12} /> : <AlertTriangle size={12} />}
         <span className="font-mono">{signature.substring(0, 12)}…</span>

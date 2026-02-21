@@ -1,9 +1,10 @@
 import React, { useState, useCallback, useEffect } from 'react';
-import { Zap, ChevronRight, Sparkles, FileText, CheckCircle, Download, Bot } from 'lucide-react';
+import { Zap, ChevronRight, Sparkles, FileText, CheckCircle, Download, Bot, ShieldCheck } from 'lucide-react';
 import type { ExecutionStep, Artifact } from './types';
 import { ARTIFACT_META, TierBadge } from './constants';
 import { normalizeTrustChainMarkup, renderInline } from './MarkdownRenderer';
 import { dockerAgentService } from '../../services/dockerAgentService';
+import { TrustChainExplorerModal } from './TrustChainExplorerModal';
 
 export interface SpawnedSession {
     runId: string;
@@ -87,6 +88,7 @@ export const ThinkingContainer: React.FC<{
     allArtifacts?: Record<string, Artifact>;
 }> = ({ steps, onOpenArtifact, allArtifacts }) => {
     const [expanded, setExpanded] = useState(true);
+    const [isExplorerOpen, setIsExplorerOpen] = useState(false);
     const totalMs = steps.reduce((s, st) => s + (st.latencyMs || 0), 0);
     const toolSteps = steps.filter(s => s.type === 'tool');
     const signedCount = toolSteps.filter(s => s.signed).length;
@@ -130,15 +132,28 @@ export const ThinkingContainer: React.FC<{
                     </span>
                     <ChevronRight size={12} className={`tc-text-muted transition-transform ${expanded ? 'rotate-90' : ''}`} />
                 </div>
-                <button
-                    type="button"
-                    title="Скачать trace (JSON)"
-                    onClick={handleDownload}
-                    className="p-1 rounded hover:bg-white/10 transition-colors"
-                    style={{ cursor: 'pointer', background: 'transparent', border: 'none' }}
-                >
-                    <Download size={11} className="tc-text-muted" />
-                </button>
+                <div className="flex items-center gap-1">
+                    {signedCount > 0 && (
+                        <button
+                            type="button"
+                            title="Inspect Hash Chain"
+                            onClick={(e) => { e.stopPropagation(); setIsExplorerOpen(true); }}
+                            className="p-1 rounded hover:bg-emerald-500/10 hover:text-emerald-500 transition-colors"
+                            style={{ cursor: 'pointer', background: 'transparent', border: 'none' }}
+                        >
+                            <ShieldCheck size={12} className="text-emerald-500/70" />
+                        </button>
+                    )}
+                    <button
+                        type="button"
+                        title="Скачать trace (JSON)"
+                        onClick={handleDownload}
+                        className="p-1 rounded hover:bg-white/10 transition-colors"
+                        style={{ cursor: 'pointer', background: 'transparent', border: 'none' }}
+                    >
+                        <Download size={11} className="tc-text-muted" />
+                    </button>
+                </div>
             </div>
 
             {/* Steps */}
@@ -149,6 +164,12 @@ export const ThinkingContainer: React.FC<{
                     ))}
                 </div>
             )}
+
+            <TrustChainExplorerModal
+                isOpen={isExplorerOpen}
+                onClose={() => setIsExplorerOpen(false)}
+                steps={steps}
+            />
         </div>
     );
 };
