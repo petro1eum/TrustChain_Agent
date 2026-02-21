@@ -1089,3 +1089,18 @@ npx tsc --noEmit  # → 0 errors
 * Добавлены HTTP-мосты в `ToolHandlersService` (`src/services/agents/toolHandlersService.ts`), которые пересылают эти вызовы на универсальный эндпоинт Питон-бэкенда: `POST /api/docker_agent/tool/run`.
 
 Теперь фронтенд-агент вызывает эти инструменты атомарно, за 1 шаг, сокращая время оркестровки P2P роя с минут до пары секунд.
+
+## Part 4: TrustChain Explorer UI (2026-02-21)
+
+To visually surface the underlying cryptographic chains that validate agent actions and generated artifacts, a new interactive **TrustChain Explorer Modal** was introduced. 
+This brings the underlying "Git for AI" concept to life in a graphical timeline.
+
+### TrustChain Explorer Implementation
+
+| Component | Status | Details |
+|---|:---:|---|
+| **`TrustChainExplorerModal`** | ✅ New | Renders a vertical chronological timeline mapping the `ExecutionStep` hashes to their `Ed25519` cryptographic signatures. Displays tool names, latency, and expandable payloads. |
+| **`MessageBubble` Integration** | ✅ Updated | The "TrustChain Verified" signature badges at the end of messages are now clickable, triggering the Explorer for the entire chronological trace. |
+| **`ThinkingContainer` Integration** | ✅ Updated | Added a `ShieldCheck` button next to the JSON download icon in the Execution header for quick inspection of the step chain. |
+| **`ArtifactCard` Integration** | ✅ Updated | Each artifact badge now has an interactive shield icon to inspect the unique cryptographic signature that sealed the specific generated file. |
+
