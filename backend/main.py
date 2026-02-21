@@ -75,6 +75,7 @@ from backend.routers.docker_agent import router as docker_router
 from backend.routers.skills import router as skills_router
 from backend.routers.browser_proxy import router as browser_proxy_router
 from backend.routers.scheduler import router as scheduler_router
+from backend.routers.swarm_ops import router as swarm_ops_router
 from backend.routers.triggers import router as triggers_router
 
 try:
@@ -93,6 +94,7 @@ app.include_router(docker_router, dependencies=[Depends(verify_local_api_key)])
 app.include_router(skills_router, dependencies=[Depends(verify_local_api_key)])
 app.include_router(browser_proxy_router, dependencies=[Depends(verify_local_api_key)])
 app.include_router(scheduler_router, dependencies=[Depends(verify_local_api_key)])
+app.include_router(swarm_ops_router, dependencies=[Depends(verify_local_api_key)])
 
 # Triggers are public webhooks, so they DO NOT receive the internal local API key guard.
 # They are guarded by the WebhookExecutor RBAC role instead.

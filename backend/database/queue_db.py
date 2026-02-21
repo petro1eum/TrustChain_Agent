@@ -13,8 +13,13 @@ _local = threading.local()
 
 def get_db_connection():
     if not hasattr(_local, "conn"):
-        _local.conn = sqlite3.connect(DB_PATH)
+        _local.conn = sqlite3.connect(DB_PATH, timeout=5.0)
         _local.conn.row_factory = sqlite3.Row
+        # WAL mode: allows concurrent reads while writing, eliminates "database is locked" under high load
+        _local.conn.execute("PRAGMA journal_mode=WAL;")
+        # Busy timeout: if the write lock is held, wait up to 5000ms before raising OperationalError
+        _local.conn.execute("PRAGMA busy_timeout=5000;")
+        _local.conn.execute("PRAGMA synchronous=NORMAL;")  # Balance durability vs. speed
     return _local.conn
 
 def init_db():

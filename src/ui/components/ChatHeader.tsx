@@ -1,7 +1,7 @@
 import React from 'react';
 import {
     PanelLeft, Hash, Sun, Moon, Settings, BookOpen, Globe, PanelRight,
-    ChevronDown, Sparkles, Loader2, AlertCircle
+    ChevronDown, Sparkles, Loader2, AlertCircle, Activity
 } from 'lucide-react';
 import type { ThemeMode } from './types';
 import { DEMO_CONVERSATIONS } from './constants';
@@ -22,6 +22,8 @@ interface ChatHeaderProps {
     showBrowser?: boolean;
     onTogglePanel?: () => void;
     showPanel?: boolean;
+    onToggleSwarm?: () => void;
+    showSwarm?: boolean;
 }
 
 function getConversationTitle(id: string | null): string {
@@ -40,7 +42,7 @@ export const ChatHeader: React.FC<ChatHeaderProps> = ({
     activeConversation,
     theme, toggleTheme,
     agent, setShowSettings,
-    onOpenRunbook, onToggleThreads, showThreads, onToggleBrowser, showBrowser, onTogglePanel, showPanel,
+    onOpenRunbook, onToggleThreads, showThreads, onToggleBrowser, showBrowser, onTogglePanel, showPanel, onToggleSwarm, showSwarm,
 }) => (
     <header className="h-12 shrink-0 border-b tc-border flex items-center px-4 gap-3">
         <div className="flex-1 flex items-center gap-2">
@@ -91,6 +93,14 @@ export const ChatHeader: React.FC<ChatHeaderProps> = ({
                         ${showBrowser ? 'text-cyan-400 bg-cyan-500/10' : ''}`}
                     title="TrustChain Browser">
                     <Globe size={16} />
+                </button>
+            )}
+            {onToggleSwarm && (
+                <button onClick={onToggleSwarm}
+                    className={`tc-text-muted hover:tc-text p-1.5 rounded-lg tc-btn-hover transition-colors flex items-center gap-1
+                        ${showSwarm ? 'text-indigo-400 bg-indigo-500/10' : ''}`}
+                    title="Swarm Command Center">
+                    <Activity size={16} />
                 </button>
             )}
             {onTogglePanel && (

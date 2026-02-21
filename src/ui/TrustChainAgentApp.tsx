@@ -70,6 +70,7 @@ import { BrowserPanel } from './components/BrowserPanel';
 import { ThreadPanel } from './components/ThreadPanel';
 import { SchedulerSettingsTab } from './components/SchedulerSettingsTab';
 import { RightPanelTabs, type PanelTab } from './components/RightPanelTabs';
+import { SwarmOpsDashboard } from './components/SwarmOpsDashboard';
 import { browserActionService } from '../services/browserActionService';
 
 /* Types imported from ./components/types */
@@ -573,6 +574,7 @@ const TrustChainAgentApp: React.FC = () => {
     const [showThreads, setShowThreads] = useState(false);
     const [showFileManager, setShowFileManager] = useState(false);
     const [showBrowser, setShowBrowser] = useState(false);
+    const [showSwarm, setShowSwarm] = useState(false);
     const [openPanelTabs, setOpenPanelTabs] = useState<string[]>([]);
     const [activeRightTab, setActiveRightTab] = useState<string | null>(null);
     const [panelCollapsed, setPanelCollapsed] = useState(false);
@@ -1302,6 +1304,8 @@ workflow:
                         if (!showBrowser) setPanelCollapsed(false);
                     }}
                     showBrowser={showBrowser}
+                    onToggleSwarm={() => setShowSwarm(v => !v)}
+                    showSwarm={showSwarm}
                     onTogglePanel={() => setPanelCollapsed(!panelCollapsed)}
                     showPanel={rightPanelTabs.length > 0 && !panelCollapsed}
                 />}
@@ -1405,6 +1409,16 @@ workflow:
                     )}
                 </div>
             </div>
+
+            {/* ═══ SWARM COMMAND CENTER PANEL ═══ */}
+            {showSwarm && (
+                <div className="fixed right-0 top-0 h-full z-50 flex flex-col"
+                    style={{ width: '420px', boxShadow: '-8px 0 30px rgba(0,0,0,0.4)' }}>
+                    <div className="tc-surface border-l tc-border h-full flex flex-col overflow-hidden">
+                        <SwarmOpsDashboard />
+                    </div>
+                </div>
+            )}
 
             {/* ═══ SETTINGS MODAL ═══ */}
             {showSettings && (
