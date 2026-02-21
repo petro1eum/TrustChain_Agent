@@ -67,10 +67,14 @@ class PersistentShellTool(BaseTool):
         elif cmd_stripped.startswith("cd "):
             cd_warning = "Warning: cd in chained command not persisted. Use separate cd command."
 
-        # ── Late-Binding Secret Substitution ──────────────────────────────────
-        # Replace all {{VAULT:...}} tokens with real values IN MEMORY,
-        # just before sending to Docker. The LLM never sees the raw bytes.
-        safe_command = secret_replacer.apply(self.command)
+        # ── Late-Binding Secret Substitution + URL Allowlist Guard ───────────
+        # Replace all {{VAULT:...}} tokens IN MEMORY, then validate all outbound
+        # URLs against VAULT_ALLOWED_DOMAINS. Raises VaultExfiltrationError if
+        # the destination is not whitelisted — blocks even prompt injection attacks.
+        try:
+            safe_command = secret_replacer.apply_guarded(self.command)
+        except secret_replacer.VaultExfiltrationError as exc:
+            return str(exc)
 
         # Execute command in container
         try:
