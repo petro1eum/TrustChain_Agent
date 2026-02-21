@@ -4,12 +4,32 @@ import uuid
 import os
 from datetime import datetime
 import threading
+import asyncio
+from typing import Set
 
 # Use a relative or absolute path for the SQLite database
 DB_PATH = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "tasks.db")
 
 # Thread-local storage to prevent sqlite3 multi-thread errors
 _local = threading.local()
+
+# ─── SSE Event Bus ────────────────────────────────────────────────────────────
+# A set of asyncio.Queue objects, one per connected SSE client.
+# This is an in-process broadcast bus — zero network overhead.
+_sse_subscribers: Set[asyncio.Queue] = set()
+_sse_lock = threading.Lock()
+
+def subscribe_events() -> asyncio.Queue:
+    """Register a new SSE subscriber. Returns a Queue the endpoint should read from."""
+    q: asyncio.Queue = asyncio.Queue(maxsize=100)
+    with _sse_lock:
+        _sse_subscribers.add(q)
+    return q
+
+def unsubscribe_events(q: asyncio.Queue):
+    """Remove a subscriber when the SSE connection closes."""
+    with _sse_lock:
+        _sse_subscribers.discard(q)
 
 def get_db_connection():
     if not hasattr(_local, "conn"):
@@ -89,20 +109,31 @@ def claim_pending_task():
         raise e
 
 def update_task_status(task_id: str, status: str, result: dict = None, error: str = None):
-    """Updates the status and outputs of an existing task."""
+    """Updates the status and outputs of an existing task, then fires an SSE event."""
     conn = get_db_connection()
     cursor = conn.cursor()
     cursor.execute(
         "UPDATE trigger_tasks SET status = ?, result = ?, error = ?, updated_at = ? WHERE id = ?",
         (
-            status, 
-            json.dumps(result) if result is not None else None, 
-            error, 
-            datetime.utcnow().isoformat(), 
+            status,
+            json.dumps(result) if result is not None else None,
+            error,
+            datetime.utcnow().isoformat(),
             task_id
         )
     )
     conn.commit()
+
+    # ── Broadcast state change to all SSE subscribers ──
+    event = json.dumps({"task_id": task_id, "status": status})
+    with _sse_lock:
+        dead = set()
+        for q in _sse_subscribers:
+            try:
+                q.put_nowait(event)
+            except asyncio.QueueFull:
+                dead.add(q)  # Slow/dead client — remove
+        _sse_subscribers.difference_update(dead)
 
 def get_queue_stats() -> dict:
     """Returns basic counts of tasks for the router."""
