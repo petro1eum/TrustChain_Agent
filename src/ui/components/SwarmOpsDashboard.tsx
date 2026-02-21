@@ -290,8 +290,8 @@ export const SwarmOpsDashboard: React.FC = () => {
                     </div>
                     <div className="flex items-center gap-2">
                         {connected
-                            ? <Wifi size={12} className="text-emerald-400" title="SSE Live" />
-                            : <WifiOff size={12} className="text-amber-400" title="SSE Reconnecting…" />
+                            ? <span title="SSE Live"><Wifi size={12} className="text-emerald-400" /></span>
+                            : <span title="SSE Reconnecting…"><WifiOff size={12} className="text-amber-400" /></span>
                         }
                         <button
                             onClick={() => { void fetchTasks(filter); void fetchStats(); }}
@@ -318,8 +318,8 @@ export const SwarmOpsDashboard: React.FC = () => {
                             key={f}
                             onClick={() => setFilter(f)}
                             className={`text-[10px] px-2 py-1 rounded-lg border transition-all font-medium ${filter === f
-                                    ? 'bg-indigo-500/20 border-indigo-500/40 text-indigo-300'
-                                    : 'tc-text-muted border-transparent hover:bg-white/5 hover:tc-text'
+                                ? 'bg-indigo-500/20 border-indigo-500/40 text-indigo-300'
+                                : 'tc-text-muted border-transparent hover:bg-white/5 hover:tc-text'
                                 }`}
                         >
                             {f}
