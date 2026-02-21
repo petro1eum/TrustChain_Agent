@@ -127,5 +127,39 @@ export async function exportTrustChainPdf(steps: ExecutionStep[], toolCalls?: To
 
     // 4. Download Trigger
     const traceFilename = `trustchain-audit-report-${new Date().toISOString().replace(/[:.]/g, '-').slice(0, 19)}.pdf`;
-    doc.save(traceFilename);
+
+    // In a cross-origin iframe, Chrome blocks ALL download navigations
+    // Delegate to the parent window via postMessage.
+    if (window.parent !== window) {
+        try {
+            // Get base64 representation to safely pass over postMessage
+            const pdfDataUri = doc.output('datauristring');
+            const b64Data = pdfDataUri.split(',')[1];
+
+            window.parent.postMessage({
+                type: 'trustchain:download',
+                version: 2,
+                data: b64Data,
+                isBase64: true,
+                filename: traceFilename,
+                mimeType: 'application/pdf',
+                requestId: `dl-${Date.now()}`,
+            }, '*');
+            return;
+        } catch {
+            // fall through
+        }
+    }
+
+    // Top-level context (fallback)
+    const blob = new Blob([doc.output('arraybuffer')], { type: 'application/pdf' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = traceFilename;
+    a.style.display = 'none';
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    setTimeout(() => URL.revokeObjectURL(url), 60000); // 60s timeout to survive slow downloads
 }

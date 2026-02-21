@@ -75,7 +75,7 @@ function downloadTrace(steps: ExecutionStep[]): void {
     document.body.appendChild(a);
     a.click();
     document.body.removeChild(a);
-    setTimeout(() => URL.revokeObjectURL(url), 200);
+    setTimeout(() => URL.revokeObjectURL(url), 60000);
 }
 
 /**
