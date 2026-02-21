@@ -18,8 +18,8 @@ interface QueueTask {
     id: string;
     task_slug: string;
     status: 'PENDING' | 'RUNNING' | 'SUCCESS' | 'FAILED';
-    payload: any;
-    result?: any;
+    payload: unknown;
+    result?: unknown;
     error?: string;
     created_at: string;
     updated_at: string;
@@ -36,23 +36,25 @@ interface QueueStats {
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
 const BACKEND_URL = (() => {
-    const fromEnv = import.meta.env.VITE_BACKEND_URL;
+    const fromEnv = (import.meta as { env: Record<string, string> }).env.VITE_BACKEND_URL;
     if (fromEnv) return fromEnv.replace(/\/$/, '');
     return `${window.location.protocol}//${window.location.hostname}:9742`;
 })();
 
 function StatusBadge({ status }: { status: QueueTask['status'] }) {
-    const cfg = {
+    const cfgMap = {
         PENDING: { icon: Clock, color: 'text-amber-400 bg-amber-500/10 border-amber-500/30', label: 'Pending' },
         RUNNING: { icon: Loader2, color: 'text-blue-400 bg-blue-500/10 border-blue-500/30', label: 'Running' },
         SUCCESS: { icon: CheckCircle2, color: 'text-emerald-400 bg-emerald-500/10 border-emerald-500/30', label: 'Success' },
         FAILED: { icon: XCircle, color: 'text-red-400 bg-red-500/10 border-red-500/30', label: 'Failed' },
-    }[status] ?? { icon: Clock, color: 'text-gray-400 bg-gray-500/10 border-gray-500/30', label: status };
+    } as const;
 
+    const cfg = cfgMap[status] ?? { icon: Clock, color: 'text-gray-400 bg-gray-500/10 border-gray-500/30', label: status };
     const Icon = cfg.icon;
+
     return (
         <span className={`inline-flex items-center gap-1 text-[10px] font-medium px-2 py-0.5 rounded-full border ${cfg.color}`}>
-            <Icon size={9} className={status === 'RUNNING' ? 'animate-spin' : ''} />
+            <Icon size={9} className={status === 'RUNNING' ? 'animate-spin' : undefined} />
             {cfg.label}
         </span>
     );
@@ -60,7 +62,7 @@ function StatusBadge({ status }: { status: QueueTask['status'] }) {
 
 function StatPill({ label, value, color }: { label: string; value: number; color: string }) {
     return (
-        <div className={`flex flex-col items-center justify-center px-3 py-2 rounded-lg border ${color} gap-0`}>
+        <div className={`flex flex-col items-center justify-center px-3 py-2 rounded-lg border ${color}`}>
             <span className="text-lg font-bold leading-tight">{value}</span>
             <span className="text-[9px] uppercase tracking-wider opacity-60">{label}</span>
         </div>
@@ -68,7 +70,6 @@ function StatPill({ label, value, color }: { label: string; value: number; color
 }
 
 function timeAgo(dateStr: string): string {
-    // SQLite stores as ISO without Z, so we append it
     const d = new Date(dateStr.endsWith('Z') ? dateStr : dateStr + 'Z');
     const diff = Date.now() - d.getTime();
     const s = Math.floor(diff / 1000);
@@ -80,11 +81,13 @@ function timeAgo(dateStr: string): string {
 
 // ─── TaskRow ──────────────────────────────────────────────────────────────────
 
-function TaskRow({ task, onRetry, onDelete }: {
+interface TaskRowProps {
     task: QueueTask;
-    onRetry: (id: string) => void;
-    onDelete: (id: string) => void;
-}) {
+    onRetry: (id: string) => Promise<void>;
+    onDelete: (id: string) => Promise<void>;
+}
+
+function TaskRow({ task, onRetry, onDelete }: TaskRowProps) {
     const [expanded, setExpanded] = useState(false);
     const [retrying, setRetrying] = useState(false);
     const slug = task.task_slug || task.id;
@@ -113,21 +116,28 @@ function TaskRow({ task, onRetry, onDelete }: {
                 <td className="px-2 py-2 text-[10px] tc-text-muted whitespace-nowrap">{timeAgo(task.created_at)}</td>
                 <td className="px-2 py-2">
                     <div className="flex items-center gap-0.5">
-                        <button onClick={() => setExpanded(v => !v)}
+                        <button
+                            onClick={() => setExpanded(v => !v)}
                             className="p-1 rounded hover:bg-white/10 tc-text-muted hover:tc-text transition"
-                            title="Details">
+                            title="Details"
+                        >
                             {expanded ? <ChevronUp size={11} /> : <ChevronDown size={11} />}
                         </button>
                         {task.status === 'FAILED' && (
-                            <button onClick={handleRetry} disabled={retrying}
+                            <button
+                                onClick={() => void handleRetry()}
+                                disabled={retrying}
                                 className="p-1 rounded hover:bg-emerald-500/20 text-emerald-400 transition disabled:opacity-50"
-                                title="Retry Task">
-                                <RotateCcw size={11} className={retrying ? 'animate-spin' : ''} />
+                                title="Retry Task"
+                            >
+                                <RotateCcw size={11} className={retrying ? 'animate-spin' : undefined} />
                             </button>
                         )}
-                        <button onClick={() => onDelete(task.id)}
-                            className="p-1 rounded hover:bg-red-500/20 text-red-400 transition"
-                            title="Delete">
+                        <button
+                            onClick={() => void onDelete(task.id)}
+                            className="p-1 rounded hover:bg-white/10 tc-text-muted hover:tc-text transition"
+                            title="Delete"
+                        >
                             <Trash2 size={11} />
                         </button>
                     </div>
@@ -137,11 +147,11 @@ function TaskRow({ task, onRetry, onDelete }: {
                 <tr className="border-b tc-border bg-black/20">
                     <td colSpan={5} className="px-4 py-3">
                         {task.error ? (
-                            <div className="rounded-lg bg-red-500/5 border border-red-500/20 p-3">
-                                <div className="text-[10px] font-semibold text-red-400 mb-1 flex items-center gap-1">
+                            <div className="rounded-lg bg-amber-500/5 border border-amber-500/20 p-3">
+                                <div className="text-[10px] font-semibold text-amber-400 mb-1 flex items-center gap-1">
                                     <AlertTriangle size={10} /> Dead Letter Queue — Traceback
                                 </div>
-                                <pre className="text-[9px] text-red-300/80 overflow-auto max-h-40 font-mono whitespace-pre-wrap">{task.error}</pre>
+                                <pre className="text-[9px] text-amber-200/70 overflow-auto max-h-40 font-mono whitespace-pre-wrap">{task.error}</pre>
                             </div>
                         ) : task.result ? (
                             <div className="rounded-lg bg-emerald-500/5 border border-emerald-500/20 p-3">
@@ -162,67 +172,73 @@ function TaskRow({ task, onRetry, onDelete }: {
 
 // ─── Main Component ───────────────────────────────────────────────────────────
 
+const FILTERS = ['ALL', 'PENDING', 'RUNNING', 'SUCCESS', 'FAILED'] as const;
+type Filter = typeof FILTERS[number];
+
 export const SwarmOpsDashboard: React.FC = () => {
     const [tasks, setTasks] = useState<QueueTask[]>([]);
     const [stats, setStats] = useState<QueueStats>({ PENDING: 0, RUNNING: 0, SUCCESS: 0, FAILED: 0, total: 0 });
-    const [filter, setFilter] = useState<string>('ALL');
+    const [filter, setFilter] = useState<Filter>('ALL');
     const [connected, setConnected] = useState(false);
     const [lastEvent, setLastEvent] = useState<Date | null>(null);
-    const esRef = useRef<EventSource | null>(null);
 
-    // ── HTTP helpers ────────────────────────────────────────────────────────
+    // Stable refs so SSE handlers can call fetch without stale closures
+    const fetchTasksRef = useRef<(f?: Filter) => Promise<void>>(async () => undefined);
+    const fetchStatsRef = useRef<() => Promise<void>>(async () => undefined);
 
-    const fetchTasks = useCallback(async (statusFilter = filter) => {
+    const fetchTasks = useCallback(async (statusFilter: Filter = filter) => {
         const statusParam = statusFilter !== 'ALL' ? `?status=${statusFilter}` : '';
         try {
             const res = await fetch(`${BACKEND_URL}/api/v1/swarm/tasks${statusParam}`);
             if (res.ok) {
-                const data = await res.json();
+                const data = (await res.json()) as { tasks: QueueTask[] };
                 setTasks(data.tasks ?? []);
             }
-        } catch (e) { console.error('SwarmOps fetchTasks failed:', e); }
+        } catch (_err) {
+            // Network error — silently ignore, SSE will recover
+        }
     }, [filter]);
 
     const fetchStats = useCallback(async () => {
         try {
             const res = await fetch(`${BACKEND_URL}/api/v1/swarm/stats`);
-            if (res.ok) setStats(await res.json());
-        } catch (e) { console.error('SwarmOps fetchStats failed:', e); }
+            if (res.ok) setStats(await res.json() as QueueStats);
+        } catch (_err) {
+            // Network error — silently ignore
+        }
     }, []);
 
-    // ── SSE Connection ──────────────────────────────────────────────────────
+    // Keep refs stable for SSE closures
+    useEffect(() => { fetchTasksRef.current = fetchTasks; }, [fetchTasks]);
+    useEffect(() => { fetchStatsRef.current = fetchStats; }, [fetchStats]);
+
+    // ── SSE Connection (created once) ────────────────────────────────────────
 
     useEffect(() => {
-        // Initial full hydration on mount
-        fetchTasks();
-        fetchStats();
+        void fetchTasksRef.current();
+        void fetchStatsRef.current();
 
-        // Open SSE connection
         const es = new EventSource(`${BACKEND_URL}/api/v1/swarm/stream`);
-        esRef.current = es;
 
         es.onopen = () => setConnected(true);
 
-        es.addEventListener('stats', (e: MessageEvent) => {
+        es.addEventListener('stats', (e: MessageEvent<string>) => {
             try {
-                const newStats = JSON.parse(e.data);
-                setStats(newStats);
+                setStats(JSON.parse(e.data) as QueueStats);
                 setLastEvent(new Date());
-            } catch { }
+            } catch (_) { /* ignore malformed */ }
         });
 
-        es.addEventListener('task_update', (e: MessageEvent) => {
+        es.addEventListener('task_update', (e: MessageEvent<string>) => {
             try {
-                const update = JSON.parse(e.data);
+                const update = JSON.parse(e.data) as { task_id: string; status: QueueTask['status'] };
                 setLastEvent(new Date());
 
-                // Partial update: update just the changed row's status in-place
                 setTasks(prev => {
                     const idx = prev.findIndex(t => t.id === update.task_id);
                     if (idx === -1) {
-                        // New task appeared — refetch to get full row
-                        fetchTasks();
-                        fetchStats();
+                        void fetchTasksRef.current();
+                        void fetchStatsRef.current();
                         return prev;
                     }
                     const updated = [...prev];
@@ -230,39 +246,35 @@ export const SwarmOpsDashboard: React.FC = () => {
                     return updated;
                 });
 
-                // Also refresh stats on any status change
-                fetchStats();
-            } catch { }
+                void fetchStatsRef.current();
+            } catch (_) { /* ignore malformed */ }
         });
 
-        es.onerror = () => {
-            setConnected(false);
-            // Auto-reconnect is handled by the browser's EventSource API automatically
-        };
+        es.onerror = () => setConnected(false);
 
         return () => {
             es.close();
             setConnected(false);
         };
-    }, []); // Intentionally empty: SSE connects once. Re-hydrate via SSE events.
+    }, []); // intentionally empty — SSE reconnects automatically via browser
 
-    // Re-fetch tasks when filter changes (SSE only sends deltas, not full lists)
-    useEffect(() => { fetchTasks(filter); }, [filter]);
+    // Re-fetch when filter tab changes
+    useEffect(() => { void fetchTasks(filter); }, [filter, fetchTasks]);
 
-    // ── Actions ─────────────────────────────────────────────────────────────
+    // ── Actions ──────────────────────────────────────────────────────────────
 
-    const handleRetry = async (id: string) => {
+    const handleRetry = async (id: string): Promise<void> => {
         await fetch(`${BACKEND_URL}/api/v1/swarm/tasks/${id}/retry`, { method: 'POST' });
-        // SSE will push the PENDING event — no manual refetch needed
+        // SSE will push the PENDING status change automatically
     };
 
-    const handleDelete = async (id: string) => {
+    const handleDelete = async (id: string): Promise<void> => {
         await fetch(`${BACKEND_URL}/api/v1/swarm/tasks/${id}`, { method: 'DELETE' });
         setTasks(prev => prev.filter(t => t.id !== id));
-        fetchStats();
+        await fetchStats();
     };
 
-    const FILTERS = ['ALL', 'PENDING', 'RUNNING', 'SUCCESS', 'FAILED'] as const;
+    // ── Render ───────────────────────────────────────────────────────────────
 
     return (
         <div className="flex flex-col h-full bg-transparent">
@@ -279,11 +291,13 @@ export const SwarmOpsDashboard: React.FC = () => {
                     <div className="flex items-center gap-2">
                         {connected
                             ? <Wifi size={12} className="text-emerald-400" title="SSE Live" />
-                            : <WifiOff size={12} className="text-red-400" title="SSE Disconnected" />
+                            : <WifiOff size={12} className="text-amber-400" title="SSE Reconnecting…" />
                         }
-                        <button onClick={() => { fetchTasks(); fetchStats(); }}
+                        <button
+                            onClick={() => { void fetchTasks(filter); void fetchStats(); }}
                             className="p-1.5 rounded-lg tc-btn-hover tc-text-muted hover:tc-text transition"
-                            title="Refresh">
+                            title="Refresh"
+                        >
                             <RefreshCw size={13} />
                         </button>
                     </div>
@@ -294,17 +308,20 @@ export const SwarmOpsDashboard: React.FC = () => {
                     <StatPill label="Pending" value={stats.PENDING} color="text-amber-400 border-amber-500/20 bg-amber-500/5" />
                     <StatPill label="Running" value={stats.RUNNING} color="text-blue-400 border-blue-500/20 bg-blue-500/5" />
                     <StatPill label="Success" value={stats.SUCCESS} color="text-emerald-400 border-emerald-500/20 bg-emerald-500/5" />
-                    <StatPill label="Failed" value={stats.FAILED} color="text-red-400 border-red-500/20 bg-red-500/5" />
+                    <StatPill label="Failed" value={stats.FAILED} color="text-amber-600 border-amber-600/20 bg-amber-600/5" />
                 </div>
 
                 {/* Filter Tabs */}
                 <div className="flex gap-1">
                     {FILTERS.map(f => (
-                        <button key={f} onClick={() => setFilter(f)}
+                        <button
+                            key={f}
+                            onClick={() => setFilter(f)}
                             className={`text-[10px] px-2 py-1 rounded-lg border transition-all font-medium ${filter === f
                                     ? 'bg-indigo-500/20 border-indigo-500/40 text-indigo-300'
                                     : 'tc-text-muted border-transparent hover:bg-white/5 hover:tc-text'
-                                }`}>
+                                }`}
+                        >
                             {f}
                         </button>
                     ))}
@@ -328,12 +345,17 @@ export const SwarmOpsDashboard: React.FC = () => {
                                 <th className="text-left px-2 py-2 text-[10px] font-semibold tc-text-muted uppercase tracking-wider">Status</th>
                                 <th className="text-left px-2 py-2 text-[10px] font-semibold tc-text-muted uppercase tracking-wider">Role</th>
                                 <th className="text-left px-2 py-2 text-[10px] font-semibold tc-text-muted uppercase tracking-wider">Age</th>
-                                <th className="px-2 py-2"></th>
+                                <th className="px-2 py-2" />
                             </tr>
                         </thead>
                         <tbody>
                             {tasks.map(task => (
-                                <TaskRow key={task.id} task={task} onRetry={handleRetry} onDelete={handleDelete} />
+                                <TaskRow
+                                    key={task.id}
+                                    task={task}
+                                    onRetry={handleRetry}
+                                    onDelete={handleDelete}
+                                />
                             ))}
                         </tbody>
                     </table>
