@@ -228,7 +228,32 @@ def load_skills(skills_dir: str | Path) -> str:
         knowledge_units = []
         for kw_path in sorted(knowledge_dir.rglob("*.md")):
             try:
-                content = kw_path.read_text("utf-8", errors="replace").strip()
+                raw_text = kw_path.read_text("utf-8", errors="replace")
+                
+                # --- TrustChain Signature Verification ---
+                import re
+                import hashlib
+                import nacl.encoding
+                from backend.routers.trustchain_api import _tc
+                
+                match = re.search(r'^tc_signature:\s*([A-Za-z0-9+/=]+)\s*$', raw_text, flags=re.MULTILINE)
+                if not match:
+                    logger.warning(f"Knowledge unit {kw_path.name} has no signature! Skipping for security.")
+                    continue
+                    
+                sig_b64 = match.group(1)
+                content_without_sig = re.sub(r'^tc_signature:\s*[A-Za-z0-9+/=]+\n?', '', raw_text, flags=re.MULTILINE)
+                content_hash = hashlib.sha256(content_without_sig.encode('utf-8')).hexdigest()
+                
+                try:
+                    verify_key = _tc.key_manager._private_key.verify_key
+                    verify_key.verify(content_hash.encode('utf-8'), nacl.encoding.Base64Encoder.decode(sig_b64))
+                except Exception as sig_err:
+                    logger.error(f"Knowledge unit {kw_path.name} SIGNATURE VERIFICATION FAILED! Tampering detected. Skipping. Err: {sig_err}")
+                    continue
+                
+                content = content_without_sig.strip()
+                
                 if content:
                     knowledge_units.append(f"### Knowledge Unit: {kw_path.name}\n{content}")
             except Exception as e:
@@ -300,10 +325,17 @@ def delete_collective_memory(key: str) -> bool:
 
 # ── OpenAI Tools Spec from Registry ──
 
-def _build_tools_spec() -> list[dict]:
+def _build_tools_spec(role: str = "CEO") -> list[dict]:
     """Convert ToolRegistry tools into OpenAI function-calling format."""
     from backend.tools.tool_registry import registry
     tools = registry.list_tools()
+    
+    # --- Guardrailed Autonomy: Strict Tool RBAC ---
+    if role == "WebhookExecutor":
+        # Deny dangerous system tools to external triggers
+        forbidden_tools = ["bash_tool", "spawn_subagent", "message_agent", "synthesize_knowledge"]
+        tools = [t for t in tools if t["name"] not in forbidden_tools]
+        
     return [
         {
             "type": "function",
@@ -408,7 +440,7 @@ async def run_agent(
             api_endpoint = f"{base_url}/v1/chat/completions"
 
         # Build tools spec
-        tools_spec = _build_tools_spec()
+        tools_spec = _build_tools_spec(role)
 
         # Message history
         messages = [

@@ -66,12 +66,24 @@ To apply this setup automatically:
 """
             
         try:
+            # --- TrustChain Cryptographic Signing ---
+            import hashlib
+            from backend.routers.trustchain_api import _tc
+            
+            content_hash = hashlib.sha256(content.encode('utf-8')).hexdigest()
+            # TrustChain v0.1.0 sign method signature: (tool_id, data, ...) -> SignedResponse
+            signed_response = _tc.sign("knowledge_synthesis", content_hash)
+            signature_b64 = signed_response.signature
+            
+            # Inject signature into frontmatter
+            final_content = content.replace("---\ntitle:", f"---\ntc_signature: \"{signature_b64}\"\ntitle:")
+            
             with open(filepath, "w", encoding="utf-8") as f:
-                f.write(content)
+                f.write(final_content)
             
             return {
                 "status": "success",
-                "message": f"Knowledge unit successfully synthesized and saved.",
+                "message": f"Knowledge unit successfully synthesized and cryptographically signed.",
                 "filepath": filepath,
                 "title": title
             }

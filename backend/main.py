@@ -43,6 +43,9 @@ from backend.routers.bash_executor import router as bash_router
 from backend.routers.docker_agent import router as docker_router
 from backend.routers.skills import router as skills_router
 from backend.routers.browser_proxy import router as browser_proxy_router
+from backend.routers.scheduler import router as scheduler_router
+from backend.routers.triggers import router as triggers_router
+
 try:
     from backend.routers.trustchain_pro_api import router as trustchain_pro_router
     _has_trustchain_pro = True
@@ -58,6 +61,8 @@ app.include_router(bash_router)
 app.include_router(docker_router)
 app.include_router(skills_router)
 app.include_router(browser_proxy_router)
+app.include_router(scheduler_router)
+app.include_router(triggers_router)
 if _has_trustchain_pro:
     app.include_router(trustchain_pro_router)
 else:

@@ -48,6 +48,8 @@ import { ChainStatusBar } from './components/ChainStatusBar';
 import { FileManagerView } from './components/FileManagerView';
 import { ChannelHeader } from './components/ChannelHeader';
 import { BrowserPanel } from './components/BrowserPanel';
+import { ThreadPanel } from './components/ThreadPanel';
+import { SchedulerSettingsTab } from './components/SchedulerSettingsTab';
 import { RightPanelTabs, type PanelTab } from './components/RightPanelTabs';
 import { browserActionService } from '../services/browserActionService';
 
@@ -549,6 +551,7 @@ const TrustChainAgentApp: React.FC = () => {
     const [theme, setTheme] = useState<ThemeMode>('light');
     const [showSettings, setShowSettings] = useState(false);
     const [showRunbook, setShowRunbook] = useState(false);
+    const [showThreads, setShowThreads] = useState(false);
     const [showFileManager, setShowFileManager] = useState(false);
     const [showBrowser, setShowBrowser] = useState(false);
     const [openPanelTabs, setOpenPanelTabs] = useState<string[]>([]);
@@ -572,7 +575,7 @@ workflow:
 `);
     const [runbookRunning, setRunbookRunning] = useState(false);
     const [runbookResult, setRunbookResult] = useState<string | null>(null);
-    const [settingsTab, setSettingsTab] = useState<'general' | 'tools' | 'mcp' | 'skills' | 'pro'>('general');
+    const [settingsTab, setSettingsTab] = useState<'general' | 'tools' | 'mcp' | 'skills' | 'pro' | 'cron'>('general');
     const [initialToolId, setInitialToolId] = useState<string | undefined>(undefined);
     const [apiKeyInput, setApiKeyInput] = useState(() => localStorage.getItem('tc_api_key') || '');
     const [modelInput, setModelInput] = useState(() => localStorage.getItem('tc_model') || 'google/gemini-2.5-flash');
@@ -1273,6 +1276,8 @@ workflow:
                     agent={agent}
                     setShowSettings={setShowSettings}
                     onOpenRunbook={() => setShowRunbook(true)}
+                    onToggleThreads={() => setShowThreads(!showThreads)}
+                    showThreads={showThreads}
                     onToggleBrowser={() => {
                         setShowBrowser(!showBrowser);
                         if (!showBrowser) setPanelCollapsed(false);
@@ -1446,6 +1451,15 @@ workflow:
                             >
                                 Pro
                             </button>
+                            <button
+                                onClick={() => setSettingsTab('cron')}
+                                className={`flex-1 px-4 py-2.5 text-xs font-semibold transition-colors
+                                    ${settingsTab === 'cron'
+                                        ? 'tc-text border-b-2 border-emerald-500'
+                                        : 'tc-text-muted hover:tc-text'}`}
+                            >
+                                Cron Jobs
+                            </button>
                         </div>
 
                         {/* Body */}
@@ -1466,6 +1480,8 @@ workflow:
                                 <SkillsManager onAskAgent={handleAskAgent} />
                             ) : settingsTab === 'pro' ? (
                                 <ProSettingsPanel />
+                            ) : settingsTab === 'cron' ? (
+                                <SchedulerSettingsTab />
                             ) : (
                                 <>
                                     {/* Status */}
@@ -1646,6 +1662,9 @@ workflow:
                     </div>
                 </div>
             )}
+
+            {/* ═══ THREAD PANEL ═══ */}
+            <ThreadPanel visible={showThreads} onClose={() => setShowThreads(false)} />
 
             {/* ═══ CHAIN STATUS BAR ═══ */}
             {!isEmbedded && <ChainStatusBar />}

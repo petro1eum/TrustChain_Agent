@@ -23,6 +23,8 @@ from backend.tools.built_in.knowledge_tools import (
     ReadMemoryTool,
     WriteMemoryTool,
 )
+from backend.tools.built_in.openapi_bridge import OpenAPIBridgeTool
+from backend.tools.built_in.enterprise_demo import SimulateBackgroundCheck, ApproveLoan, SendSecureEmail
 
 # TrustChain built-in tools (LLM auto-invokes via openai_schema)
 from backend.tools.built_in.trustchain_tools import (
@@ -62,6 +64,7 @@ class ToolRegistry:
             KnowledgeSynthesisTool,
             ReadMemoryTool,
             WriteMemoryTool,
+            OpenAPIBridgeTool,
             # TrustChain audit & compliance tools
             TrustChainVerify,
             TrustChainAuditReport,
@@ -70,6 +73,10 @@ class ToolRegistry:
             TrustChainExecutionGraph,
             TrustChainAnalyticsSnapshot,
             TrustChainRunbook,
+            # Phase 2: Auditable Enterprise Workflows
+            SimulateBackgroundCheck,
+            ApproveLoan,
+            SendSecureEmail,
         ]:
             self.register(tool_cls)
 

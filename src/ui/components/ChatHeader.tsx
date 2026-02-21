@@ -16,6 +16,8 @@ interface ChatHeaderProps {
     agent: { status: string; isInitialized: boolean };
     setShowSettings: (show: boolean) => void;
     onOpenRunbook?: () => void;
+    onToggleThreads?: () => void;
+    showThreads?: boolean;
     onToggleBrowser?: () => void;
     showBrowser?: boolean;
     onTogglePanel?: () => void;
@@ -38,7 +40,7 @@ export const ChatHeader: React.FC<ChatHeaderProps> = ({
     activeConversation,
     theme, toggleTheme,
     agent, setShowSettings,
-    onOpenRunbook, onToggleBrowser, showBrowser, onTogglePanel, showPanel,
+    onOpenRunbook, onToggleThreads, showThreads, onToggleBrowser, showBrowser, onTogglePanel, showPanel,
 }) => (
     <header className="h-12 shrink-0 border-b tc-border flex items-center px-4 gap-3">
         <div className="flex-1 flex items-center gap-2">
@@ -73,6 +75,14 @@ export const ChatHeader: React.FC<ChatHeaderProps> = ({
                     title="Security Runbooks">
                     <BookOpen size={16} />
                     <span className="text-xs hidden sm:inline">Runbooks</span>
+                </button>
+            )}
+            {onToggleThreads && (
+                <button onClick={onToggleThreads}
+                    className={`tc-text-muted hover:tc-text p-1.5 rounded-lg tc-btn-hover transition-colors flex items-center gap-1
+                        ${showThreads ? 'text-amber-400 bg-amber-500/10' : ''}`}
+                    title="Active Sub-Agents">
+                    <Sparkles size={16} />
                 </button>
             )}
             {onToggleBrowser && (

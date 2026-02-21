@@ -16,9 +16,10 @@ import {
     ArrowLeft, ArrowRight, Home, Search,
     FileText, FileJson, FileCode, Image as ImageIcon,
     HardDrive, LayoutGrid, List, PanelLeftClose, PanelLeft,
-    Puzzle, Wrench, Lock
+    Puzzle, Wrench, Lock, Globe, ShieldCheck, ShieldAlert, Star, Check
 } from 'lucide-react';
 import { userStorageService, virtualStorageService, MOUNT_SKILLS, MOUNT_TOOLS, type FileEntry } from '../../services/storage';
+import { skillMarketplace, type MarketSkill } from '../../services/skillMarketplace';
 
 // ── Helpers ──
 
@@ -109,6 +110,121 @@ const SidebarTreeNode: React.FC<{
                 />
             ))}
         </>
+    );
+};
+
+// ── Marketplace Pane ──
+
+const MarketplacePane: React.FC = () => {
+    const [skills, setSkills] = useState<MarketSkill[]>([]);
+    const [loading, setLoading] = useState(true);
+    const [downloading, setDownloading] = useState<string | null>(null);
+    const [statusMsgs, setStatusMsgs] = useState<Record<string, string>>({});
+
+    useEffect(() => {
+        skillMarketplace.fetchSkills().then(res => {
+            setSkills(res);
+            setLoading(false);
+        });
+    }, []);
+
+    const handleDownload = async (skill: MarketSkill) => {
+        setDownloading(skill.id);
+        setStatusMsgs(prev => ({ ...prev, [skill.id]: 'Verifying signature...' }));
+
+        // Slight delay for UX
+        await new Promise(r => setTimeout(r, 600));
+
+        const res = await skillMarketplace.installSkill(skill);
+        setStatusMsgs(prev => ({ ...prev, [skill.id]: res.message }));
+        setDownloading(null);
+    };
+
+    if (loading) {
+        return (
+            <div className="flex-1 flex items-center justify-center">
+                <div className="text-[12px] tc-text-muted animate-pulse">Loading verified skills...</div>
+            </div>
+        );
+    }
+
+    return (
+        <div className="flex-1 overflow-y-auto p-6 bg-[var(--tc-bg,#0a0b1a)]">
+            <div className="max-w-4xl mx-auto space-y-6">
+                <div>
+                    <h2 className="text-lg font-semibold text-emerald-400 flex items-center gap-2">
+                        <ShieldCheck size={20} />
+                        Trusted Skills Marketplace
+                    </h2>
+                    <p className="text-xs tc-text-muted mt-1">
+                        Cryptographically signed python skills dynamically loaded into the agent's tool registry.
+                    </p>
+                </div>
+
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                    {skills.map(skill => {
+                        const isVerified = skillMarketplace.verifySkillSignature(skill);
+                        return (
+                            <div key={skill.id} className="bg-slate-800/50 border border-slate-700/50 rounded-xl p-4 flex flex-col gap-3">
+                                <div className="flex items-start justify-between">
+                                    <div className="flex items-center gap-3">
+                                        <div className="w-10 h-10 rounded-lg bg-emerald-500/10 border border-emerald-500/20 flex flex-col items-center justify-center">
+                                            <Puzzle size={20} className="text-emerald-400" />
+                                        </div>
+                                        <div>
+                                            <h3 className="text-sm font-semibold tc-text-heading">{skill.name}</h3>
+                                            <div className="flex items-center gap-2 text-[10px] tc-text-muted font-mono mt-0.5">
+                                                <span>v{skill.version}</span>
+                                                <span>•</span>
+                                                <span className="text-emerald-400/80">{skill.author}</span>
+                                            </div>
+                                        </div>
+                                    </div>
+                                    <div className="flex items-center gap-2 text-[10px] tc-text-muted">
+                                        <span className="flex items-center gap-0.5"><Star size={10} className="text-amber-400" /> {skill.rating}</span>
+                                        <span className="flex items-center gap-0.5"><Download size={10} /> {skill.downloads}</span>
+                                    </div>
+                                </div>
+
+                                <p className="text-[11px] tc-text-secondary leading-relaxed line-clamp-2">
+                                    {skill.description}
+                                </p>
+
+                                <div className="mt-auto pt-3 border-t border-slate-700/50 flex items-center justify-between">
+                                    <div className="flex items-center gap-1.5">
+                                        {isVerified ? (
+                                            <span className="flex items-center gap-1 text-[10px] text-emerald-400 bg-emerald-400/10 px-2 py-0.5 rounded-full">
+                                                <Check size={10} /> Verified Publisher
+                                            </span>
+                                        ) : (
+                                            <span className="flex items-center gap-1 text-[10px] text-red-400 bg-red-400/10 px-2 py-0.5 rounded-full">
+                                                <ShieldAlert size={10} /> Invalid Signature
+                                            </span>
+                                        )}
+                                    </div>
+                                    <button
+                                        onClick={() => handleDownload(skill)}
+                                        disabled={downloading === skill.id}
+                                        className="flex items-center gap-1.5 px-3 py-1.5 text-[11px] font-medium text-white bg-blue-500 hover:bg-blue-600 rounded-lg transition-colors disabled:opacity-50"
+                                    >
+                                        {downloading === skill.id ? (
+                                            <>Installing...</>
+                                        ) : (
+                                            <><Download size={12} /> Install</>
+                                        )}
+                                    </button>
+                                </div>
+                                {statusMsgs[skill.id] && (
+                                    <div className={`text-[10px] mt-1 ${statusMsgs[skill.id].includes('failed') ? 'text-red-400' : 'text-emerald-400'}`}>
+                                        {statusMsgs[skill.id]}
+                                    </div>
+                                )}
+                            </div>
+                        );
+                    })}
+                </div>
+            </div>
+        </div>
     );
 };
 
@@ -372,6 +488,9 @@ export const FileManagerView: React.FC<FileManagerViewProps> = ({ onClose, onOpe
 
     // Breadcrumbs — handle virtual path prefixes nicely
     const getBreadcrumbs = () => {
+        if (currentDir === '__marketplace__') {
+            return { prefix: '🌐 Marketplace', segments: [], basePath: '__marketplace__' };
+        }
         if (currentDir.startsWith(MOUNT_SKILLS)) {
             const sub = currentDir.slice(MOUNT_SKILLS.length);
             return { prefix: '🧩 Skills', segments: sub ? sub.split('/') : [], basePath: MOUNT_SKILLS };
@@ -650,100 +769,119 @@ export const FileManagerView: React.FC<FileManagerViewProps> = ({ onClose, onOpe
                                 ))}
                             </div>
                         )}
+
+                        {/* ── Divider ── */}
+                        <div className="mx-3 my-2 border-t tc-border-light" />
+
+                        {/* ── Marketplace ── */}
+                        <div
+                            className={`flex items-center gap-1.5 px-3 py-[3px] cursor-pointer rounded-md text-[12px] mx-1 mt-1 transition-all
+                                ${currentDir === '__marketplace__' ? 'bg-emerald-500/20 text-emerald-300 font-medium' : 'tc-text-muted hover:bg-white/5 hover:tc-text'}`}
+                            onClick={() => navigateTo('__marketplace__')}
+                        >
+                            <Globe size={13} className="text-emerald-400 flex-shrink-0" />
+                            <span>Marketplace</span>
+                        </div>
                     </div>
                 )}
 
                 {/* Right content — file listing */}
                 <div className="flex-1 flex flex-col min-w-0 overflow-hidden" onClick={() => setSelectedPaths(new Set())}>
-                    {/* Column headers */}
-                    <div className="flex items-center px-3 py-1.5 border-b tc-border-light text-[11px] tc-text-muted bg-[var(--tc-surface,#10112a)] select-none">
-                        <button
-                            className="flex items-center gap-1 flex-1 min-w-0 text-left hover:tc-text transition-colors"
-                            onClick={() => handleSort('name')}
-                        >
-                            Name <SortIcon col="name" />
-                        </button>
-                        <button
-                            className="flex items-center gap-1 w-[140px] flex-shrink-0 text-left hover:tc-text transition-colors"
-                            onClick={() => handleSort('modified')}
-                        >
-                            Date Modified <SortIcon col="modified" />
-                        </button>
-                        <button
-                            className="flex items-center gap-1 w-[80px] flex-shrink-0 text-right justify-end hover:tc-text transition-colors"
-                            onClick={() => handleSort('size')}
-                        >
-                            Size <SortIcon col="size" />
-                        </button>
-                        <span className="w-[90px] flex-shrink-0 text-right">Kind</span>
-                    </div>
-
-                    {/* File rows */}
-                    <div className="flex-1 overflow-y-auto tc-scrollbar">
-                        {loading ? (
-                            <div className="flex items-center justify-center py-12">
-                                <div className="text-[12px] tc-text-muted animate-pulse">Loading...</div>
+                    {currentDir === '__marketplace__' ? (
+                        <MarketplacePane />
+                    ) : (
+                        <>
+                            {/* Column headers */}
+                            <div className="flex items-center px-3 py-1.5 border-b tc-border-light text-[11px] tc-text-muted bg-[var(--tc-surface,#10112a)] select-none">
+                                <button
+                                    className="flex items-center gap-1 flex-1 min-w-0 text-left hover:tc-text transition-colors"
+                                    onClick={() => handleSort('name')}
+                                >
+                                    Name <SortIcon col="name" />
+                                </button>
+                                <button
+                                    className="flex items-center gap-1 w-[140px] flex-shrink-0 text-left hover:tc-text transition-colors"
+                                    onClick={() => handleSort('modified')}
+                                >
+                                    Date Modified <SortIcon col="modified" />
+                                </button>
+                                <button
+                                    className="flex items-center gap-1 w-[80px] flex-shrink-0 text-right justify-end hover:tc-text transition-colors"
+                                    onClick={() => handleSort('size')}
+                                >
+                                    Size <SortIcon col="size" />
+                                </button>
+                                <span className="w-[90px] flex-shrink-0 text-right">Kind</span>
                             </div>
-                        ) : sortedEntries.length === 0 ? (
-                            <div className="flex flex-col items-center justify-center py-16 gap-2">
-                                <Folder size={40} className="tc-text-muted opacity-20" />
-                                <div className="text-[13px] tc-text-muted">
-                                    {currentDir ? 'This folder is empty' : 'No files yet'}
-                                </div>
-                                <div className="text-[11px] tc-text-muted opacity-60">
-                                    Use Upload or New Folder to add files
-                                </div>
-                            </div>
-                        ) : (
-                            sortedEntries.map(entry => {
-                                const isSelected = selectedPaths.has(entry.path);
-                                const isDir = entry.type === 'directory';
-                                return (
-                                    <div
-                                        key={entry.path}
-                                        className={`flex items-center px-3 py-[5px] cursor-pointer transition-all border-b border-transparent
-                                            ${isSelected
-                                                ? 'bg-blue-500/15 border-blue-500/20'
-                                                : 'hover:bg-white/[0.03]'}`}
-                                        onClick={e => { e.stopPropagation(); handleSelect(entry.path, e); }}
-                                        onDoubleClick={() => handleOpen(entry)}
-                                    >
-                                        {/* Expand arrow for dirs */}
-                                        {isDir ? (
-                                            <ChevronRight size={10} className="tc-text-muted mr-1 flex-shrink-0 opacity-40" />
-                                        ) : (
-                                            <span className="w-[10px] mr-1 flex-shrink-0" />
-                                        )}
 
-                                        {/* Icon + Name */}
-                                        <div className="flex items-center gap-2 flex-1 min-w-0">
-                                            {isDir
-                                                ? <Folder size={16} className="text-amber-500 flex-shrink-0" />
-                                                : getFileIcon(entry.name)}
-                                            <span className={`text-[12px] truncate ${isSelected ? 'tc-text font-medium' : 'tc-text'}`}>
-                                                {entry.name}
-                                            </span>
-                                        </div>
-
-                                        {/* Date Modified */}
-                                        <span className="text-[11px] tc-text-muted w-[140px] flex-shrink-0">
-                                            {formatDate(entry.modified)}
-                                        </span>
-
-                                        {/* Size */}
-                                        <span className="text-[11px] tc-text-muted w-[80px] flex-shrink-0 text-right">
-                                            {isDir ? '—' : formatSize(entry.size)}
-                                        </span>
-
-                                        {/* Kind */}
-                                        <span className="text-[11px] tc-text-muted w-[90px] flex-shrink-0 text-right">
-                                            {getKind(entry)}
-                                        </span>
+                            {/* File rows */}
+                            <div className="flex-1 overflow-y-auto tc-scrollbar">
+                                {loading ? (
+                                    <div className="flex items-center justify-center py-12">
+                                        <div className="text-[12px] tc-text-muted animate-pulse">Loading...</div>
                                     </div>
-                                );
-                            })
-                        )}
-                    </div>
+                                ) : sortedEntries.length === 0 ? (
+                                    <div className="flex flex-col items-center justify-center py-16 gap-2">
+                                        <Folder size={40} className="tc-text-muted opacity-20" />
+                                        <div className="text-[13px] tc-text-muted">
+                                            {currentDir ? 'This folder is empty' : 'No files yet'}
+                                        </div>
+                                        <div className="text-[11px] tc-text-muted opacity-60">
+                                            Use Upload or New Folder to add files
+                                        </div>
+                                    </div>
+                                ) : (
+                                    sortedEntries.map(entry => {
+                                        const isSelected = selectedPaths.has(entry.path);
+                                        const isDir = entry.type === 'directory';
+                                        return (
+                                            <div
+                                                key={entry.path}
+                                                className={`flex items-center px-3 py-[5px] cursor-pointer transition-all border-b border-transparent
+                                            ${isSelected
+                                                        ? 'bg-blue-500/15 border-blue-500/20'
+                                                        : 'hover:bg-white/[0.03]'}`}
+                                                onClick={e => { e.stopPropagation(); handleSelect(entry.path, e); }}
+                                                onDoubleClick={() => handleOpen(entry)}
+                                            >
+                                                {/* Expand arrow for dirs */}
+                                                {isDir ? (
+                                                    <ChevronRight size={10} className="tc-text-muted mr-1 flex-shrink-0 opacity-40" />
+                                                ) : (
+                                                    <span className="w-[10px] mr-1 flex-shrink-0" />
+                                                )}
+
+                                                {/* Icon + Name */}
+                                                <div className="flex items-center gap-2 flex-1 min-w-0">
+                                                    {isDir
+                                                        ? <Folder size={16} className="text-amber-500 flex-shrink-0" />
+                                                        : getFileIcon(entry.name)}
+                                                    <span className={`text-[12px] truncate ${isSelected ? 'tc-text font-medium' : 'tc-text'}`}>
+                                                        {entry.name}
+                                                    </span>
+                                                </div>
+
+                                                {/* Date Modified */}
+                                                <span className="text-[11px] tc-text-muted w-[140px] flex-shrink-0">
+                                                    {formatDate(entry.modified)}
+                                                </span>
+
+                                                {/* Size */}
+                                                <span className="text-[11px] tc-text-muted w-[80px] flex-shrink-0 text-right">
+                                                    {isDir ? '—' : formatSize(entry.size)}
+                                                </span>
+
+                                                {/* Kind */}
+                                                <span className="text-[11px] tc-text-muted w-[90px] flex-shrink-0 text-right">
+                                                    {getKind(entry)}
+                                                </span>
+                                            </div>
+                                        );
+                                    })
+                                )}
+                            </div>
+                        </>
+                    )}
                 </div>
             </div>
 

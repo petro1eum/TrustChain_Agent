@@ -1069,6 +1069,12 @@ async def agent_status():
     return task.model_dump()
 
 
+@router.get("/agent/tasks/active")
+async def active_tasks():
+    """Get all active agent tasks."""
+    return [t.model_dump() for t in get_all_tasks()]
+
+
 @router.get("/agent/history")
 async def agent_history(limit: int = 10):
     """Get agent task execution history."""

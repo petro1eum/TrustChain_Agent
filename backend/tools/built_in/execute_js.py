@@ -1,57 +1,50 @@
-from typing import Optional, Any
-from pydantic import Field
 import asyncio
-import base64
-
-import docker
-
+from typing import Any
 from backend.tools.base_tool import BaseTool, ToolContext
-from backend.tools.built_in.persistent_shell import CONTAINER_NAME
 
 class ExecuteJavascriptTool(BaseTool):
     """
-    Execute TypeScript/JavaScript code in the sandbox environment.
-    Use this when you need programming logic, data processing, formatting, or custom scripts.
-    Console logs will be returned as the result.
+    Executes raw NodeJS/Javascript code inside the secure container.
     """
-    
-    code: str = Field(..., description="The JavaScript code to execute. Can use console.log to output results.")
-    timeout: int = Field(10, description="Execution timeout in seconds.")
+    code: str
 
-    async def run(self, context: Optional[ToolContext] = None) -> Any:
+    async def run(self, context: ToolContext) -> Any:
         try:
-            client = docker.from_env()
-            container = client.containers.get(CONTAINER_NAME)
-        except docker.errors.NotFound:
-            return {"error": f"Container '{CONTAINER_NAME}' not found. Run start.sh first."}
-        except docker.errors.DockerException as e:
-            return {"error": f"Docker error: {e}"}
-
-        cwd = "/home/kb"
-        if context:
-            cwds = context.get("shell_cwds", {})
-            session_id = context.session_id
-            cwd = cwds.get(session_id, cwd)
-
-        # Base64 encode code to avoid bash quote escaping nightmares
-        b64_code = base64.b64encode(self.code.encode("utf-8")).decode("utf-8")
-        bash_cmd = f"echo '{b64_code}' | base64 -d | node"
-        
-        try:
+            from backend.sandbox.docker_manager import DockerManager
+            manager = DockerManager()
+            container = manager.get_container()
+            if not container:
+                return {"error": "No active docker container"}
+            
+            # Write code to a temp file and execute
+            import tempfile
+            import os
+            
+            # Simple escape for bash (not bulletproof, so base64 is safer)
+            import base64
+            encoded_code = base64.b64encode(self.code.encode('utf-8')).decode('utf-8')
+            
+            cmd = f"echo {encoded_code} | base64 -d > /tmp/script.js && node /tmp/script.js"
+            
+            # Use asyncio.to_thread to not block the event loop
             result = await asyncio.to_thread(
                 container.exec_run,
-                f"bash -c {bash_cmd!r}",
-                workdir=cwd,
-                demux=True,
+                ['bash', '-c', cmd],
+                workdir=context.get("cwd", "/workspace")
             )
-        except Exception as e:
-            return {"error": f"Execution failed: {e}"}
-
-        stdout, stderr = result.output or (b"", b"")
-        stdout_str = (stdout or b"").decode(errors="replace").strip()
-        stderr_str = (stderr or b"").decode(errors="replace").strip()
-
-        if result.exit_code != 0:
-            return {"error": f"Exit Code {result.exit_code}\\nStderr: {stderr_str}\\nStdout: {stdout_str}"}
             
-        return stdout_str if stdout_str else "(No console output)"
+            exit_code = result.exit_code
+            output = result.output.decode("utf-8")
+            
+            if exit_code != 0:
+                return {
+                    "error": f"Javascript execution failed with exit code {exit_code}",
+                    "output": output
+                }
+                
+            return {
+                "success": True,
+                "output": output
+            }
+        except Exception as e:
+            return {"error": f"Failed to execute Javascript: {str(e)}"}
