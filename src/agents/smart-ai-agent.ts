@@ -491,8 +491,8 @@ export class SmartAIAgent extends AIAgent {
         // If planning timed out, planningThought will be null — skip
         if (planningThought) {
           // Если планировщик определил, что нужен предварительный расчёт
-          if (planningThought.action?.toLowerCase().includes('расчёт') ||
-            planningThought.action?.toLowerCase().includes('рассчитать')) {
+          const actionStr = typeof planningThought.action === 'string' ? planningThought.action.toLowerCase() : '';
+          if (actionStr.includes('расчёт') || actionStr.includes('рассчитать')) {
             progressCallback?.({
               type: 'reasoning_step',
               message: 'Планирование: нужен предварительный расчёт',
@@ -1448,7 +1448,8 @@ export class SmartAIAgent extends AIAgent {
 ## Наблюдение
 - **browser_panel_read** — прочитать текст страницы
 - **browser_panel_snapshot** — получить accessibility tree c ref-ами элементов для точных кликов/заполнений
-- **browser_panel_screenshot** — сделать скриншот страницы
+- **browser_panel_screenshot** — сделать скриншот веб-страницы (только внутри Chrome DOM).
+- **sandbox_screenshot** — сделать снимок экрана всего X11-окружения (VNC-песочницы). Обязательно используй это, если пользователь просит посмотреть на LibreOffice, терминал или GUI-приложения, которые не являются частью браузера.
 - **browser_panel_status** — узнать текущий URL, заголовок, состояние
 
 ## Когда использовать
@@ -1465,6 +1466,13 @@ export class SmartAIAgent extends AIAgent {
 4. Прочитай результат: **browser_panel_read**()
 
 **ВАЖНО:** Эти инструменты управляют РЕАЛЬНЫМ ВИДИМЫМ браузером. Пользователь видит каждое действие. Используй их ВСЕГДА для веб-задач.
+
+## VNC-браузер: Прямое взаимодействие мышью и клавиатурой
+Браузер панель — это ЖИВОЙ Chrome внутри VNC. Пользователь может напрямую:
+- Кликать мышью по ссылкам и кнопкам
+- Печатать с клавиатуры в полях
+- Скроллить колесом мыши
+Ты тоже можешь! Все browser_panel_* инструменты отправляют реальные действия в этот Chrome. Пользователь ВИДИТ результат в реальном времени.
 `;
 
 

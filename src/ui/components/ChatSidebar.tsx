@@ -318,13 +318,54 @@ const AgentAccordionPanel: React.FC<{
     const [storageUsage, setStorageUsage] = useState<StorageUsage | null>(null);
     const [storageFileCount, setStorageFileCount] = useState(0);
     const [mountingFolder, setMountingFolder] = useState(false);
+    const [syncStatus, setSyncStatus] = useState<'idle' | 'syncing' | 'synced' | 'error'>('idle');
+    const [syncCount, setSyncCount] = useState(0);
+    const mountedBackendRef = React.useRef<LocalFolderBackend | null>(null);
+    const lastSyncTimesRef = React.useRef<Record<string, number>>({});
+
+    // ── Sync function: uploads files from LocalFolderBackend to Docker ──
+    const syncFilesToDocker = useCallback(async (backend: LocalFolderBackend, force = false) => {
+        const syncDirs = ['uploads', 'outputs', 'config', 'transcripts', 'skills'];
+        let synced = 0;
+        for (const dir of syncDirs) {
+            try {
+                const entries = await backend.list(dir);
+                for (const entry of entries) {
+                    if (entry.type !== 'file') continue;
+                    const key = `${dir}/${entry.name}`;
+                    // Skip if file hasn't changed since last sync (unless forced)
+                    if (!force && lastSyncTimesRef.current[key] && entry.modified <= lastSyncTimesRef.current[key]) continue;
+                    try {
+                        const fileHandle = await backend.getFileHandle(entry.path);
+                        const file = await fileHandle.getFile();
+                        const buffer = await file.arrayBuffer();
+                        const bytes = new Uint8Array(buffer);
+                        let binary = '';
+                        for (let i = 0; i < bytes.byteLength; i += 8192) {
+                            binary += String.fromCharCode.apply(null, Array.from(bytes.subarray(i, i + 8192)));
+                        }
+                        const b64 = btoa(binary);
+                        await fetch('/api/sandbox/upload', {
+                            method: 'POST',
+                            headers: { 'Content-Type': 'application/json' },
+                            body: JSON.stringify({ filename: entry.name, data: b64, subdir: dir }),
+                        });
+                        lastSyncTimesRef.current[key] = entry.modified;
+                        synced++;
+                    } catch (fileErr) {
+                        console.warn(`[Storage] Sync skip ${entry.name}:`, fileErr);
+                    }
+                }
+            } catch { /* dir may not exist */ }
+        }
+        return synced;
+    }, []);
 
     useEffect(() => {
         const refreshStorage = async () => {
             try {
                 const usage = await userStorageService.getUsage();
                 setStorageUsage(usage);
-                // Count total files across all dirs
                 let count = 0;
                 for (const dir of ['config', 'uploads', 'outputs', 'transcripts', 'skills']) {
                     try {
@@ -340,12 +381,32 @@ const AgentAccordionPanel: React.FC<{
         return () => clearInterval(id);
     }, []);
 
+    // ── Periodic re-sync: every 15s, check for new/changed files ──
+    useEffect(() => {
+        const backend = mountedBackendRef.current;
+        if (!backend) return;
+        const intervalId = setInterval(async () => {
+            try {
+                const count = await syncFilesToDocker(backend, false);
+                if (count > 0) {
+                    setSyncCount(prev => prev + count);
+                    setSyncStatus('synced');
+                    console.log(`[Storage] Re-synced ${count} changed files`);
+                }
+            } catch {
+                // Ignore — folder might have been unmounted
+            }
+        }, 15000);
+        return () => clearInterval(intervalId);
+    }, [syncFilesToDocker, syncCount]); // re-attach when syncCount changes (after mount)
+
     const handleMountLocalFolder = useCallback(async () => {
         if (!LocalFolderBackend.isSupported()) {
             alert('File System Access API is not supported in this browser. Use Chrome or Edge.');
             return;
         }
         setMountingFolder(true);
+        setSyncStatus('syncing');
         try {
             const backend = new LocalFolderBackend();
             const selected = await backend.selectFolder();
@@ -353,13 +414,23 @@ const AgentAccordionPanel: React.FC<{
                 await userStorageService.setBackend(backend, true);
                 const usage = await userStorageService.getUsage();
                 setStorageUsage(usage);
+                mountedBackendRef.current = backend;
+
+                // Initial full sync
+                const synced = await syncFilesToDocker(backend, true);
+                setSyncCount(synced);
+                setSyncStatus(synced > 0 ? 'synced' : 'synced');
+                console.log(`[Storage] Initial sync: ${synced} files uploaded to Docker`);
+            } else {
+                setSyncStatus('idle');
             }
         } catch (err: any) {
             console.error('[Storage] Mount failed:', err);
+            setSyncStatus('error');
         } finally {
             setMountingFolder(false);
         }
-    }, []);
+    }, [syncFilesToDocker]);
 
     // Docker container availability
     const [dockerAvailable, setDockerAvailable] = useState(false);
@@ -815,10 +886,18 @@ const AgentAccordionPanel: React.FC<{
                         <button
                             onClick={handleMountLocalFolder}
                             disabled={mountingFolder}
-                            className="w-full flex items-center justify-center gap-1.5 py-1.5 text-[11px] font-medium text-blue-500 hover:text-blue-400 rounded-lg tc-surface-hover transition-colors disabled:opacity-40"
+                            className={`w-full flex items-center justify-center gap-1.5 py-1.5 text-[11px] font-medium rounded-lg tc-surface-hover transition-colors disabled:opacity-40 ${syncStatus === 'synced' ? 'text-emerald-500 hover:text-emerald-400' :
+                                syncStatus === 'syncing' ? 'text-amber-500' :
+                                    syncStatus === 'error' ? 'text-red-400' :
+                                        'text-blue-500 hover:text-blue-400'
+                                }`}
                         >
                             <FolderOpen size={12} />
-                            {mountingFolder ? 'Selecting...' : 'Mount Local Folder'}
+                            {mountingFolder ? 'Selecting...' :
+                                syncStatus === 'syncing' ? '⟳ Syncing...' :
+                                    syncStatus === 'synced' ? `✓ Synced (${syncCount} files)` :
+                                        syncStatus === 'error' ? '✗ Sync Error' :
+                                            'Mount Local Folder'}
                         </button>
                         {dockerAvailable && (
                             <button

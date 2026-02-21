@@ -30,8 +30,8 @@ def _get_tc():
 
 def _get_operations():
     """Get the shared operations list."""
-    from backend.routers.trustchain_api import _operations
-    return _operations
+    from backend.routers.trustchain_api import _tc
+    return _tc.chain.log(limit=9999)
 
 
 def _get_analytics():

@@ -74,6 +74,48 @@ export class MemoryBackend implements StorageBackend {
         }
     }
 
+    async writeBinary(path: string, buffer: ArrayBuffer): Promise<void> {
+        const p = this.normalizePath(path);
+        const parts = p.split('/');
+
+        // Ensure parent directories exist
+        if (parts.length > 1) {
+            const parentPath = parts.slice(0, -1).join('/');
+            await this.ensureDir(parentPath);
+        }
+
+        // Convert ArrayBuffer to base64 string
+        const bytes = new Uint8Array(buffer);
+        let binary = '';
+        // Process in chunks to avoid max call stack size exceeded
+        for (let i = 0; i < bytes.byteLength; i += 8192) {
+            binary += String.fromCharCode.apply(null, Array.from(bytes.subarray(i, i + 8192)));
+        }
+        const b64 = btoa(binary);
+        const content = `data:application/octet-stream;base64,${b64}`;
+
+        // Write file content
+        localStorage.setItem(PREFIX + p, content);
+
+        // Write metadata
+        const meta: FileMeta = {
+            type: 'file',
+            size: buffer.byteLength,
+            modified: Date.now(),
+            created: this.getMeta(p)?.created || Date.now(),
+        };
+        localStorage.setItem(META_PREFIX + p, JSON.stringify(meta));
+
+        // Register in parent directory
+        if (parts.length > 1) {
+            const parentPath = parts.slice(0, -1).join('/');
+            const fileName = parts[parts.length - 1];
+            this.addToDir(parentPath, fileName);
+        } else {
+            this.addToDir('', parts[0]);
+        }
+    }
+
     async list(path: string): Promise<FileEntry[]> {
         const p = this.normalizePath(path);
         const dirKey = DIR_PREFIX + p;

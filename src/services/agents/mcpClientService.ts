@@ -191,7 +191,22 @@ export class MCPClientService {
         if (MCP_URL) candidates.push(MCP_URL);
         for (const cfg of configs) {
             if (!cfg?.url) continue;
-            if (this.isLocalUrl(cfg.url)) candidates.push(cfg.url);
+            // Only sync from our own backend (9742), NOT from external MCP servers (7323, 8931, etc.)
+            // External MCPs don't serve /api/mcp-trust/servers — calling them just produces red errors
+            const backendPort = '9742';
+            if (this.isLocalUrl(cfg.url) && cfg.transport !== 'streamable-http' && !cfg.url.includes('playwright')) {
+                try {
+                    const parsed = new URL(cfg.url);
+                    if (parsed.port === backendPort) {
+                        candidates.push(cfg.url);
+                    }
+                } catch {
+                    // Fallback: include if URL looks like our backend
+                    if (cfg.url.includes(`:${backendPort}`)) {
+                        candidates.push(cfg.url);
+                    }
+                }
+            }
         }
 
         const visited = new Set<string>();
@@ -340,7 +355,12 @@ export class MCPClientService {
                 lastError: error.message
             };
             this.connections.set(config.id, connection);
-            console.error(`[MCP] Failed to connect to ${config.name}:`, error.message);
+            // Hide ugly red "Failed to fetch" errors for offline servers, use warning instead
+            if (error.message?.includes('Failed to fetch') || String(error).includes('fetch failed')) {
+                console.warn(`[MCP] Server ${config.name} (${config.url}) is unreachable or offline.`);
+            } else {
+                console.error(`[MCP] Failed to connect to ${config.name}:`, error.message);
+            }
             return connection;
         }
     }

@@ -85,7 +85,7 @@ export const UNIVERSAL_TOOLS = new Set([
   'browser_panel_back', 'browser_panel_forward', 'browser_panel_refresh',
   'browser_panel_click', 'browser_panel_scroll', 'browser_panel_fill',
   'browser_panel_read', 'browser_panel_status',
-  'browser_panel_snapshot', 'browser_panel_screenshot',
+  'browser_panel_snapshot', 'browser_panel_screenshot', 'sandbox_screenshot',
   // Sub-Agents (3) — Spawn and manage background sub-agent sessions
   'session_spawn', 'session_status', 'session_result',
 ]);

@@ -48,6 +48,10 @@ export const SESSION_SPAWN_TOOL = {
                     enum: ['low', 'normal', 'high'],
                     description: 'Execution priority (default: normal)',
                 },
+                sync: {
+                    type: 'boolean',
+                    description: 'If true, wait for the sub-agent to finish (synchronous). If false (default), return immediately and let it run in background. Use false for true parallel orchestration.',
+                },
             },
             required: ['name', 'instruction'],
         },
@@ -149,24 +153,40 @@ export async function executeSessionSpawnTool(
             try {
                 const session = sessionSpawnService.spawn(config, executor);
 
-                // SYNCHRONOUS: Wait for sub-agent to finish, then return result
-                const timeout = config.timeout || 5 * 60 * 1000;
-                const completed = await sessionSpawnService.awaitCompletion(session.runId, timeout);
+                // Check if synchronous execution was requested
+                const isSync = args.sync === true;
 
-                return {
-                    success: completed.status === 'completed',
-                    data: {
-                        run_id: session.runId,
-                        name: completed.name,
-                        status: completed.status,
-                        result: completed.result || completed.error || 'No output produced',
-                        signature: completed.signature || null,
-                        tools_used: completed.toolsUsed,
-                        elapsed_seconds: completed.elapsedMs
-                            ? (completed.elapsedMs / 1000).toFixed(1) : null,
-                    },
-                    error: completed.status === 'failed' ? completed.error : undefined,
-                };
+                if (isSync) {
+                    // SYNCHRONOUS: Wait for sub-agent to finish, then return result
+                    const timeout = config.timeout || 5 * 60 * 1000;
+                    const completed = await sessionSpawnService.awaitCompletion(session.runId, timeout);
+
+                    return {
+                        success: completed.status === 'completed',
+                        data: {
+                            run_id: session.runId,
+                            name: completed.name,
+                            status: completed.status,
+                            result: completed.result || completed.error || 'No output produced',
+                            signature: completed.signature || null,
+                            tools_used: completed.toolsUsed,
+                            elapsed_seconds: completed.elapsedMs
+                                ? (completed.elapsedMs / 1000).toFixed(1) : null,
+                        },
+                        error: completed.status === 'failed' ? completed.error : undefined,
+                    };
+                } else {
+                    // ASYNCHRONOUS: Return immediately so the main agent can continue (Wave-based parallel orchestration)
+                    return {
+                        success: true,
+                        data: {
+                            run_id: session.runId,
+                            name: session.name,
+                            status: session.status,
+                            message: 'Sub-agent spawned successfully in background. Use session_status(run_id) to check progress and session_result(run_id) to get the final result.',
+                        },
+                    };
+                }
             } catch (err: any) {
                 return { success: false, error: err.message };
             }

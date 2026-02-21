@@ -80,6 +80,32 @@ export class DockerVolumeBackend implements StorageBackend {
         });
     }
 
+    async writeBinary(path: string, buffer: ArrayBuffer): Promise<void> {
+        const docker = await getDockerService();
+        const fp = this.fullPath(path);
+
+        // Ensure parent directory exists
+        const parentDir = fp.substring(0, fp.lastIndexOf('/'));
+        await docker.bashTool({
+            command: `mkdir -p "${parentDir}"`,
+            description: `Ensure parent dir for: ${path}`,
+        });
+
+        // Convert ArrayBuffer to base64 string
+        const bytes = new Uint8Array(buffer);
+        let binary = '';
+        for (let i = 0; i < bytes.byteLength; i += 8192) {
+            binary += String.fromCharCode.apply(null, Array.from(bytes.subarray(i, i + 8192)));
+        }
+        const b64 = btoa(binary);
+
+        // Write base64 to container and decode it natively to preserve binary
+        await docker.bashTool({
+            command: `echo "${b64}" | base64 -d > "${fp}"`,
+            description: `Write binary file: ${path} (${bytes.length} bytes)`,
+        });
+    }
+
     async list(path: string): Promise<FileEntry[]> {
         const docker = await getDockerService();
         const fp = this.fullPath(path);

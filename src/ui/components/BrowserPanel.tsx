@@ -11,8 +11,12 @@ import {
     ExternalLink, Lock, ChevronDown, ChevronUp, Clock,
     ShoppingCart, MousePointer, FileText, Eye,
     BookOpen, Code2, FlaskConical, LayoutList, Package,
+    Smartphone, Monitor,
 } from 'lucide-react';
 import { browserActionService, type BrowserAction } from '../../services/browserActionService';
+// eslint-disable-next-line @typescript-eslint/ban-ts-comment
+// @ts-ignore
+import RFB from '@novnc/novnc/core/rfb';
 
 // ─── Quick-launch sites ───
 
@@ -115,7 +119,86 @@ export const BrowserPanel: React.FC<{
     const [isWhitelisted, setIsWhitelisted] = useState(true);
     const [error, setError] = useState<string | null>(null);
     const iframeRef = useRef<HTMLIFrameElement>(null);
+    const novncContainerRef = useRef<HTMLDivElement>(null);
+    const rfbRef = useRef<any>(null);
     const urlInputRef = useRef<HTMLInputElement>(null);
+    const [vncStatus, setVncStatus] = useState<string>('disconnected');
+    const resizeTimeoutRef = useRef<NodeJS.Timeout | undefined>(undefined);
+
+    // Resize Xvfb + Chrome to match current dimensions
+    const resizeVnc = useCallback(async (w: number, h: number) => {
+        try {
+            await fetch('/api/sandbox/resize', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ width: w, height: h }),
+            });
+            console.log(`[BrowserPanel] Resized VNC to ${w}x${h}`);
+        } catch (e) {
+            console.warn('[BrowserPanel] Resize failed:', e);
+        }
+    }, []);
+
+    // ── Auto-resize observer ──
+    useEffect(() => {
+        if (!novncContainerRef.current || vncStatus !== 'interactive') return;
+        const observer = new ResizeObserver((entries) => {
+            const { width, height } = entries[0].contentRect;
+            if (width < 100 || height < 100) return; // ignore collapsed
+
+            clearTimeout(resizeTimeoutRef.current);
+            resizeTimeoutRef.current = setTimeout(() => {
+                resizeVnc(Math.floor(width), Math.floor(height));
+            }, 500); // 500ms debounce
+        });
+
+        observer.observe(novncContainerRef.current);
+        return () => {
+            observer.disconnect();
+            clearTimeout(resizeTimeoutRef.current);
+        };
+    }, [vncStatus, resizeVnc]);
+
+    // Setup noVNC connection
+    useEffect(() => {
+        if (!novncContainerRef.current) return;
+
+        try {
+            const wsProtocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+            const url = `${wsProtocol}//${window.location.hostname}:6080`;
+            console.log('[BrowserPanel] Connecting noVNC to', url);
+            const rfb = new RFB(novncContainerRef.current, url, {
+                credentials: { password: '' }
+            });
+
+            rfb.addEventListener('connect', () => {
+                setVncStatus('interactive');
+                rfb.scaleViewport = true;
+                rfb.resizeSession = false;
+                rfb.clipViewport = true;
+                rfb.qualityLevel = 9;
+                rfb.compressionLevel = 0;
+                rfb.viewOnly = false;  // Enable mouse interaction by default
+            });
+            rfb.addEventListener('disconnect', () => {
+                setVncStatus('disconnected');
+            });
+            rfb.addEventListener('credentialsrequired', () => {
+                setVncStatus('password_required');
+            });
+
+            rfbRef.current = rfb;
+        } catch (e) {
+            console.error('[BrowserPanel] noVNC setup failed:', e);
+            setVncStatus('error');
+        }
+
+        return () => {
+            if (rfbRef.current) {
+                rfbRef.current.disconnect();
+            }
+        };
+    }, []);
 
     // Subscribe to action log
     useEffect(() => {
@@ -129,16 +212,12 @@ export const BrowserPanel: React.FC<{
             console.log('[BrowserPanel] Syncing URL from service state:', currentState.url);
             const whitelisted = browserActionService.isWhitelisted(currentState.url);
             setIsWhitelisted(whitelisted);
-            if (whitelisted) {
-                setError(null);
-                setUrl(currentState.url);
-                setInputUrl(currentState.url);
-                setIsLoading(true);
-            } else {
-                setError(`This site doesn't allow iframe embedding.`);
-                setUrl('');
-                setInputUrl(currentState.url);
-            }
+
+            // We no longer block non-whitelisted URLs via error; we proxy them.
+            setError(null);
+            setUrl(currentState.url);
+            setInputUrl(currentState.url);
+            setIsLoading(true);
         }
     }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
@@ -152,16 +231,12 @@ export const BrowserPanel: React.FC<{
                     if (cmd.url) {
                         const whitelisted = browserActionService.isWhitelisted(cmd.url);
                         setIsWhitelisted(whitelisted);
-                        if (!whitelisted) {
-                            setError(`This site doesn't allow iframe embedding.`);
-                            setUrl('');
-                            setInputUrl(cmd.url);
-                        } else {
-                            setError(null);
-                            setUrl(cmd.url);
-                            setInputUrl(cmd.url);
-                            setIsLoading(true);
-                        }
+                        setError(null);
+
+                        // We always render the UI (via proxy if needed), but update URL state normally
+                        setUrl(cmd.url);
+                        setInputUrl(cmd.url);
+                        setIsLoading(true);
                     }
                     break;
 
@@ -300,14 +375,7 @@ export const BrowserPanel: React.FC<{
         const whitelisted = browserActionService.isWhitelisted(normalized);
         setIsWhitelisted(whitelisted);
 
-        if (!whitelisted) {
-            setError(`This site doesn't allow iframe embedding. Use the agent to browse via Playwright tools instead.`);
-            setUrl('');
-            setInputUrl(normalized);
-            setIsLoading(false);
-            return;
-        }
-
+        // We no longer block navigation; we just route it through the proxy
         setError(null);
         setUrl(normalized);
         setInputUrl(normalized);
@@ -357,10 +425,29 @@ export const BrowserPanel: React.FC<{
         }
     };
 
-    // URL bar submit
-    const handleUrlSubmit = (e: React.FormEvent) => {
+    // URL bar submit — navigates Chrome inside VNC container via backend
+    const handleUrlSubmit = async (e: React.FormEvent) => {
         e.preventDefault();
-        navigateTo(inputUrl);
+        const raw = inputUrl.trim();
+        if (!raw) return;
+        // If it looks like a URL, navigate directly; otherwise Google search
+        const isUrl = raw.includes('.') && !raw.includes(' ');
+        const targetUrl = isUrl
+            ? (raw.startsWith('http') ? raw : `https://${raw}`)
+            : `https://www.google.com/search?q=${encodeURIComponent(raw)}`;
+        setUrl(targetUrl);
+        setInputUrl(targetUrl);
+        setIsLoading(true);
+        try {
+            await fetch('/api/sandbox/navigate', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ url: targetUrl }),
+            });
+        } catch (err) {
+            console.warn('[BrowserPanel] Navigate failed:', err);
+        }
+        setTimeout(() => setIsLoading(false), 2000);
     };
 
     const state = browserActionService.getState();
@@ -447,6 +534,19 @@ export const BrowserPanel: React.FC<{
                             <ExternalLink size={12} />
                         </a>
                     )}
+                    <button
+                        onClick={() => {
+                            if (rfbRef.current) {
+                                rfbRef.current.viewOnly = !rfbRef.current.viewOnly;
+                                setVncStatus(rfbRef.current.viewOnly ? 'view only' : 'interactive');
+                            }
+                        }}
+                        className={`px-2 py-1 ml-1 rounded text-[10px] uppercase font-bold
+                            ${vncStatus === 'interactive' ? 'bg-cyan-500/20 text-cyan-400' : 'bg-amber-500/20 text-amber-400'}`}
+                        title="Toggle interaction mode"
+                    >
+                        {vncStatus === 'connected' || vncStatus === 'interactive' ? 'Interact' : (vncStatus === 'view only' ? 'View Only' : vncStatus)}
+                    </button>
                     {onClose && (
                         <button
                             onClick={onClose}
@@ -473,46 +573,22 @@ export const BrowserPanel: React.FC<{
             )}
 
             {/* ── Browser content ── */}
-            {!url ? (
-                <BrowserWelcome onNavigate={navigateTo} />
-            ) : error ? (
-                <div className="flex-1 flex flex-col items-center justify-center p-6">
-                    <div className="w-12 h-12 rounded-xl bg-amber-500/10 border border-amber-500/30
-                        flex items-center justify-center mb-3">
-                        <Globe size={20} className="text-amber-400" />
+            <div
+                ref={novncContainerRef}
+                className="flex-1 w-full border-none bg-black flex items-center justify-center overflow-hidden relative"
+                title="Agent VNC Sandbox"
+            >
+                {/* Overlay for status */}
+                {vncStatus !== 'connected' && vncStatus !== 'interactive' && vncStatus !== 'view only' && (
+                    <div className="absolute inset-x-0 inset-y-0 flex flex-col items-center justify-center bg-black/80 z-10 text-white text-xs gap-3">
+                        <Globe size={24} className="text-cyan-400 opacity-60" />
+                        <div className="flex items-center gap-2 opacity-80">
+                            <div className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin" />
+                            Connecting to Sandbox (ws://{window.location.hostname}:6080)...
+                        </div>
                     </div>
-                    <h4 className="text-sm font-medium tc-text mb-1">Cannot embed this site</h4>
-                    <p className="text-[11px] tc-text-muted text-center max-w-[280px] mb-4">{error}</p>
-                    <div className="flex gap-2">
-                        <a
-                            href={inputUrl}
-                            target="_blank"
-                            rel="noopener noreferrer"
-                            className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs
-                                bg-cyan-500/10 border border-cyan-500/30 text-cyan-300
-                                hover:bg-cyan-500/20 transition-all"
-                        >
-                            <ExternalLink size={11} /> Open in new tab
-                        </a>
-                        <button
-                            onClick={() => { setError(null); setUrl(''); setInputUrl(''); }}
-                            className="px-3 py-1.5 rounded-lg text-xs tc-surface-hover tc-text-muted
-                                border tc-border transition-all"
-                        >
-                            Back
-                        </button>
-                    </div>
-                </div>
-            ) : (
-                <iframe
-                    ref={iframeRef}
-                    src={url}
-                    onLoad={onIframeLoad}
-                    className="flex-1 w-full border-none bg-white"
-                    sandbox="allow-scripts allow-same-origin allow-forms allow-popups"
-                    title="TrustChain Browser"
-                />
-            )}
+                )}
+            </div>
 
             {/* ── Bottom status bar ── */}
             <div className="flex items-center justify-between px-2.5 py-1 border-t tc-border text-[9px] tc-text-muted">
@@ -529,6 +605,9 @@ export const BrowserPanel: React.FC<{
                     )}
                 </div>
                 <span className="truncate max-w-[150px]">{pageTitle}</span>
+                <div className="flex items-center gap-1">
+                    {/* Size handled via ResizeObserver automatically */}
+                </div>
             </div>
         </div>
     );

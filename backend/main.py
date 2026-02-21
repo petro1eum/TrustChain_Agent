@@ -99,15 +99,44 @@ async def conversations_stub(path: str = ""):
         "error": "Conversations API не доступен в standalone режиме",
         "hint": "Модуль conversations зависит от database/models из OnaiDocs",
         "status": "unavailable",
+        "status": "unavailable",
     })
 
+# ── Docker Async Helper ──
+import os
+import asyncio
+
+AGENT_CONTAINER_NAME = os.getenv("AGENT_CONTAINER_NAME", "trustchain-agent-container")
+
+async def docker_exec_async(*cmd_args, input_bytes=None, timeout=30):
+    """Async helper to execute commands inside the Agent Docker container without blocking the event loop."""
+    try:
+        args = ["docker", "exec"]
+        if input_bytes:
+            args.append("-i")
+        args.append(AGENT_CONTAINER_NAME)
+        args.extend(cmd_args)
+        
+        proc = await asyncio.create_subprocess_exec(
+            *args,
+            stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.PIPE,
+            stdin=asyncio.subprocess.PIPE if input_bytes else None
+        )
+        try:
+            stdout, stderr = await asyncio.wait_for(proc.communicate(input=input_bytes), timeout=timeout)
+            return stdout.decode(), stderr.decode(), proc.returncode
+        except asyncio.TimeoutError:
+            proc.kill()
+            raise Exception("Docker exec timed out")
+    except Exception as e:
+        raise Exception(f"Docker exec failed: {str(e)}")
 
 # ── Sandbox VNC Resize ──
 
 @app.post("/api/sandbox/resize")
 async def sandbox_resize(request: Request):
     """Resize Xvfb + Chrome inside the Docker container to match the requested dimensions."""
-    import subprocess
     body = await request.json()
     w = int(body.get("width", 1920))
     h = int(body.get("height", 1080))
@@ -115,11 +144,32 @@ async def sandbox_resize(request: Request):
     w = max(640, min(w, 3840))
     h = max(480, min(h, 2160))
     try:
-        result = subprocess.run(
-            ["docker", "exec", "trustchain-agent-container", "bash", "/home/kb/resize.sh", str(w), str(h)],
-            capture_output=True, text=True, timeout=10
-        )
-        return {"status": "ok", "width": w, "height": h, "output": result.stdout.strip()}
+        # Generate arbitrary resolution modeline dynamically using cvt
+        bash_script = f"""
+        export DISPLAY=:99
+        # Get Modeline from cvt, e.g. 'Modeline "1234x567_60.00"  57.25 ...'
+        CVT_OUT=$(cvt {w} {h} 60 | grep Modeline)
+        # Extract everything after 'Modeline '
+        MODELINE=$(echo "$CVT_OUT" | sed 's/Modeline //')
+        # Extract just the name (first word)
+        MODENAME=$(echo "$MODELINE" | awk '{{print $1}}')
+        
+        # Add and apply the new mode
+        xrandr --newmode $MODELINE 2>/dev/null
+        xrandr --addmode screen $MODENAME 2>/dev/null
+        xrandr -s $MODENAME 2>/dev/null
+        
+        # Maximise all visible windows to the new resolution dynamically
+        for WID in $(xdotool search --onlyvisible --name "." 2>/dev/null); do
+            xdotool windowactivate --sync $WID 2>/dev/null || true
+            xdotool windowmove $WID 0 0 2>/dev/null
+            xdotool windowsize $WID 100% 100% 2>/dev/null
+        done
+        
+        echo "Resized to $MODENAME"
+        """
+        stdout, stderr, code = await docker_exec_async("bash", "-c", bash_script, timeout=10)
+        return {"status": "ok", "width": w, "height": h, "output": stdout.strip()}
     except Exception as e:
         return {"status": "error", "error": str(e)}
 
@@ -127,7 +177,6 @@ async def sandbox_resize(request: Request):
 @app.post("/api/sandbox/navigate")
 async def sandbox_navigate(request: Request):
     """Navigate Chrome inside the Docker container to a URL via xdotool."""
-    import subprocess
     import shlex as _shlex
     body = await request.json()
     raw_url = body.get("url", "").strip()
@@ -144,10 +193,7 @@ async def sandbox_navigate(request: Request):
             f"xdotool type --delay 5 --clearmodifiers {safe}; sleep 0.1; "
             f"xdotool key Return"
         )
-        subprocess.run(
-            ["docker", "exec", "trustchain-agent-container", "bash", "-c", cmd],
-            capture_output=True, text=True, timeout=10,
-        )
+        await docker_exec_async("bash", "-c", cmd, timeout=10)
         return {"status": "ok", "url": raw_url}
     except Exception as e:
         return {"status": "error", "error": str(e)}
@@ -156,7 +202,7 @@ async def sandbox_navigate(request: Request):
 @app.post("/api/sandbox/upload")
 async def sandbox_upload(request: Request):
     """Upload a file to the Docker container's user-data directory."""
-    import subprocess, base64
+    import base64
     body = await request.json()
     filename = body.get("filename", "").strip()
     data_b64 = body.get("data", "")
@@ -169,11 +215,8 @@ async def sandbox_upload(request: Request):
     try:
         file_bytes = base64.b64decode(data_b64)
         # Write via docker exec with stdin
-        proc = subprocess.run(
-            ["docker", "exec", "-i", "trustchain-agent-container", "bash", "-c",
-             f'mkdir -p /mnt/user-data/default/{subdir} && cat > "{dest}"'],
-            input=file_bytes, capture_output=True, timeout=30
-        )
+        script = f'mkdir -p /mnt/user-data/default/{subdir} && cat > "{dest}"'
+        await docker_exec_async("bash", "-c", script, input_bytes=file_bytes, timeout=30)
         return {"status": "ok", "path": dest, "size": len(file_bytes)}
     except Exception as e:
         return {"status": "error", "error": str(e)}
@@ -182,14 +225,10 @@ async def sandbox_upload(request: Request):
 @app.get("/api/sandbox/files")
 async def sandbox_files(subdir: str = "uploads"):
     """List files in the Docker container's user-data directory."""
-    import subprocess
     try:
-        result = subprocess.run(
-            ["docker", "exec", "trustchain-agent-container", "bash", "-c",
-             f'ls -la /mnt/user-data/default/{subdir}/ 2>/dev/null || echo "empty"'],
-            capture_output=True, text=True, timeout=5
-        )
-        return {"status": "ok", "files": result.stdout.strip()}
+        script = f'ls -la /mnt/user-data/default/{subdir}/ 2>/dev/null || echo "empty"'
+        stdout, _, _ = await docker_exec_async("bash", "-c", script, timeout=5)
+        return {"status": "ok", "files": stdout.strip()}
     except Exception as e:
         return {"status": "error", "error": str(e)}
 
@@ -197,50 +236,68 @@ async def sandbox_files(subdir: str = "uploads"):
 @app.post("/api/sandbox/open")
 async def sandbox_open(request: Request):
     """Open a file in the Docker container using LibreOffice on VNC."""
-    import subprocess, shlex as _shlex, asyncio
+    import shlex as _shlex
     body = await request.json()
     filepath = body.get("path", "").strip()
     if not filepath:
         return {"status": "error", "error": "No path provided"}
-    safe_path = _shlex.quote(filepath)
+    
     try:
-        # Kill existing LibreOffice — use soffice.bin not -f soffice (avoids killing bash session)
-        subprocess.run(
-            ["docker", "exec", "trustchain-agent-container", "bash", "-c",
-             "pkill -9 soffice.bin 2>/dev/null; pkill -9 oosplash 2>/dev/null; sleep 1.5; rm -f /tmp/.~lock.open_file.xlsx* 2>/dev/null"],
-            capture_output=True, timeout=10
+        # Kill existing LibreOffice
+        await docker_exec_async("bash", "-c", "pkill -9 soffice.bin 2>/dev/null; pkill -9 oosplash 2>/dev/null; sleep 1.5; rm -f /tmp/.~lock.open_file.xlsx* 2>/dev/null", timeout=10)
+        
+        # Copy file
+        await docker_exec_async("bash", "-c", f"cp {_shlex.quote(filepath)} /tmp/open_file.xlsx 2>/dev/null", timeout=10)
+        
+        # 1. Enforce landscape resolution BEFORE LibreOffice boots (fixes portrait squish)
+        await docker_exec_async("bash", "-c", "DISPLAY=:99 xrandr -s 1920x1080 2>/dev/null", timeout=10)
+        
+        # Launch LibreOffice utilizing create_subprocess_exec independently (as a long-lived fire-and-forget process)
+        await asyncio.create_subprocess_exec(
+            "docker", "exec", "-e", "DISPLAY=:99", AGENT_CONTAINER_NAME,
+            "soffice", "--nofirststartwizard", "--norestore", "--calc", "/tmp/open_file.xlsx",
+            stdout=asyncio.subprocess.DEVNULL, stderr=asyncio.subprocess.DEVNULL
         )
-        # Copy file to ASCII name to avoid Cyrillic locale issues inside container
-        subprocess.run(
-            ["docker", "exec", "trustchain-agent-container", "bash", "-c",
-             f"cp {_shlex.quote(filepath)} /tmp/open_file.xlsx 2>/dev/null && echo ok"],
-            capture_output=True, timeout=10
-        )
-        # Launch LibreOffice with list args (avoids shell quoting issues with Cyrillic filenames)
-        subprocess.Popen(
-            [
-                "docker", "exec",
-                "-e", "DISPLAY=:99",
-                "trustchain-agent-container",
-                "soffice", "--nofirststartwizard", "--norestore", "--calc", "/tmp/open_file.xlsx"
-            ],
-            stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL
-        )
-        # After LibreOffice loads, maximize it via xdotool
+        
+        # After LibreOffice loads, maximize it via xdotool and auto-accept Repair dialog
         async def maximize_later():
-            await asyncio.sleep(5)
-            subprocess.run(
-                ["docker", "exec", "trustchain-agent-container", "bash", "-c",
-                 "DISPLAY=:99 xdotool search --sync --onlyvisible --name 'LibreOffice Calc' "
-                 "windowactivate --sync windowsize --sync 1920 1080 2>/dev/null || "
-                 "DISPLAY=:99 xdotool search --sync --onlyvisible --name 'Calc' windowactivate windowsize 1920 1080 2>/dev/null"],
-                capture_output=True, timeout=10
-            )
+            await asyncio.sleep(4)
+            # 2. Auto-accept "Repair File?" dialog if it appears
+            await docker_exec_async("bash", "-c", "DISPLAY=:99 xdotool search --name 'LibreOffice 24.2' windowactivate --sync key Right Return 2>/dev/null || true", timeout=10)
+            
+            await asyncio.sleep(2)
+            # 3. Maximize ALL visible windows
+            script = """
+            export DISPLAY=:99
+            for WID in $(xdotool search --onlyvisible --name "." 2>/dev/null); do
+                xdotool windowactivate --sync $WID 2>/dev/null || true
+                xdotool windowmove $WID 0 0 2>/dev/null
+                xdotool windowsize $WID 100% 100% 2>/dev/null
+            done
+            """
+            await docker_exec_async("bash", "-c", script, timeout=10)
+            
         asyncio.create_task(maximize_later())
         return {"status": "ok", "path": filepath}
     except Exception as e:
         return {"status": "error", "error": str(e)}
 
+@app.get("/api/sandbox/screenshot")
+async def sandbox_screenshot():
+    """Capture a raw X11 screenshot of the VNC display for Agent Vision tools."""
+    from fastapi.responses import FileResponse
+    try:
+        # Capture screen directly from Xvfb using ImageMagick
+        await docker_exec_async("bash", "-c", "export DISPLAY=:99; import -window root /tmp/x11_screen.png", timeout=10)
+        
+        # Copy from container to host to serve it
+        host_png_path = "/tmp/sandbox_x11_screen.png"
+        import subprocess
+        subprocess.run(["docker", "cp", f"{AGENT_CONTAINER_NAME}:/tmp/x11_screen.png", host_png_path], check=True)
+        
+        return FileResponse(host_png_path, media_type="image/png")
+    except Exception as e:
+        return {"status": "error", "error": str(e)}
 
 # ── Health / Root ──
 

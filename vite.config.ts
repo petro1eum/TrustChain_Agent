@@ -33,6 +33,12 @@ export default defineConfig({
                 target: 'http://localhost:9742',
                 changeOrigin: true,
             },
+            '/novnc': {
+                target: 'http://localhost:6080',
+                changeOrigin: true,
+                rewrite: (path) => path.replace('/novnc', ''),
+                ws: true,
+            },
         },
     },
     // Ensure /panel path doesn't 404 in dev

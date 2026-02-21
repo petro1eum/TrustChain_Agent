@@ -182,6 +182,18 @@ export const browserPanelTools = [
     {
         type: 'function' as const,
         function: {
+            name: 'sandbox_screenshot',
+            description: 'Take a raw X11 screenshot of the entire VNC Docker sandbox. Essential for seeing GUI applications like LibreOffice or terminal windows that are invisible to the DOM browser.',
+            parameters: {
+                type: 'object',
+                properties: {},
+                required: [],
+            },
+        },
+    },
+    {
+        type: 'function' as const,
+        function: {
             name: 'browser_panel_status',
             description: 'Get the current state of the browser panel: URL, title, loading, history, action count.',
             parameters: { type: 'object', properties: {}, required: [] },
@@ -281,23 +293,27 @@ export async function executeBrowserPanelTool(
 
             const engine = (args.engine as string) || 'google';
             let searchUrl: string;
+            // The UI proxy gets blocked by Google (429 Too Many Requests). 
+            // We map the visual proxy to DuckDuckGo to guarantee the user sees results.
             switch (engine) {
-                case 'duckduckgo':
-                    searchUrl = `https://duckduckgo.com/?q=${encodeURIComponent(query)}`;
-                    break;
                 case 'yandex':
                     searchUrl = `https://yandex.ru/search/?text=${encodeURIComponent(query)}`;
                     break;
+                case 'google':
+                case 'duckduckgo':
                 default:
-                    searchUrl = `https://www.google.com/search?q=${encodeURIComponent(query)}`;
+                    searchUrl = `https://duckduckgo.com/?q=${encodeURIComponent(query)}`;
             }
             await browserActionService.navigate(searchUrl);
             browserActionService.dispatchCommand({ type: 'search', url: searchUrl, query });
 
-            // Sync Playwright
-            await callPlaywright(mcpClient, 'browser_navigate', { url: searchUrl });
+            // Sync Playwright - Playwright can use Google fine because it's a real browser
+            const headlessSearchUrl = engine === 'google'
+                ? `https://www.google.com/search?q=${encodeURIComponent(query)}`
+                : searchUrl;
+            await callPlaywright(mcpClient, 'browser_navigate', { url: headlessSearchUrl });
 
-            return { success: true, url: searchUrl, engine, message: `Searching "${query}" via ${engine} (signed).` };
+            return { success: true, url: headlessSearchUrl, engine, message: `Searching "${query}" via ${engine} (signed).` };
         }
 
         case 'browser_panel_back': {
@@ -563,6 +579,45 @@ export async function executeBrowserPanelTool(
                 result: pwResult,
                 message: 'Screenshot captured via Playwright.',
             };
+        }
+
+        case 'sandbox_screenshot': {
+            try {
+                // Determine API URL based on environment
+                const apiUrl = (typeof import.meta !== 'undefined' && import.meta.env?.VITE_BACKEND_URL)
+                    ? import.meta.env.VITE_BACKEND_URL
+                    : 'http://localhost:8000';
+
+                const response = await fetch(`${apiUrl}/api/sandbox/screenshot`);
+                if (!response.ok) throw new Error(`HTTP ${response.status}: Failed to fetch X11 screenshot`);
+
+                const arrayBuffer = await response.arrayBuffer();
+                // Check if buffer is valid
+                if (!arrayBuffer || arrayBuffer.byteLength === 0) {
+                    throw new Error('Received empty image buffer from sandbox');
+                }
+
+                // Polyfill Buffer conversion for browser environment
+                let base64 = '';
+                const bytes = new Uint8Array(arrayBuffer);
+                for (let i = 0; i < bytes.byteLength; i++) {
+                    base64 += String.fromCharCode(bytes[i]);
+                }
+                const b64encoded = btoa(base64);
+
+                return {
+                    success: true,
+                    via: 'x11',
+                    result: {
+                        content: [
+                            { type: "image", data: b64encoded, mimeType: "image/png" }
+                        ]
+                    },
+                    message: 'Raw X11 Sandbox Screenshot captured successfully. You can now see LibreOffice and all windows.',
+                };
+            } catch (err: any) {
+                return { success: false, message: 'Sandbox screenshot failed: ' + err.message };
+            }
         }
 
         case 'browser_panel_status': {

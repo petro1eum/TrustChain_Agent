@@ -37,7 +37,7 @@ export interface BrowserConfig {
 // ─── Константы ───
 
 const DEFAULT_CONFIG: BrowserConfig = {
-    headless: true,
+    headless: false,
     timeout: 30000,
     viewport: { width: 1280, height: 720 },
     storageStatePath: '/tmp/pw-storage-state.json'
@@ -90,7 +90,7 @@ export class BrowserService {
         return `node -e "
 const { chromium } = require('playwright');
 (async () => {
-  const browser = await chromium.launch({ headless: true });
+  const browser = await chromium.launch({ headless: false });
   const page = await browser.newPage({ viewport: ${JSON.stringify(this.config.viewport)} });
   await page.goto('${url}', { waitUntil: 'networkidle', timeout: ${this.config.timeout} });
   await page.screenshot({ path: '${outputPath}', fullPage: true });
@@ -110,7 +110,7 @@ const { chromium } = require('playwright');
         return `node -e "
 const { chromium } = require('playwright');
 (async () => {
-  const browser = await chromium.launch({ headless: true });
+  const browser = await chromium.launch({ headless: false });
   const page = await browser.newPage();
   await page.goto('${url}', { waitUntil: 'networkidle', timeout: ${this.config.timeout} });
   const content = ${selectorCode};
@@ -126,7 +126,7 @@ const { chromium } = require('playwright');
         return `node -e "
 const { chromium } = require('playwright');
 (async () => {
-  const browser = await chromium.launch({ headless: true });
+  const browser = await chromium.launch({ headless: false });
   const page = await browser.newPage();
   await page.goto('${url}', { waitUntil: 'networkidle', timeout: ${this.config.timeout} });
   await page.click('${selector}');
@@ -144,7 +144,7 @@ const { chromium } = require('playwright');
         return `node -e "
 const { chromium } = require('playwright');
 (async () => {
-  const browser = await chromium.launch({ headless: true });
+  const browser = await chromium.launch({ headless: false });
   const page = await browser.newPage();
   await page.goto('${url}', { waitUntil: 'networkidle', timeout: ${this.config.timeout} });
   await page.fill('${selector}', '${value}');

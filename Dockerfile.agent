@@ -58,6 +58,7 @@ RUN apt-get update && apt-get install -y \
     fonts-liberation \
     fonts-dejavu \
     fonts-noto-cjk \
+    xserver-xorg-core \
     fonts-noto-color-emoji \
     pkg-config \
     libcairo2-dev \
@@ -75,6 +76,12 @@ RUN apt-get update && apt-get install -y \
     libopenjp2-7-dev \
     zlib1g-dev \
     libdbus-1-dev \
+    xvfb \
+    x11vnc \
+    fluxbox \
+    novnc \
+    websockify \
+    xdotool \
     && rm -rf /var/lib/apt/lists/*
 
 # Создание структуры директорий как в Claude Code
@@ -286,5 +293,29 @@ RUN python3 --version && \
     node --version && \
     npm --version
 
-# Команда по умолчанию - держим контейнер запущенным
-CMD ["tail", "-f", "/dev/null"]
+# Устанавливаем DISPLAY для всех docker exec команд
+ENV DISPLAY=:99
+
+RUN printf '#!/bin/bash\n\
+    export DISPLAY=:99\n\
+    export PLAYWRIGHT_BROWSERS_PATH=/opt/pw-browsers\n\
+    rm -f /tmp/.X99-lock\n\
+    pkill -f websockify 2>/dev/null || true\n\
+    pkill -f x11vnc 2>/dev/null || true\n\
+    Xvfb :99 -screen 0 1280x800x24 -ac +extension RANDR &\n\
+    sleep 2\n\
+    mkdir -p /root/.fluxbox\n\
+    printf "[app] (name=.*) (class=.*)\\n  [Maximized] {yes}\\n  [Deco] {NONE}\\n[end]\\n" > /root/.fluxbox/apps\n\
+    fluxbox &\n\
+    sleep 1\n\
+    x11vnc -display :99 -nopw -bg -xkb -forever -rfbport 5900 -noxdamage\n\
+    websockify --web=/usr/share/novnc/ 6080 localhost:5900 &\n\
+    CHROME_BIN=$(find /opt/pw-browsers -name "chrome" -type f 2>/dev/null | head -1)\n\
+    $CHROME_BIN --no-sandbox --disable-gpu --disable-dev-shm-usage --remote-debugging-port=9222 --start-fullscreen --window-size=1280,800 --user-data-dir=/tmp/chrome-profile --disable-infobars "https://www.google.com" &\n\
+    sleep 4\n\
+    npx -y @playwright/mcp@latest --port 8931 --host 0.0.0.0 --cdp-endpoint http://localhost:9222 &\n\
+    echo "VNC Sandbox is running on port 6080"\n\
+    tail -f /dev/null\n' > /home/kb/start-vnc.sh && chmod +x /home/kb/start-vnc.sh
+
+# Команда по умолчанию - запускаем VNC и держим контейнер запущенным
+CMD ["/home/kb/start-vnc.sh"]

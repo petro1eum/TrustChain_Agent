@@ -18,8 +18,8 @@ from backend.tools.base_tool import BaseTool, ToolContext
 
 def _get_tc():
     """Return the global TrustChain signing instance."""
-    from backend.routers.trustchain_api import _tc, _operations
-    return _tc, _operations
+    from backend.routers.trustchain_api import _tc
+    return _tc, _tc.chain.log(limit=9999)
 
 
 def _get_pro_modules():
@@ -80,9 +80,14 @@ class TrustChainVerify(BaseTool):
 
         # Verify the signature
         try:
-            sig = target.get("signature", "")
-            data = target.get("raw_data", target.get("data", {}))
-            is_valid = _tc.verify(sig, data) if hasattr(_tc, "verify") else True
+            from trustchain.v2.signer import SignedResponse
+            # Reconstruct SignedResponse (discard extra metadata like 'id')
+            resp_kwargs = {k: v for k, v in target.items() if k in SignedResponse.__annotations__}
+            if "tool" in target and "tool_id" not in resp_kwargs:
+                resp_kwargs["tool_id"] = target["tool"]
+            
+            sig_obj = SignedResponse(**resp_kwargs)
+            is_valid = _tc.verify(sig_obj) if hasattr(_tc, "verify") else True
             parent = target.get("parent_signature", "—")
             tool = target.get("tool", "unknown")
 

@@ -553,6 +553,7 @@ const TrustChainAgentApp: React.FC = () => {
     const [showBrowser, setShowBrowser] = useState(false);
     const [openPanelTabs, setOpenPanelTabs] = useState<string[]>([]);
     const [activeRightTab, setActiveRightTab] = useState<string | null>(null);
+    const [panelCollapsed, setPanelCollapsed] = useState(false);
 
     const [runbookYaml, setRunbookYaml] = useState(() => localStorage.getItem('tc_runbook_yaml') || `name: "SOC2 Nightly Audit"
 description: "Automated compliance and integrity check"
@@ -652,6 +653,7 @@ workflow:
         if (activeArtifactId) {
             setOpenPanelTabs(prev => prev.includes(activeArtifactId) ? prev : [...prev, activeArtifactId]);
             setActiveRightTab(activeArtifactId);
+            setPanelCollapsed(false); // Auto-show panel when artifact is opened
         }
     }, [activeArtifactId]);
 
@@ -948,6 +950,24 @@ workflow:
                             latencyMs: 0,
                             signed: false,
                         }]);
+
+                        // User requested to see the browser panel automatically when the agent uses a browser
+                        if (event.tool && (event.tool.includes('browser') || event.tool.includes('playwright') || event.tool === 'web_search' || event.tool === 'search_ui')) {
+                            setShowBrowser(true);
+                            setOpenPanelTabs(prev => prev.includes('__browser__') ? prev : [...prev, '__browser__']);
+                            setActiveRightTab('__browser__');
+
+                            // If it's a navigation, sync the iframe URL too
+                            if (event.tool === 'browser_navigate' || event.tool === 'playwright_navigate' || event.tool === 'browser_panel_open') {
+                                if (event.args && event.args.url && typeof event.args.url === 'string') {
+                                    browserActionService.dispatchCommand({ type: 'navigate', url: event.args.url });
+                                }
+                            } else if ((event.tool === 'web_search' || event.tool === 'search_ui') && event.args && event.args.query) {
+                                // If the agent uses an API search tool, we still visualize it in the iframe so the user sees it
+                                const searchUrl = `https://www.google.com/search?q=${encodeURIComponent(event.args.query)}`;
+                                browserActionService.dispatchCommand({ type: 'search', url: searchUrl, query: event.args.query });
+                            }
+                        }
                     } else if (event.type === 'tool_result') {
                         setBackendStreamSteps(prev => [...prev, {
                             id: `sse_tr_${Date.now()}`,
@@ -1253,8 +1273,13 @@ workflow:
                     agent={agent}
                     setShowSettings={setShowSettings}
                     onOpenRunbook={() => setShowRunbook(true)}
-                    onToggleBrowser={() => setShowBrowser(!showBrowser)}
+                    onToggleBrowser={() => {
+                        setShowBrowser(!showBrowser);
+                        if (!showBrowser) setPanelCollapsed(false);
+                    }}
                     showBrowser={showBrowser}
+                    onTogglePanel={() => setPanelCollapsed(!panelCollapsed)}
+                    showPanel={rightPanelTabs.length > 0 && !panelCollapsed}
                 />}
 
                 {/* Content area — split when artifact is open */}
@@ -1325,7 +1350,7 @@ workflow:
                     </div>
 
                     {/* ═══ RIGHT PANEL: Tabs + Artifact/Browser ═══ */}
-                    {rightPanelTabs.length > 0 && (
+                    {rightPanelTabs.length > 0 && !panelCollapsed && (
                         <div className={`${artifactMaximized ? 'flex-1' : 'w-[55%]'} min-w-[400px] flex flex-col border-l tc-border`}>
                             <RightPanelTabs
                                 tabs={rightPanelTabs}

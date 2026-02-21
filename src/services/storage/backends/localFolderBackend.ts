@@ -60,11 +60,18 @@ export class LocalFolderBackend implements StorageBackend {
     }
 
     async write(path: string, content: string): Promise<void> {
-        const parts = this.parsePath(path);
-        const dirHandle = await this.ensureParentDirs(parts.slice(0, -1));
-        const fileHandle = await dirHandle.getFileHandle(parts[parts.length - 1], { create: true });
-        const writable = await (fileHandle as any).createWritable();
+        const handle = await this.getHandleAt(path);
+        if (handle.kind !== 'file') throw new Error(`Not a file: ${path}`);
+        const writable = await (handle as FileSystemFileHandle).createWritable();
         await writable.write(content);
+        await writable.close();
+    }
+
+    async writeBinary(path: string, buffer: ArrayBuffer): Promise<void> {
+        const handle = await this.getHandleAt(path);
+        if (handle.kind !== 'file') throw new Error(`Not a file: ${path}`);
+        const writable = await (handle as FileSystemFileHandle).createWritable();
+        await writable.write(buffer);
         await writable.close();
     }
 
@@ -167,7 +174,7 @@ export class LocalFolderBackend implements StorageBackend {
         return path.replace(/^\/+|\/+$/g, '').split('/').filter(Boolean);
     }
 
-    private async getFileHandle(path: string): Promise<FileSystemFileHandle> {
+    async getFileHandle(path: string): Promise<FileSystemFileHandle> {
         const parts = this.parsePath(path);
         let current: FileSystemDirectoryHandle = this.rootHandle!;
 

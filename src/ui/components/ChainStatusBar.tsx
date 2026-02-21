@@ -29,9 +29,10 @@ export const ChainStatusBar: React.FC = () => {
         async function fetchStats() {
             if (backendDown) return;
             try {
+                const opts = { signal: AbortSignal.timeout(2000) };
                 const [chainRes, proRes] = await Promise.all([
-                    fetch(`${base}/api/trustchain/stats`).then(r => r.ok ? r.json() : null).catch(() => null),
-                    fetch(`${base}/api/trustchain-pro/status`).then(r => r.ok ? r.json() : null).catch(() => null),
+                    fetch(`${base}/api/trustchain/stats`, opts).then(r => r.ok ? r.json() : null).catch(() => null),
+                    fetch(`${base}/api/trustchain-pro/status`, opts).then(r => r.ok ? r.json() : null).catch(() => null),
                 ]);
 
                 if (!mounted) return;

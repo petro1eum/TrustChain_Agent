@@ -82,12 +82,18 @@ else
     EXISTING=$(docker ps -a --filter "name=^${CONTAINER_NAME}$" --format '{{.Status}}' 2>/dev/null)
     if [ -z "$EXISTING" ]; then
         echo "     🆕 Creating container $CONTAINER_NAME..."
+        # User data directory — shared between host and container
+        USER_DATA_DIR="${USER_DATA_DIR:-$HOME/TrustChain-Files}"
+        mkdir -p "$USER_DATA_DIR"/{uploads,outputs,config,transcripts,skills}
+        echo "     📂 User data: $USER_DATA_DIR → /mnt/user-data/default"
         docker run -d \
             --name "$CONTAINER_NAME" \
+            -p 6080:6080 \
+            -p 8931:8931 \
             -v "$DIR:/mnt/workspace:ro" \
             -v "$DIR/skills:/mnt/skills:ro" \
-            "$IMAGE_NAME" \
-            tail -f /dev/null
+            -v "$USER_DATA_DIR:/mnt/user-data/default" \
+            "$IMAGE_NAME"
         echo "     ✅ Container created & started"
     elif echo "$EXISTING" | grep -q "Up"; then
         echo "     ✅ Container already running"

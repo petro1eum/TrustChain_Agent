@@ -829,3 +829,41 @@
     box-shadow: 0 0 15px rgba(251, 191, 36, 0.5);
   }
 } 
+
+/* ── XLSX Spreadsheet Preview ── */
+.xlsx-preview table {
+    width: 100%;
+    border-collapse: collapse;
+    font-family: 'SF Mono', 'Monaco', 'Consolas', monospace;
+    font-size: 12px;
+}
+
+.xlsx-preview th {
+    background: rgba(59, 130, 246, 0.15);
+    color: #93c5fd;
+    font-weight: 600;
+    padding: 6px 10px;
+    border: 1px solid rgba(255, 255, 255, 0.1);
+    position: sticky;
+    top: 0;
+    text-align: left;
+    white-space: nowrap;
+}
+
+.xlsx-preview td {
+    padding: 4px 10px;
+    border: 1px solid rgba(255, 255, 255, 0.06);
+    color: #e2e8f0;
+    white-space: nowrap;
+    max-width: 300px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.xlsx-preview tr:nth-child(even) {
+    background: rgba(255, 255, 255, 0.02);
+}
+
+.xlsx-preview tr:hover {
+    background: rgba(59, 130, 246, 0.08);
+}

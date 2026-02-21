@@ -60,6 +60,9 @@ const IFRAME_WHITELIST = [
     'wikipedia.org',
     'en.wikipedia.org',
     'developer.mozilla.org',
+    'google.com',
+    'duckduckgo.com',
+    'yandex.ru',
     // Add more domains as needed
 ];
 // ─── Command dispatch (agent tools → BrowserPanel) ───
@@ -117,10 +120,17 @@ class BrowserActionService {
         return { ...this.state };
     }
 
-    /** Check if URL is in the whitelist */
+    /** Check if URL is in the whitelist (can be embedded natively, no proxy needed) */
     isWhitelisted(url: string): boolean {
         try {
             const parsed = new URL(url);
+
+            // Major search engines explicitly block iframes and MUST be proxied
+            const proxyForcedDomains = ['google.com', 'duckduckgo.com', 'yandex.ru', 'yandex.com'];
+            if (proxyForcedDomains.some(d => parsed.hostname === d || parsed.hostname.endsWith('.' + d))) {
+                return false;
+            }
+
             return IFRAME_WHITELIST.some(domain =>
                 parsed.hostname === domain || parsed.hostname.endsWith('.' + domain)
             );
@@ -129,11 +139,11 @@ class BrowserActionService {
         }
     }
 
-    /** Get proxy URL for non-whitelisted sites */
+    /** Get proxy URL for non-whitelisted sites to bypass iframe restrictions */
     getProxyUrl(url: string): string {
-        // In production, this would route through a backend proxy
-        // For now, return the URL directly (relies on whitelist)
-        return url;
+        if (this.isWhitelisted(url)) return url;
+        // Route through backend proxy which strips X-Frame-Options
+        return `/api/browser/proxy?url=${encodeURIComponent(url)}`;
     }
 
     /** Record and sign a navigation action */

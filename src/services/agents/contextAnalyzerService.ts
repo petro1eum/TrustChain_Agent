@@ -40,7 +40,7 @@ export class ContextAnalyzerService {
       if (!this.deps.appActions) {
         return {
           summary: "Доступна навигация, API бэкенда и встроенный браузер",
-          details: "Используй инструменты: get_app_structure, navigate_to_tab, backend_api_call, get_yaml_file, browser_panel_open, browser_panel_click, browser_panel_fill, browser_panel_read, browser_panel_scroll, browser_panel_search, browser_panel_snapshot, browser_panel_screenshot, web_search, web_fetch, bash_tool",
+          details: "Используй инструменты: get_app_structure, navigate_to_tab, backend_api_call, get_yaml_file, browser_panel_open, browser_panel_click, browser_panel_fill, browser_panel_read, browser_panel_scroll, browser_panel_search, browser_panel_snapshot, browser_panel_screenshot, sandbox_screenshot, web_search, web_fetch, bash_tool",
           canAnswerDirectly: false
         };
       }

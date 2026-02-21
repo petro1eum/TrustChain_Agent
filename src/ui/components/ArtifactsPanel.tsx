@@ -1,4 +1,5 @@
 import React, { useState, useRef, useEffect, useCallback } from 'react';
+// @ts-ignore
 import RFB from '@novnc/novnc/core/rfb';
 import { Download, Copy, Maximize2, Minimize2, X, Eye, Code, Play, AlertTriangle, Edit3, Save, Table, FileJson } from 'lucide-react';
 import type { Artifact } from './types';
@@ -34,6 +35,39 @@ const VncViewer: React.FC = () => {
     const containerRef = useRef<HTMLDivElement>(null);
     const rfbRef = useRef<any>(null);
     const [status, setStatus] = useState<'connecting' | 'connected' | 'error'>('connecting');
+    const resizeTimeoutRef = useRef<NodeJS.Timeout | undefined>(undefined);
+
+    const resizeVnc = useCallback(async (w: number, h: number) => {
+        try {
+            await fetch('/api/sandbox/resize', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ width: w, height: h }),
+            });
+        } catch (e) {
+            console.warn('[VncViewer] Resize failed:', e);
+        }
+    }, []);
+
+    // ── Auto-resize observer ──
+    useEffect(() => {
+        if (!containerRef.current || status !== 'connected') return;
+        const observer = new ResizeObserver((entries) => {
+            const { width, height } = entries[0].contentRect;
+            if (width < 100 || height < 100) return; // ignore collapsed states
+
+            clearTimeout(resizeTimeoutRef.current);
+            resizeTimeoutRef.current = setTimeout(() => {
+                resizeVnc(Math.floor(width), Math.floor(height));
+            }, 500); // 500ms debounce
+        });
+
+        observer.observe(containerRef.current);
+        return () => {
+            observer.disconnect();
+            clearTimeout(resizeTimeoutRef.current);
+        };
+    }, [status, resizeVnc]);
 
     useEffect(() => {
         if (!containerRef.current) return;
@@ -371,7 +405,7 @@ export const ArtifactsPanel: React.FC<{
             )}
 
             {/* Content */}
-            <div className="flex-1 overflow-auto tc-scrollbar" style={{ padding: viewMode === 'preview' ? 0 : '1.25rem' }}>
+            <div className="flex-1 overflow-auto tc-scrollbar flex flex-col" style={{ padding: viewMode === 'preview' ? 0 : '1.25rem' }}>
                 {viewMode === 'edit' ? (
                     /* ═══ Edit Mode ═══ */
                     <textarea

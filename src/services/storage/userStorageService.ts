@@ -107,6 +107,11 @@ class UserStorageService {
         return backend.write(path, content);
     }
 
+    async writeBinary(path: string, buffer: ArrayBuffer): Promise<void> {
+        const backend = await this.getBackend();
+        return backend.writeBinary(path, buffer);
+    }
+
     async listDir(path: string): Promise<FileEntry[]> {
         const backend = await this.getBackend();
         return backend.list(path);

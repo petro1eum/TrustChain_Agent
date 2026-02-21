@@ -331,9 +331,13 @@ export const FileManagerView: React.FC<FileManagerViewProps> = ({ onClose, onOpe
         input.onchange = async () => {
             if (!input.files) return;
             for (const file of Array.from(input.files)) {
-                const text = await file.text();
-                const dest = currentDir ? `${currentDir}/${file.name}` : file.name;
-                await userStorageService.writeFile(dest, text);
+                try {
+                    const buffer = await file.arrayBuffer();
+                    const dest = currentDir ? `${currentDir}/${file.name}` : file.name;
+                    await userStorageService.writeBinary(dest, buffer);
+                } catch (err) {
+                    console.error('[FileManager] Upload failed for', file.name, err);
+                }
             }
             await loadEntries(currentDir);
             await loadTree();

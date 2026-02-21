@@ -309,6 +309,67 @@ export class GoogleDriveBackend implements StorageBackend {
         }
     }
 
+    async writeBinary(path: string, buffer: ArrayBuffer): Promise<void> {
+        const normalized = path.replace(/^\/+|\/+$/g, '');
+        const parts = normalized.split('/');
+        const fileName = parts.pop()!;
+        const dirPath = parts.join('/');
+
+        const parentId = dirPath ? await this.getFolderId(dirPath) : await this.ensureRootFolder();
+
+        // Check if file already exists
+        const query = `name='${fileName}' and '${parentId}' in parents and trashed=false and mimeType!='application/vnd.google-apps.folder'`;
+        const result = await this.driveRequest(`/files?q=${encodeURIComponent(query)}&fields=files(id)`);
+
+        if (result.files?.length > 0) {
+            // Update existing file
+            await fetch(`https://www.googleapis.com/upload/drive/v3/files/${result.files[0].id}?uploadType=media`, {
+                method: 'PATCH',
+                headers: {
+                    Authorization: `Bearer ${this.accessToken}`,
+                    'Content-Type': 'application/octet-stream',
+                },
+                body: buffer,
+            });
+        } else {
+            // Create new file using multipart upload
+            const metadata = JSON.stringify({
+                name: fileName,
+                parents: [parentId],
+            });
+
+            // Convert ArrayBuffer to binary string for multipart boundary
+            const bytes = new Uint8Array(buffer);
+            let binary = '';
+            for (let i = 0; i < bytes.byteLength; i += 8192) {
+                binary += String.fromCharCode.apply(null, Array.from(bytes.subarray(i, i + 8192)));
+            }
+
+            const boundary = '---trustchain-boundary-' + Date.now();
+            const body = [
+                `--${boundary}`,
+                'Content-Type: application/json; charset=UTF-8',
+                '',
+                metadata,
+                `--${boundary}`,
+                'Content-Type: application/octet-stream',
+                'Content-Transfer-Encoding: binary',
+                '',
+                binary,
+                `--${boundary}--`,
+            ].join('\r\n');
+
+            await fetch('https://www.googleapis.com/upload/drive/v3/files?uploadType=multipart', {
+                method: 'POST',
+                headers: {
+                    Authorization: `Bearer ${this.accessToken}`,
+                    'Content-Type': `multipart/related; boundary=${boundary}`,
+                },
+                body,
+            });
+        }
+    }
+
     async list(path: string): Promise<FileEntry[]> {
         const normalized = (path || '').replace(/^\/+|\/+$/g, '');
         const parentId = normalized ? await this.getFolderId(normalized) : await this.ensureRootFolder();

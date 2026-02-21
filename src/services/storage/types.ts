@@ -41,6 +41,9 @@ export interface StorageBackend {
     /** Write string content to a file (creates parent dirs) */
     write(path: string, content: string): Promise<void>;
 
+    /** Write binary content to a file (ArrayBuffer) */
+    writeBinary(path: string, buffer: ArrayBuffer): Promise<void>;
+
     /** List entries in a directory */
     list(path: string): Promise<FileEntry[]>;
 

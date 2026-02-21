@@ -45,16 +45,33 @@ const FilePreview: React.FC<{
     onClose: () => void;
 }> = ({ path, onClose }) => {
     const [content, setContent] = useState('');
+    const [htmlTable, setHtmlTable] = useState('');
     const [loading, setLoading] = useState(true);
+    const [isSpreadsheet, setIsSpreadsheet] = useState(false);
 
     useEffect(() => {
-        userStorageService.readFile(path).then(c => {
-            setContent(c);
+        const ext = path.split('.').pop()?.toLowerCase() || '';
+        const isBinary = ['xlsx', 'xls', 'xlsm', 'xlsb', 'ods', 'doc', 'docx', 'ppt', 'pptx'].includes(ext);
+        setIsSpreadsheet(isBinary);
+
+        if (isBinary) {
+            // Launch LibreOffice directly on VNC
+            const containerPath = `/mnt/user-data/default/${path}`;
+            fetch('/api/sandbox/open', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ path: containerPath }),
+            }).catch(err => console.warn('[FilePreview] LibreOffice auto-open error:', err));
             setLoading(false);
-        }).catch(() => {
-            setContent('Could not read file');
-            setLoading(false);
-        });
+        } else {
+            userStorageService.readFile(path).then(c => {
+                setContent(c);
+                setLoading(false);
+            }).catch(() => {
+                setContent('Could not read file');
+                setLoading(false);
+            });
+        }
     }, [path]);
 
     // Escape key to close
@@ -75,7 +92,7 @@ const FilePreview: React.FC<{
         >
             <div
                 className="bg-[#1a1b2e] border border-white/10 rounded-xl shadow-2xl flex flex-col mx-4"
-                style={{ width: '520px', maxHeight: '70vh' }}
+                style={{ width: isSpreadsheet ? '90vw' : '520px', maxWidth: '1200px', maxHeight: '80vh' }}
                 onClick={e => e.stopPropagation()}
             >
                 {/* Header */}
@@ -94,13 +111,21 @@ const FilePreview: React.FC<{
                 </div>
 
                 {/* Content */}
-                <div className="flex-1 overflow-auto p-4" style={{ maxHeight: 'calc(70vh - 48px)' }}>
+                <div className="flex-1 overflow-hidden flex flex-col" style={{ maxHeight: 'calc(80vh - 48px)' }}>
                     {loading ? (
                         <div className="flex items-center justify-center py-12">
                             <div className="text-[12px] text-white/40 animate-pulse">Loading...</div>
                         </div>
+                    ) : isSpreadsheet ? (
+                        <div className="flex-1 w-full bg-[#111] relative">
+                            <iframe
+                                src={`http://${window.location.hostname}:6080/vnc.html?autoconnect=true&resize=remote&reconnect=true`}
+                                className="w-full h-full border-0 absolute inset-0"
+                                style={{ minHeight: '600px' }}
+                            />
+                        </div>
                     ) : (
-                        <pre className="text-[12px] font-mono text-white/90 whitespace-pre-wrap break-words leading-relaxed select-text">
+                        <pre className="flex-1 text-[12px] font-mono text-white/90 whitespace-pre-wrap break-words leading-relaxed select-text p-4 overflow-auto">
                             {content}
                         </pre>
                     )}
@@ -308,9 +333,13 @@ export const FileManagerPanel: React.FC = () => {
         input.onchange = async () => {
             if (!input.files) return;
             for (const file of Array.from(input.files)) {
-                const text = await file.text();
-                const dest = currentPath ? `${currentPath}/${file.name}` : file.name;
-                await userStorageService.writeFile(dest, text);
+                try {
+                    const buffer = await file.arrayBuffer();
+                    const dest = currentPath ? `${currentPath}/${file.name}` : file.name;
+                    await userStorageService.writeBinary(dest, buffer);
+                } catch (err) {
+                    console.error('[FileManagerPanel] Upload error:', file.name, err);
+                }
             }
             await loadEntries(currentPath);
         };
