@@ -36,11 +36,21 @@ ensure_node_runtime() {
 
 ensure_node_runtime
 
-# ── Load .env ──
-if [ -f "$DIR/.env" ]; then
-    set -a
-    . "$DIR/.env"
-    set +a
+# ── Load and Secure .env ──
+if [ ! -f "$DIR/.env" ]; then
+    touch "$DIR/.env"
+fi
+
+set -a
+. "$DIR/.env"
+set +a
+
+# Auto-generate a local API key for security if missing
+if [ -z "$VITE_LOCAL_API_KEY" ]; then
+    echo "  🔒 Generating secure VITE_LOCAL_API_KEY for local authentication..."
+    SECURE_KEY=$(openssl rand -hex 32)
+    echo "VITE_LOCAL_API_KEY=$SECURE_KEY" >> "$DIR/.env"
+    export VITE_LOCAL_API_KEY=$SECURE_KEY
 fi
 
 # ── Ports ──

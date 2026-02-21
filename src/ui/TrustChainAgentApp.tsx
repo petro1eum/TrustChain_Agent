@@ -23,7 +23,26 @@ import { licensingService, type LicenseInfo } from '../services/licensingService
 import { dockerAgentService, type AgentStreamEvent } from '../services/dockerAgentService';
 import { postProcessAgentResponse } from '../utils/trustchainPostProcess';
 
-// Hooks
+// Auth Headers Injection
+const _originalFetch = window.fetch;
+window.fetch = async (...args) => {
+    let [resource, config] = args;
+
+    // Convert string/URL to Request object logic or just modify config if it's a string
+    const urlStr = typeof resource === 'string' ? resource : resource instanceof URL ? resource.toString() : resource instanceof Request ? resource.url : '';
+
+    // Only inject for our own backend endpoints to avoid leaking the key
+    if (urlStr.includes('/api/') || urlStr.includes(import.meta.env.VITE_BACKEND_URL || 'localhost:8000')) {
+        config = config || {};
+        config.headers = config.headers ? new Headers(config.headers) : new Headers();
+
+        const apiKey = import.meta.env.VITE_LOCAL_API_KEY || (window as any)._env?.VITE_LOCAL_API_KEY;
+        if (apiKey && !(config.headers as Headers).has('x-agent-key')) {
+            (config.headers as Headers).append('x-agent-key', apiKey);
+        }
+    }
+    return _originalFetch(resource, config);
+};
 import { useChatState } from '../hooks/useChatState';
 import { useTaskQueue } from '../hooks/useTaskQueue';
 

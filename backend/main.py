@@ -2,14 +2,27 @@
 TrustChain Agent — FastAPI Backend
 """
 
-from fastapi import FastAPI, Request
+from fastapi import FastAPI, Request, Depends, HTTPException, Header
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse, Response
+import os
 
 app = FastAPI(
     title="TrustChain Agent API",
     version="0.1.0",
 )
+
+# ── Global Local Auth ──
+LOCAL_API_KEY = os.getenv("VITE_LOCAL_API_KEY")
+
+async def verify_local_api_key(x_agent_key: str = Header(None)):
+    if not LOCAL_API_KEY:
+        # Dev mode: If no key is set, log a warning but allow for now, 
+        # but in production start.sh will enforce it.
+        return True
+    if x_agent_key != LOCAL_API_KEY:
+        raise HTTPException(status_code=401, detail="Invalid x-agent-key header")
+    return True
 
 app.add_middleware(
     CORSMiddleware,
@@ -53,21 +66,25 @@ except Exception as _pro_err:
     _has_trustchain_pro = False
     print(f"⚠️  trustchain_pro not available — Pro API disabled: {_pro_err}")
 
-app.include_router(trustchain_router)
-app.include_router(mcp_router)
-app.include_router(memory_router)
-app.include_router(webhook_router)
-app.include_router(bash_router)
-app.include_router(docker_router)
-app.include_router(skills_router)
-app.include_router(browser_proxy_router)
-app.include_router(scheduler_router)
+app.include_router(trustchain_router, dependencies=[Depends(verify_local_api_key)])
+app.include_router(mcp_router, dependencies=[Depends(verify_local_api_key)])
+app.include_router(memory_router, dependencies=[Depends(verify_local_api_key)])
+app.include_router(webhook_router, dependencies=[Depends(verify_local_api_key)])
+app.include_router(bash_router, dependencies=[Depends(verify_local_api_key)])
+app.include_router(docker_router, dependencies=[Depends(verify_local_api_key)])
+app.include_router(skills_router, dependencies=[Depends(verify_local_api_key)])
+app.include_router(browser_proxy_router, dependencies=[Depends(verify_local_api_key)])
+app.include_router(scheduler_router, dependencies=[Depends(verify_local_api_key)])
+
+# Triggers are public webhooks, so they DO NOT receive the internal local API key guard.
+# They are guarded by the WebhookExecutor RBAC role instead.
 app.include_router(triggers_router)
+
 if _has_trustchain_pro:
-    app.include_router(trustchain_pro_router)
+    app.include_router(trustchain_pro_router, dependencies=[Depends(verify_local_api_key)])
 else:
     # Graceful fallback — return "not available" instead of 500
-    @app.api_route("/api/trustchain-pro/{path:path}", methods=["GET", "POST"])
+    @app.api_route("/api/trustchain-pro/{path:path}", methods=["GET", "POST"], dependencies=[Depends(verify_local_api_key)])
     async def trustchain_pro_stub(path: str = ""):
         return JSONResponse(status_code=200, content={
             "status": "unavailable",
