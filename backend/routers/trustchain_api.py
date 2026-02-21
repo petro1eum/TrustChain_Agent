@@ -47,9 +47,13 @@ _tc = TrustChain(TrustChainConfig(
 
 # Async TrustChain instance for async endpoints
 _atc = AsyncTrustChain(TrustChainConfig(
+    key_file="trustchain_keys.json",
     enable_nonce=True,
     nonce_backend="memory",
     nonce_ttl=86400,
+    enable_chain=True,
+    chain_storage="file",
+    chain_dir=_CHAIN_DIR,
 ))
 
 _violations: List[Dict[str, Any]] = []
