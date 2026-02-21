@@ -158,25 +158,25 @@ except Exception as _otel_err:
 
 # ── SSE Event Queues (for live streaming to frontend) ──
 
-_event_queues: list[asyncio.Queue] = []
+_event_queues: dict[str, list[asyncio.Queue]] = defaultdict(list)
 
 
-def subscribe_events() -> asyncio.Queue:
-    """Create a new SSE event queue. Frontend calls this via /agent/stream."""
+def subscribe_events(session_id: str) -> asyncio.Queue:
+    """Create a new SSE event queue for a session. Frontend calls this via /agent/stream."""
     q: asyncio.Queue = asyncio.Queue(maxsize=200)
-    _event_queues.append(q)
+    _event_queues[session_id].append(q)
     return q
 
 
-def unsubscribe_events(q: asyncio.Queue) -> None:
+def unsubscribe_events(session_id: str, q: asyncio.Queue) -> None:
     """Remove an SSE event queue."""
-    if q in _event_queues:
-        _event_queues.remove(q)
+    if session_id in _event_queues and q in _event_queues[session_id]:
+        _event_queues[session_id].remove(q)
 
 
-def _emit(event: dict) -> None:
-    """Push an event to all subscribed SSE queues."""
-    for q in _event_queues:
+def _emit(session_id: str, event: dict) -> None:
+    """Push an event to all subscribed SSE queues for this session."""
+    for q in _event_queues.get(session_id, []):
         try:
             q.put_nowait(event)
         except asyncio.QueueFull:
@@ -259,9 +259,9 @@ class AgentTask(BaseModel):
     chain_export_path: Optional[str] = None
 
 
-# In-memory state
-_current_task: Optional[AgentTask] = None
-_task_history: list[AgentTask] = []
+# In-memory state (isolated by session_id)
+_active_tasks: dict[str, AgentTask] = {}
+_task_histories: dict[str, list[AgentTask]] = defaultdict(list)
 MAX_HISTORY = 20
 
 
@@ -308,31 +308,31 @@ You can execute bash commands, read files, and present results using the tools b
 
 async def run_agent(
     instruction: str,
+    session_id: str,
     model: str = DEFAULT_MODEL,
     max_iterations: int = MAX_ITERATIONS,
-    agent_name: str = "default",
     skills_dir: str | Path = "skills",
 ) -> AgentTask:
     """
     Run the LLM agent with tool-calling loop.
     This is the core runtime — adapted from kb-catalog's _run_agent_task.
     """
-    global _current_task
+    global _active_tasks, _task_histories
 
     # Resolve model
     model = MODEL_MAP.get(model, model)
 
     # Create task
     task = AgentTask(
-        instruction=instruction[:10000],
+        instruction=instruction,
         model=model,
         status="running",
         started_at=datetime.now().isoformat(),
     )
-    _current_task = task
-    _task_history.append(task)
-    if len(_task_history) > MAX_HISTORY:
-        _task_history.pop(0)
+    _active_tasks[session_id] = task
+    _task_histories[session_id].append(task)
+    if len(_task_histories[session_id]) > MAX_HISTORY:
+        _task_histories[session_id].pop(0)
 
     try:
         # Load skills
@@ -380,8 +380,8 @@ async def run_agent(
         async with httpx.AsyncClient(timeout=LLM_TIMEOUT) as client:
             for iteration in range(max_iterations):
                 task.iterations = iteration + 1
-                logger.info(f"── Iteration {iteration + 1}/{max_iterations} ({len(messages)} messages) ──")
-                _emit({"type": "thinking", "iteration": iteration + 1, "message": f"Iteration {iteration + 1}", "timestamp": datetime.now().isoformat()})
+                logger.info(f"── Session {session_id} | Iteration {iteration + 1}/{max_iterations} ({len(messages)} messages) ──")
+                _emit(session_id, {"type": "thinking", "iteration": iteration + 1, "message": f"Iteration {iteration + 1}", "timestamp": datetime.now().isoformat()})
 
                 payload = {
                     "model": model,
@@ -430,8 +430,8 @@ async def run_agent(
                             tool_args = {}
                             json_error = f"Invalid JSON arguments from LLM: {str(e)}"
 
-                        logger.info(f"   → {tool_name}({json.dumps(tool_args, ensure_ascii=False)[:200]})")
-                        _emit({"type": "tool_call", "iteration": iteration + 1, "tool": tool_name, "args": tool_args, "timestamp": datetime.now().isoformat()})
+                        logger.info(f"   [{session_id}] → {tool_name}({json.dumps(tool_args, ensure_ascii=False)[:200]})")
+                        _emit(session_id, {"type": "tool_call", "iteration": iteration + 1, "tool": tool_name, "args": tool_args, "timestamp": datetime.now().isoformat()})
 
                         # Record
                         t_start = time.monotonic()
@@ -458,7 +458,7 @@ async def run_agent(
                                 }
                                 if hasattr(evaluation, 'allowed') and not evaluation.allowed:
                                     logger.warning(f"🛡️ Policy DENIED tool {tool_name}: {evaluation.violations}")
-                                    _emit({"type": "policy_violation", "tool": tool_name, "violations": tool_record["policy_result"]["violations"], "timestamp": datetime.now().isoformat()})
+                                    _emit(session_id, {"type": "policy_violation", "tool": tool_name, "violations": tool_record["policy_result"]["violations"], "timestamp": datetime.now().isoformat()})
                                     policy_denied = True
                             except Exception as ex:
                                 logger.debug(f"PolicyEngine evaluate failed: {ex}")
@@ -472,7 +472,7 @@ async def run_agent(
                             tool_result = await registry.run_tool(
                                 tool_name=tool_name,
                                 params=tool_args,
-                                agent_name=agent_name,
+                                session_id=session_id,
                             )
                         latency_ms = (time.monotonic() - t_start) * 1000
 
@@ -482,7 +482,7 @@ async def run_agent(
                         else:
                             result_str = str(tool_result)
 
-                        tool_record["result"] = result_str[:32000]
+                        tool_record["result"] = result_str
                         tool_record["success"] = "error" not in (tool_result if isinstance(tool_result, dict) else {})
 
                         # ── TrustChain: sign the operation (real Ed25519) ──
@@ -520,7 +520,7 @@ async def run_agent(
                         if _tc_events_available and TrustEvent:
                             try:
                                 _event = TrustEvent(
-                                    source=f"/agent/{agent_name}/tool/{tool_name}",
+                                    source=f"/agent/{session_id}/tool/{tool_name}",
                                     subject=tool_name,
                                     data={"args": tool_args, "result_preview": result_str[:300]},
                                     trustchain_signature=tool_record["trustchain"].get("signature"),
@@ -544,19 +544,19 @@ async def run_agent(
                         status_icon = "✅" if tool_record["success"] else "❌"
                         tc_sig = tool_record['trustchain'].get('signature', '')[:12]
                         logger.info(f"   {status_icon} Result: {result_str[:150]} [sig={tc_sig}…]")
-                        _emit({"type": "tool_result", "iteration": iteration + 1, "tool": tool_name, "result": result_str[:500], "signature": tool_record['trustchain'].get('signature', ''), "timestamp": datetime.now().isoformat()})
+                        _emit(session_id, {"type": "tool_result", "iteration": iteration + 1, "tool": tool_name, "result": result_str[:500], "signature": tool_record['trustchain'].get('signature', ''), "timestamp": datetime.now().isoformat()})
 
                         # Send result back to LLM
                         messages.append({
                             "role": "tool",
                             "tool_call_id": tc["id"],
-                            "content": result_str[:32000],
+                            "content": result_str,
                         })
                 else:
                     # No tool calls — agent is done
                     content = msg.get("content", "") or ""
-                    logger.info(f"💬 Agent final response: {content[:200]}")
-                    _emit({"type": "complete", "message": content[:500], "timestamp": datetime.now().isoformat()})
+                    logger.info(f"💬 [{session_id}] Agent final response: {content[:200]}")
+                    _emit(session_id, {"type": "complete", "message": content[:500], "timestamp": datetime.now().isoformat()})
                     break
 
         # Complete
@@ -607,9 +607,9 @@ async def run_agent(
     return task
 
 
-def get_current_task() -> Optional[AgentTask]:
-    return _current_task
+def get_current_task(session_id: str = "default") -> Optional[AgentTask]:
+    return _active_tasks.get(session_id)
 
 
-def get_task_history(limit: int = 10) -> list[AgentTask]:
-    return _task_history[-limit:]
+def get_task_history(session_id: str = "default", limit: int = 10) -> list[AgentTask]:
+    return _task_histories[session_id][-limit:]

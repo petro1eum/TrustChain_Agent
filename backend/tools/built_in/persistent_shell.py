@@ -36,11 +36,11 @@ class PersistentShellTool(BaseTool):
 
         # Get persistent cwd from context
         cwd = "/home/kb"
-        agent_name = "default"
+        session_id = "default"
         if context:
-            agent_name = context.agent_name
+            session_id = context.session_id
             cwds = context.get("shell_cwds", {})
-            cwd = cwds.get(agent_name, cwd)
+            cwd = cwds.get(session_id, cwd)
 
         # Handle cd commands by updating persistent cwd
         cmd_stripped = self.command.strip()
@@ -58,7 +58,7 @@ class PersistentShellTool(BaseTool):
                 resolved = check_result.output.decode().strip()
                 if context:
                     cwds = context.get("shell_cwds", {})
-                    cwds[agent_name] = resolved
+                    cwds[session_id] = resolved
                     context.set("shell_cwds", cwds)
                 return f"✅ Changed directory to `{resolved}`"
             else:

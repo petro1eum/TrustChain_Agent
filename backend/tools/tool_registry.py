@@ -10,6 +10,8 @@ from backend.tools.base_tool import BaseTool, ToolContext
 from backend.tools.built_in.persistent_shell import PersistentShellTool
 from backend.tools.built_in.present_files import PresentFiles
 from backend.tools.built_in.load_file import LoadFileAttachment
+from backend.tools.built_in.web_search import WebSearchTool
+from backend.tools.built_in.execute_js import ExecuteJavascriptTool
 
 # TrustChain built-in tools (LLM auto-invokes via openai_schema)
 from backend.tools.built_in.trustchain_tools import (
@@ -31,7 +33,7 @@ class ToolRegistry:
 
     def __init__(self):
         self._tools: dict[str, type[BaseTool]] = {}
-        self._contexts: dict[str, ToolContext] = {}  # per agent_name
+        self._contexts: dict[str, ToolContext] = {}  # per session_id
         self._register_builtins()
 
     def _register_builtins(self):
@@ -40,6 +42,8 @@ class ToolRegistry:
             PersistentShellTool,
             PresentFiles,
             LoadFileAttachment,
+            WebSearchTool,
+            ExecuteJavascriptTool,
             # TrustChain audit & compliance tools
             TrustChainVerify,
             TrustChainAuditReport,
@@ -76,17 +80,17 @@ class ToolRegistry:
         """Get tool class by name."""
         return self._tools.get(name)
 
-    def get_context(self, agent_name: str = "default") -> ToolContext:
-        """Get or create context for an agent."""
-        if agent_name not in self._contexts:
-            self._contexts[agent_name] = ToolContext(agent_name=agent_name)
-        return self._contexts[agent_name]
+    def get_context(self, session_id: str = "default") -> ToolContext:
+        """Get or create context for a session."""
+        if session_id not in self._contexts:
+            self._contexts[session_id] = ToolContext(session_id=session_id)
+        return self._contexts[session_id]
 
     async def run_tool(
         self,
         tool_name: str,
         params: dict[str, Any],
-        agent_name: str = "default",
+        session_id: str = "default",
     ) -> Any:
         """
         Instantiate and run a tool by name.
@@ -94,7 +98,7 @@ class ToolRegistry:
         Args:
             tool_name: Name of the registered tool
             params: Parameters to pass to the tool (Pydantic field values)
-            agent_name: Agent session name for context isolation
+            session_id: Agent session ID for context isolation
 
         Returns:
             Tool execution result
@@ -108,7 +112,7 @@ class ToolRegistry:
         except Exception as e:
             return {"error": f"Invalid parameters for '{tool_name}': {e}"}
 
-        context = self.get_context(agent_name)
+        context = self.get_context(session_id)
         try:
             result = await tool_instance.run(context=context)
             return result

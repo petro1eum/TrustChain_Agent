@@ -80,8 +80,8 @@ class ToolContext:
     Holds persistent state (cwd, variables) per agent session.
     """
 
-    def __init__(self, agent_name: str = "default"):
-        self.agent_name = agent_name
+    def __init__(self, session_id: str = "default"):
+        self.session_id = session_id
         self._state: dict[str, Any] = {}
 
     def get(self, key: str, default: Any = None) -> Any:
