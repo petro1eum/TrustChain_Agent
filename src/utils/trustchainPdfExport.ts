@@ -1,5 +1,5 @@
 import { jsPDF } from 'jspdf';
-import 'jspdf-autotable';
+import autoTable from 'jspdf-autotable';
 import type { ExecutionStep, ToolCall } from '../ui/components/types';
 
 /**
@@ -80,8 +80,7 @@ export async function exportTrustChainPdf(steps: ExecutionStep[], toolCalls?: To
         ];
     });
 
-    // @ts-ignore - jspdf-autotable extends jsPDF but types might complain
-    doc.autoTable({
+    autoTable(doc, {
         startY: 45,
         head: [['Step', 'Operation', 'Ed25519 Signature', 'Latency', 'Payload Sample']],
         body: tableData,
