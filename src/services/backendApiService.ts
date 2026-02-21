@@ -4,9 +4,9 @@
  */
 
 const _proc = typeof process !== 'undefined' ? process.env : {} as Record<string, string | undefined>;
-const BACKEND_URL = (typeof import.meta !== 'undefined' && import.meta.env?.VITE_BACKEND_URL)
+const BACKEND_URL = (typeof import.meta !== 'undefined' && (import.meta as any).env?.VITE_BACKEND_URL)
     || _proc.VITE_BACKEND_URL
-    || '';  // No default — skip calls when no backend configured
+    || (typeof window !== 'undefined' ? window.location.origin : '');
 
 export const API_ENDPOINTS: Record<string, string> = {
     autoreplace_get: '/api/autoreplace',
@@ -26,13 +26,9 @@ export const DATA_FILES: Record<string, string[]> = {
 
 class BackendApiServiceImpl {
     async callEndpoint(endpoint: string, params?: any, body?: any): Promise<any> {
-        if (!BACKEND_URL) {
-            return { error: 'Backend not configured' };
-        }
-
-        const url = API_ENDPOINTS[endpoint]
-            ? `${BACKEND_URL}${API_ENDPOINTS[endpoint]}`
-            : `${BACKEND_URL}/api/${endpoint}`;
+        const baseUrl = BACKEND_URL ? BACKEND_URL.replace(/\/$/, '') : '';
+        const path = API_ENDPOINTS[endpoint] || `/api/${endpoint}`;
+        const url = `${baseUrl}${path}`;
 
         const queryStr = params ? '?' + new URLSearchParams(params).toString() : '';
 
