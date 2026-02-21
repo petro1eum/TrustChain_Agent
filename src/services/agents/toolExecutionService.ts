@@ -390,6 +390,7 @@ export class ToolExecutionService {
       case 'bash_tool': case 'view': case 'create_file':
       case 'create_artifact': case 'str_replace':
       case 'session_spawn': case 'session_status': case 'session_result':
+      case 'message_agent': case 'write_memory_tool': case 'read_memory_tool':
         result = await this.routeDockerTool(toolName, args);
         break;
 
@@ -444,7 +445,7 @@ export class ToolExecutionService {
 
   // ========== Доменные методы маршрутизации ==========
 
-  /** Docker container tools: bash_tool, view, create_file, create_artifact, str_replace, session_spawn, session_status, session_result */
+  /** Docker container tools: bash_tool, view, create_file, create_artifact, str_replace, session_spawn, session_status, session_result, message_agent, write_memory_tool, read_memory_tool */
   private async routeDockerTool(toolName: string, args: any): Promise<any> {
     switch (toolName) {
       case 'bash_tool': return this.deps.toolHandlers.handleBashTool(args);
@@ -455,6 +456,9 @@ export class ToolExecutionService {
       case 'session_spawn': return this.deps.toolHandlers.handleSessionSpawn(args);
       case 'session_status': return this.deps.toolHandlers.handleSessionStatus(args);
       case 'session_result': return this.deps.toolHandlers.handleSessionResult(args);
+      case 'message_agent': return this.deps.toolHandlers.handleMessageAgent(args);
+      case 'write_memory_tool': return this.deps.toolHandlers.handleWriteMemoryTool(args);
+      case 'read_memory_tool': return this.deps.toolHandlers.handleReadMemoryTool(args);
       default: throw new Error(`Unknown docker tool: ${toolName}`);
     }
   }

@@ -588,6 +588,48 @@ export class ToolHandlersService {
     }
   }
 
+  async handleMessageAgent(args: any): Promise<any> {
+    const dockerAgentServiceModule = await import('../dockerAgentService');
+    const dockerAgentService = dockerAgentServiceModule.dockerAgentService;
+
+    try {
+      return await dockerAgentService.executeTool({
+        tool: 'message_agent',
+        params: args
+      });
+    } catch (error: any) {
+      return { success: false, error: error.message || 'Ошибка message_agent' };
+    }
+  }
+
+  async handleWriteMemoryTool(args: any): Promise<any> {
+    const dockerAgentServiceModule = await import('../dockerAgentService');
+    const dockerAgentService = dockerAgentServiceModule.dockerAgentService;
+
+    try {
+      return await dockerAgentService.executeTool({
+        tool: 'write_memory_tool',
+        params: args
+      });
+    } catch (error: any) {
+      return { success: false, error: error.message || 'Ошибка write_memory_tool' };
+    }
+  }
+
+  async handleReadMemoryTool(args: any): Promise<any> {
+    const dockerAgentServiceModule = await import('../dockerAgentService');
+    const dockerAgentService = dockerAgentServiceModule.dockerAgentService;
+
+    try {
+      return await dockerAgentService.executeTool({
+        tool: 'read_memory_tool',
+        params: args
+      });
+    } catch (error: any) {
+      return { success: false, error: error.message || 'Ошибка read_memory_tool' };
+    }
+  }
+
   async handleCreateArtifact(args: any): Promise<any> {
     const dockerAgentServiceModule = await import('../dockerAgentService');
     const dockerAgentService = dockerAgentServiceModule.dockerAgentService;

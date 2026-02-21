@@ -88,6 +88,8 @@ export const UNIVERSAL_TOOLS = new Set([
   'browser_panel_snapshot', 'browser_panel_screenshot', 'sandbox_screenshot',
   // Sub-Agents (3) — Spawn and manage background sub-agent sessions
   'session_spawn', 'session_status', 'session_result',
+  // Agency Swarm (3)
+  'message_agent', 'write_memory_tool', 'read_memory_tool',
 ]);
 
 // Legacy alias for backward compatibility during migration

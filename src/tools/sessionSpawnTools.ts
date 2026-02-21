@@ -101,11 +101,91 @@ export const SESSION_RESULT_TOOL = {
     },
 };
 
+export const MESSAGE_AGENT_TOOL = {
+    type: 'function' as const,
+    function: {
+        name: 'message_agent',
+        description:
+            "Agency Swarm Message Communication: Send a directed message or delegation request to another agent role " +
+            "or an existing target run session. If targeting a 'new' subagent, it will automatically " +
+            "start a task and yield its conversational response. " +
+            "Allows you to ask a Specialist Role (e.g. 'Researcher', 'Developer') for help, " +
+            "pass them context, and wait for their direct response without completing your main task.",
+        parameters: {
+            type: 'object',
+            properties: {
+                target_run_id: {
+                    type: 'string',
+                    description: "The execution ID of the target sub-agent or 'new' to spawn a fresh one.",
+                },
+                role: {
+                    type: 'string',
+                    description: "The targeted role for the sub-agent if target_run_id='new'. Usually 'Developer', 'Researcher', 'Analyst', etc.",
+                },
+                message: {
+                    type: 'string',
+                    description: "The specific message or question to pass to the target agent.",
+                },
+            },
+            required: ['target_run_id', 'message'],
+        },
+    },
+};
+
+export const WRITE_MEMORY_TOOL = {
+    type: 'function' as const,
+    function: {
+        name: 'write_memory_tool',
+        description:
+            "Write a key-value pair to the cross-agent Collective Memory Blackboard. " +
+            "This memory is shared between all sub-agents and the main agent, allowing you to pass " +
+            "discovered context, findings, API keys, or large data payloads out of band.",
+        parameters: {
+            type: 'object',
+            properties: {
+                key: {
+                    type: 'string',
+                    description: "The unique key to store the information under (e.g., 'discovered_api_key', 'user_preferences').",
+                },
+                value: {
+                    type: 'string',
+                    description: "The information to store. Can be a string, JSON, or markdown.",
+                },
+            },
+            required: ['key', 'value'],
+        },
+    },
+};
+
+export const READ_MEMORY_TOOL = {
+    type: 'function' as const,
+    function: {
+        name: 'read_memory_tool',
+        description:
+            "Read a key-value pair from the cross-agent Collective Memory Blackboard. " +
+            "Use this to retrieve findings, configurations, or context stored by other agents. " +
+            "Use key 'all' to list all available keys in memory.",
+        parameters: {
+            type: 'object',
+            properties: {
+                key: {
+                    type: 'string',
+                    description: "The key to retrieve. Use 'all' to get a list of all populated keys.",
+                },
+            },
+            required: ['key'],
+        },
+    },
+};
+
 /** All session spawn tools for registration. */
 export const SESSION_SPAWN_TOOLS = [
     SESSION_SPAWN_TOOL,
     SESSION_STATUS_TOOL,
     SESSION_RESULT_TOOL,
+    MESSAGE_AGENT_TOOL,
+    WRITE_MEMORY_TOOL,
+    READ_MEMORY_TOOL,
 ];
 
 // Execution is now handled entirely by the Python backend via tool tunneling

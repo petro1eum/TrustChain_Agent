@@ -72,6 +72,12 @@ export interface SessionResultRequest {
   run_id: string;
 }
 
+export interface ToolRunRequest {
+  tool: string;
+  params: Record<string, any>;
+  agent_name?: string;
+}
+
 export interface ContainerStatus {
   available: boolean;
   container_id?: string;
@@ -354,6 +360,25 @@ class DockerAgentService {
       return response as { status: string; message: string; model: string };
     } catch (error: any) {
       throw new Error(`Ошибка запуска агента: ${error.message}`);
+    }
+  }
+
+  /**
+   * Вызов любого инструмента напрямую из ToolRegistry бэкенда
+   */
+  async executeTool(request: ToolRunRequest): Promise<any> {
+    try {
+      const response = await backendApiService.callEndpoint(
+        'docker_agent/tool/run',
+        undefined,
+        request
+      );
+      return response;
+    } catch (error: any) {
+      return {
+        success: false,
+        error: error.message || `Ошибка вызова инструмента ${request.tool}`
+      };
     }
   }
 

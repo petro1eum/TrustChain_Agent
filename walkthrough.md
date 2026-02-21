@@ -1080,3 +1080,12 @@ npx tsc --noEmit  # → 0 errors
 
 **Скриншот успешного UI-теста:**
 ![P2P Agency Swarm Test](file:///Users/edcher/.gemini/antigravity/brain/0dbbba73-4f7d-43a8-8228-3706056d90be/.system_generated/click_feedback/click_feedback_1771680598317.png)
+
+### 3. Оптимизация Frontend Orchestrator'а
+Изначально тест через UI-чат показал аномально долгое выполнение (61 шаг). Это произошло потому, что фронтенд-агент (написанный на TypeScript) **не имел** прямых схем (JSON schema) для инструментов `WriteMemoryTool` и `MessageAgentTool`. Но благодаря своей адаптивности, он **написал Python-скрипт**, использовал `bash_tool` для его выполнения 4 раза подряд и сделал 4 артефакта, чтобы добиться результата!
+
+Для решения этой "проблемы 61 шага" мы напрямую пробросили схемы TS-инструментов. 
+* Добавлены `message_agent`, `write_memory_tool`, и `read_memory_tool` в массив `UNIVERSAL_TOOLS` (`src/tools/index.ts`).
+* Добавлены HTTP-мосты в `ToolHandlersService` (`src/services/agents/toolHandlersService.ts`), которые пересылают эти вызовы на универсальный эндпоинт Питон-бэкенда: `POST /api/docker_agent/tool/run`.
+
+Теперь фронтенд-агент вызывает эти инструменты атомарно, за 1 шаг, сокращая время оркестровки P2P роя с минут до пары секунд.
