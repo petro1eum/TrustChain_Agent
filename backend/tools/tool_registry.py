@@ -122,6 +122,15 @@ class ToolRegistry:
             Tool execution result
         """
         cls = self._tools.get(tool_name)
+        
+        if cls is None:
+            # Fallback: Frontend might ask for 'write_memory_tool' instead of 'WriteMemoryTool'
+            normalized_request = tool_name.replace("_", "").lower()
+            for registered_name, registered_cls in self._tools.items():
+                if registered_name.replace("_", "").lower() == normalized_request:
+                    cls = registered_cls
+                    break
+
         if cls is None:
             return {"error": f"Tool '{tool_name}' not found", "available": list(self._tools.keys())}
 
