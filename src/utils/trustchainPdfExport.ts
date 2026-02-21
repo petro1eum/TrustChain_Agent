@@ -5,7 +5,7 @@ import type { ExecutionStep, ToolCall } from '../ui/components/types';
 /**
  * Generates an edit-protected PDF document containing the TrustChain execution trace.
  */
-export async function exportTrustChainPdf(steps: ExecutionStep[], toolCalls?: ToolCall[]) {
+export function exportTrustChainPdf(steps: ExecutionStep[], toolCalls?: ToolCall[]) {
     // 1. Gather Items
     const chainItems: any[] = [];
     (steps || []).filter(s => s.type === 'tool' || s.signed || s.signature).forEach(s => {

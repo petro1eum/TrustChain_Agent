@@ -53,9 +53,9 @@ export const TrustChainExplorerModal: React.FC<TrustChainExplorerModalProps> = (
         setTimeout(() => setCopiedId(null), 2000);
     };
 
-    const handleExportPdf = async () => {
+    const handleExportPdf = () => {
         try {
-            await exportTrustChainPdf(steps || [], toolCalls);
+            exportTrustChainPdf(steps || [], toolCalls);
         } catch (error) {
             console.error('Failed to export PDF:', error);
             alert('Failed to generate protected PDF report.');
