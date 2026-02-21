@@ -1077,3 +1077,6 @@ npx tsc --noEmit  # → 0 errors
 Инструмент `MessageAgentTool` позволяет запустить независимого субагента (в *синхронном* режиме) со строгой специализацией (Role). 
 *   **Role Constraint:** Мы добавили поддержку аргумента `role` (CEO, Developer, Researcher). В системный промпт принудительно инжектируется ограничение: `"YOU ARE A SPECIALIZED SUB-AGENT. YOUR ROLE IS: {ROLE}. You must strictly focus on the task delegated to you."`
 *   Это позволяет Главному Агенту поручить "написать код сортировки" агенту-`Developer`, и дождаться прямого ответа без засорения своей памяти.
+
+**Скриншот успешного UI-теста:**
+![P2P Agency Swarm Test](file:///Users/edcher/.gemini/antigravity/brain/0dbbba73-4f7d-43a8-8228-3706056d90be/.system_generated/click_feedback/click_feedback_1771680598317.png)
