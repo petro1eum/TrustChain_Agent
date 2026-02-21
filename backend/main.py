@@ -7,21 +7,39 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse, Response
 import os
 
+from contextlib import asynccontextmanager
+
+from backend.database.queue_db import init_db
+from backend.services.queue_worker import start_queue_worker
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    # Startup Events
+    print("🚀 Initializing TrustChain Durable Task Engine...")
+    init_db()                   # Create SQLite Schema if not exists
+    start_queue_worker()        # Spawn the Asyncio polling loop
+    yield
+    # Shutdown Events
+    print("🛑 Shutting down TrustChain Durable Task Engine...")
+
 app = FastAPI(
     title="TrustChain Agent API",
     version="0.1.0",
+    lifespan=lifespan
 )
 
 # ── Global Local Auth ──
 LOCAL_API_KEY = os.getenv("VITE_LOCAL_API_KEY")
 
-async def verify_local_api_key(x_agent_key: str = Header(None)):
+async def verify_local_api_key(request: Request):
     if not LOCAL_API_KEY:
         # Dev mode: If no key is set, log a warning but allow for now, 
         # but in production start.sh will enforce it.
         return True
-    if x_agent_key != LOCAL_API_KEY:
-        raise HTTPException(status_code=401, detail="Invalid x-agent-key header")
+        
+    key = request.headers.get("x-agent-key") or request.query_params.get("x-agent-key")
+    if key != LOCAL_API_KEY:
+        raise HTTPException(status_code=401, detail="Invalid x-agent-key header or query parameter")
     return True
 
 app.add_middleware(
@@ -98,7 +116,7 @@ else:
 
 # ── Stubs: понятные ответы для сервисов, которые не подключены ──
 
-@app.api_route("/api/mcp-trust/{path:path}", methods=["GET", "POST"])
+@app.api_route("/api/mcp-trust/{path:path}", methods=["GET", "POST"], dependencies=[Depends(verify_local_api_key)])
 async def mcp_trust_stub(path: str):
     return JSONResponse(status_code=503, content={
         "error": "MCP Trust Registry не подключён",
@@ -106,7 +124,7 @@ async def mcp_trust_stub(path: str):
         "status": "unavailable",
     })
 
-@app.post("/trustchain/register-key")
+@app.post("/trustchain/register-key", dependencies=[Depends(verify_local_api_key)])
 async def trustchain_register_key_stub(request: Request):
     body = await request.json()
     return {
@@ -115,7 +133,7 @@ async def trustchain_register_key_stub(request: Request):
         "message": "Key registered (standalone mode)",
     }
 
-@app.api_route("/api/conversations{path:path}", methods=["GET", "POST", "PUT", "DELETE"])
+@app.api_route("/api/conversations{path:path}", methods=["GET", "POST", "PUT", "DELETE"], dependencies=[Depends(verify_local_api_key)])
 async def conversations_stub(path: str = ""):
     return JSONResponse(status_code=503, content={
         "error": "Conversations API не доступен в standalone режиме",
@@ -156,7 +174,7 @@ async def docker_exec_async(*cmd_args, input_bytes=None, timeout=30):
 
 # ── Sandbox VNC Resize ──
 
-@app.post("/api/sandbox/resize")
+@app.post("/api/sandbox/resize", dependencies=[Depends(verify_local_api_key)])
 async def sandbox_resize(request: Request):
     """Resize Xvfb + Chrome inside the Docker container to match the requested dimensions."""
     body = await request.json()
@@ -196,7 +214,7 @@ async def sandbox_resize(request: Request):
         return {"status": "error", "error": str(e)}
 
 
-@app.post("/api/sandbox/navigate")
+@app.post("/api/sandbox/navigate", dependencies=[Depends(verify_local_api_key)])
 async def sandbox_navigate(request: Request):
     """Navigate Chrome inside the Docker container to a URL via xdotool."""
     import shlex as _shlex
@@ -221,7 +239,7 @@ async def sandbox_navigate(request: Request):
         return {"status": "error", "error": str(e)}
 
 
-@app.post("/api/sandbox/upload")
+@app.post("/api/sandbox/upload", dependencies=[Depends(verify_local_api_key)])
 async def sandbox_upload(request: Request):
     """Upload a file to the Docker container's user-data directory."""
     import base64
@@ -244,7 +262,7 @@ async def sandbox_upload(request: Request):
         return {"status": "error", "error": str(e)}
 
 
-@app.get("/api/sandbox/files")
+@app.get("/api/sandbox/files", dependencies=[Depends(verify_local_api_key)])
 async def sandbox_files(subdir: str = "uploads"):
     """List files in the Docker container's user-data directory."""
     try:
@@ -255,7 +273,7 @@ async def sandbox_files(subdir: str = "uploads"):
         return {"status": "error", "error": str(e)}
 
 
-@app.post("/api/sandbox/open")
+@app.post("/api/sandbox/open", dependencies=[Depends(verify_local_api_key)])
 async def sandbox_open(request: Request):
     """Open a file in the Docker container using LibreOffice on VNC."""
     import shlex as _shlex
@@ -304,7 +322,7 @@ async def sandbox_open(request: Request):
     except Exception as e:
         return {"status": "error", "error": str(e)}
 
-@app.get("/api/sandbox/screenshot")
+@app.get("/api/sandbox/screenshot", dependencies=[Depends(verify_local_api_key)])
 async def sandbox_screenshot():
     """Capture a raw X11 screenshot of the VNC display for Agent Vision tools."""
     from fastapi.responses import FileResponse
