@@ -1005,7 +1005,7 @@ async def run_tool(request: ToolRunRequest):
     result = await tool_registry.run_tool(
         tool_name=request.tool,
         params=request.params,
-        agent_name=request.agent_name,
+        session_id=request.agent_name,
     )
     return {"tool": request.tool, "result": result}
 
