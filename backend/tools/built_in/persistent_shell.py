@@ -11,6 +11,7 @@ import docker
 from pydantic import Field
 
 from backend.tools.base_tool import BaseTool, ToolContext
+from backend.services import secret_replacer
 
 CONTAINER_NAME = "trustchain-agent-container"
 EXEC_TIMEOUT = 300  # 5 minutes
@@ -66,11 +67,16 @@ class PersistentShellTool(BaseTool):
         elif cmd_stripped.startswith("cd "):
             cd_warning = "Warning: cd in chained command not persisted. Use separate cd command."
 
+        # ── Late-Binding Secret Substitution ──────────────────────────────────
+        # Replace all {{VAULT:...}} tokens with real values IN MEMORY,
+        # just before sending to Docker. The LLM never sees the raw bytes.
+        safe_command = secret_replacer.apply(self.command)
+
         # Execute command in container
         try:
             result = await asyncio.to_thread(
                 container.exec_run,
-                f"bash -c {self.command!r}",
+                f"bash -c {safe_command!r}",
                 workdir=cwd,
                 demux=True,
             )
