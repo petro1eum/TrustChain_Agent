@@ -437,7 +437,12 @@ class DockerAgentService {
     const baseUrl = backendApiService.getBaseUrl();
     if (!baseUrl) return null;
 
-    const es = new EventSource(`${baseUrl}/api/docker_agent/agent/stream`);
+    const apiKey = import.meta.env.VITE_LOCAL_API_KEY || (window as any)._env?.VITE_LOCAL_API_KEY;
+    const streamUrl = new URL(`${baseUrl}/api/docker_agent/agent/stream`);
+    if (apiKey) {
+      streamUrl.searchParams.append('x-agent-key', apiKey);
+    }
+    const es = new EventSource(streamUrl.toString());
 
     es.onmessage = (e) => {
       try {

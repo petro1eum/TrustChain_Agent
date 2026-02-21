@@ -8,3 +8,15 @@ __pycache__/
 *.pyc
 .vite/
 .trustchain/
+
+# SQLite Durable Queue & WAL artifacts
+backend/tasks.db
+backend/tasks.db-shm
+backend/tasks.db-wal
+tasks.db
+tasks.db-shm
+tasks.db-wal
+
+# AES-256 Vault master key (NEVER commit this!)
+vault.key
+backend/vault.key
