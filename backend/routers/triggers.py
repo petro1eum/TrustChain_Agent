@@ -14,17 +14,34 @@ from backend.tools.agent_runtime import run_agent
 
 router = APIRouter(prefix="/api/v1/trigger", tags=["headless_triggers"])
 
-MAX_CONCURRENT_WEBHOOKS = 10
-_active_webhook_count = 0
+import asyncio
 
-async def safe_background_agent(*args, **kwargs):
-    """Wrapper to track active headless executions and release capacity when done."""
-    global _active_webhook_count
-    _active_webhook_count += 1
-    try:
-        await run_agent(*args, **kwargs)
-    finally:
-        _active_webhook_count -= 1
+MAX_CONCURRENT_WEBHOOKS = 10
+MAX_QUEUE_SIZE = 1000
+
+_active_webhook_count = 0
+_pending_webhook_count = 0
+_webhook_semaphore = None
+
+def get_semaphore():
+    global _webhook_semaphore
+    if _webhook_semaphore is None:
+        _webhook_semaphore = asyncio.Semaphore(MAX_CONCURRENT_WEBHOOKS)
+    return _webhook_semaphore
+
+async def queued_background_agent(*args, **kwargs):
+    """Wrapper that gracefully waits in an async queue if swarm capacity is full."""
+    global _active_webhook_count, _pending_webhook_count
+    sem = get_semaphore()
+    
+    async with sem:
+        # Move from pending queue to active execution
+        _pending_webhook_count -= 1
+        _active_webhook_count += 1
+        try:
+            await run_agent(*args, **kwargs)
+        finally:
+            _active_webhook_count -= 1
 
 class WebhookPayload(BaseModel):
     """
@@ -64,16 +81,18 @@ async def headless_trigger(
         f"to define the specific steps. If you face a high-risk change (e.g. deleting users or issuing refunds), pause and execute a Human-in-the-Loop review."
     )
 
-    # Rate Limiting / Token Exhaustion Guard
-    if _active_webhook_count >= MAX_CONCURRENT_WEBHOOKS:
+    # Rate Limiting / Token Exhaustion Guard — now guards the Queue instead of Concurrency
+    global _pending_webhook_count
+    if _pending_webhook_count >= MAX_QUEUE_SIZE:
         raise HTTPException(
             status_code=429, 
-            detail=f"Rate Limit Exceeded: The TrustChain swarm is currently at maximum capacity ({MAX_CONCURRENT_WEBHOOKS} active headless agents). Please try again later."
+            detail=f"Rate Limit Exceeded: The TrustChain queue is completely full ({MAX_QUEUE_SIZE} pending webhooks). Please try again later."
         )
 
-    # Spawn agent in background with strict RBAC role and capacity tracking
+    # Place in Async Queue
+    _pending_webhook_count += 1
     background_tasks.add_task(
-        safe_background_agent,
+        queued_background_agent,
         instruction=instruction,
         session_id=job_id,
         role="WebhookExecutor"
@@ -82,6 +101,6 @@ async def headless_trigger(
     return {
         "status": "accepted",
         "job_id": job_id,
-        "message": f"Autonomous agent seamlessly spawned for workflow '{task_slug}'",
+        "message": f"Webhook accepted and queued for autonomous processing (Queue size: {_pending_webhook_count}, Active: {_active_webhook_count})",
         "timestamp": datetime.utcnow().isoformat()
     }
